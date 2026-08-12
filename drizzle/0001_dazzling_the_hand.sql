@@ -1,0 +1,1 @@
+ALTER TABLE "position_analysis_results" DROP CONSTRAINT "position_analysis_results_position_id_specification_positions_id_fk";

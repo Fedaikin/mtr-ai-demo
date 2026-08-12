@@ -1,0 +1,28 @@
+{
+  "fixtureManifest": {
+    "fixtureId": "identity-base-v1",
+    "schemaVersion": "1.0.0",
+    "expectedUserCount": 1,
+    "defaultUserId": "demo-user-001",
+    "isSyntheticDemo": true
+  },
+  "users": [
+    {
+      "id": "demo-user-001",
+      "user_id": "demo-user-001",
+      "displayName": "Демо-пользователь 1",
+      "roles": [
+        "USER",
+        "ADMIN"
+      ],
+      "locale": "ru-RU",
+      "accessLevel": "DEMO_AUTHENTICATED",
+      "isSyntheticDemo": true
+    }
+  ],
+  "authentication": {
+    "login": "demo",
+    "passwordStorage": "SCRYPT_HASH_ONLY",
+    "isSyntheticDemo": true
+  }
+}

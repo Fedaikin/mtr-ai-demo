@@ -1,0 +1,107 @@
+{
+  "fixtureManifest": {
+    "fixtureId": "scenarios-base-v2",
+    "schemaVersion": "1.1.0",
+    "expectedScenarioCount": 5,
+    "defaultScenarioId": "scenario-full-analysis",
+    "ownerUserId": "demo-user-001",
+    "isSyntheticDemo": true
+  },
+  "scenarios": [
+    {
+      "id": "scenario-full-analysis",
+      "user_id": "demo-user-001",
+      "name": "Полный анализ спецификации",
+      "description": "Ответственность → склад → аналоги → итоговый отчёт по всем 24 актуальным позициям.",
+      "enabled": true,
+      "sortOrder": 1,
+      "defaultSpecificationId": "ALL_CURRENT_SPECIFICATIONS",
+      "appiusVersionPolicy": "LATEST_ONLY",
+      "sapSnapshotId": "sap-demo-snapshot-2026-08-11T073000Z",
+      "defaultMode": "NORMAL",
+      "seedSet": "BASE",
+      "integrationOverrides": {"appius": "AVAILABLE", "sap": "AVAILABLE", "normative": "AVAILABLE", "llm": "MOCK"},
+      "steps": ["LOADING_APPIUS", "SYNCING_SAP", "CLASSIFYING_RESPONSIBILITY", "MATCHING_STOCK", "FINDING_ANALOGUES", "GENERATING_REPORT"],
+      "expectedOutcome": {"terminalStatus": "COMPLETED", "positionCount": 24, "exact": 8, "likely": 8, "review": 5, "noMatch": 3, "analogueCandidateCount": 6},
+      "isSyntheticDemo": true
+    },
+    {
+      "id": "scenario-stock-search-only",
+      "user_id": "demo-user-001",
+      "name": "Только поиск по складу",
+      "description": "Загрузка актуальных позиций и сопоставление с текущим демонстрационным снимком SAP без классификации ответственности и подбора аналогов.",
+      "enabled": true,
+      "sortOrder": 2,
+      "defaultSpecificationId": "ALL_CURRENT_SPECIFICATIONS",
+      "appiusVersionPolicy": "LATEST_ONLY",
+      "sapSnapshotId": "sap-demo-snapshot-2026-08-11T073000Z",
+      "defaultMode": "NORMAL",
+      "seedSet": "BASE",
+      "integrationOverrides": {"appius": "AVAILABLE", "sap": "AVAILABLE", "normative": "AVAILABLE", "llm": "MOCK"},
+      "steps": ["LOADING_APPIUS", "SYNCING_SAP", "MATCHING_STOCK", "GENERATING_REPORT"],
+      "expectedOutcome": {"terminalStatus": "COMPLETED", "positionCount": 24, "directMatchCount": 21, "noMatch": 3},
+      "isSyntheticDemo": true
+    },
+    {
+      "id": "scenario-sap-failure-manual-import",
+      "user_id": "demo-user-001",
+      "name": "Отказ SAP и ручной импорт",
+      "description": "Управляемый отказ SAP с безопасной ошибкой, аудитом причины и продолжением после ручного импорта демонстрационного CSV/Excel.",
+      "enabled": true,
+      "sortOrder": 3,
+      "defaultSpecificationId": "spec-demo-piping-001",
+      "appiusVersionPolicy": "LATEST_ONLY",
+      "sapSnapshotId": "sap-demo-snapshot-2026-08-11T073000Z",
+      "defaultMode": "NORMAL",
+      "seedSet": "ERROR_SAP_UNAVAILABLE",
+      "integrationOverrides": {"appius": "AVAILABLE", "sap": "UNAVAILABLE", "normative": "AVAILABLE", "llm": "MOCK"},
+      "steps": ["LOADING_APPIUS", "SYNCING_SAP", "WAITING_FOR_MANUAL_IMPORT", "MATCHING_STOCK", "GENERATING_REPORT"],
+      "manualImport": {"required": true, "acceptedFormats": [".csv", ".xlsx", ".xls"], "maxSizeBytes": 10485760, "resumeFromStep": "SYNCING_SAP"},
+      "expectedOutcome": {"initialStatus": "FAILED", "initialErrorCode": "SAP_UNAVAILABLE", "recommendedAction": "MANUAL_IMPORT", "terminalStatusAfterValidImport": "COMPLETED"},
+      "isSyntheticDemo": true
+    },
+    {
+      "id": "scenario-appius-new-version",
+      "user_id": "demo-user-001",
+      "name": "Новая версия Appius",
+      "description": "Поступление события о новой версии спецификации, отклонение устаревшей версии для анализа и повторная загрузка только актуальной версии.",
+      "enabled": true,
+      "sortOrder": 4,
+      "defaultSpecificationId": "spec-demo-piping-001",
+      "appiusVersionPolicy": "LATEST_ONLY",
+      "sapSnapshotId": "sap-demo-snapshot-2026-08-11T073000Z",
+      "defaultMode": "NORMAL",
+      "seedSet": "EVENT_APPIUS_NEW_VERSION",
+      "integrationOverrides": {"appius": "STALE_VERSION", "sap": "AVAILABLE", "normative": "AVAILABLE", "llm": "MOCK"},
+      "eventFixture": {"eventId": "appius-event:spec-demo-piping-001:v3-to-v4", "eventType": "APPIUS_NEW_VERSION", "specificationId": "spec-demo-piping-001", "previousVersionId": "spec-demo-piping-001-v2", "currentVersionId": "spec-demo-piping-001-v3", "historicViewAllowed": true, "analysisOnHistoricVersionAllowed": false},
+      "steps": ["LOADING_APPIUS", "SYNCING_SAP", "MATCHING_STOCK", "GENERATING_REPORT"],
+      "expectedOutcome": {"terminalStatus": "COMPLETED", "usedVersionId": "spec-demo-piping-001-v4", "rejectedVersionId": "spec-demo-piping-001-v2", "auditCode": "NEW_VERSION_PROMOTED"},
+      "isSyntheticDemo": true
+    },
+    {
+      "id": "scenario-insufficient-and-composite-analogues",
+      "user_id": "demo-user-001",
+      "name": "Недостаточный остаток и составные аналоги",
+      "description": "Проверка количественного покрытия: составной достаточный аналог насоса, составной недостаточный остаток двигателя и одиночный достаточный аналог перехода.",
+      "enabled": true,
+      "sortOrder": 5,
+      "defaultSpecificationId": "spec-demo-equipment-003",
+      "appiusVersionPolicy": "LATEST_ONLY",
+      "sapSnapshotId": "sap-demo-snapshot-2026-08-11T073000Z",
+      "defaultMode": "NORMAL",
+      "seedSet": "ANALOGUE_QUANTITY_CASES",
+      "integrationOverrides": {"appius": "AVAILABLE", "sap": "AVAILABLE", "normative": "AVAILABLE", "llm": "MOCK"},
+      "targetPositionIds": ["position-022", "position-023", "position-024"],
+      "steps": ["LOADING_APPIUS", "SYNCING_SAP", "CLASSIFYING_RESPONSIBILITY", "MATCHING_STOCK", "FINDING_ANALOGUES", "GENERATING_REPORT"],
+      "expectedOutcome": {
+        "terminalStatus": "COMPLETED",
+        "cases": [
+          {"targetPositionId": "position-022", "requiredQuantity": 4, "availableQuantity": 4, "coverage": "COMBINED_SUFFICIENT", "materialCodes": ["SAP-DEMO-A025", "SAP-DEMO-A026", "SAP-DEMO-A027"]},
+          {"targetPositionId": "position-023", "requiredQuantity": 3, "availableQuantity": 2, "coverage": "COMBINED_INSUFFICIENT", "materialCodes": ["SAP-DEMO-A028", "SAP-DEMO-A029"]},
+          {"targetPositionId": "position-024", "requiredQuantity": 20, "availableQuantity": 25, "coverage": "SINGLE_SUFFICIENT", "materialCodes": ["SAP-DEMO-A030"]}
+        ]
+      },
+      "isSyntheticDemo": true
+    }
+  ]
+}

@@ -1,0 +1,238 @@
+# Поведение проектного агента «МТР-аналитик»
+
+## Назначение
+
+«МТР-аналитик» отвечает на вопросы о демонстрационных спецификациях Appius, складских данных SAP, ответственности, аналогах, запусках сценариев и отчётах. Настройка выполнена через system prompt, инструменты, few-shot-примеры и eval-набор; fine-tuning не используется.
+
+Агент не является источником оперативных фактов. Факты получает `AgentService` через типизированные порты, а LLM-провайдер только превращает подтверждённые результаты в структурированный ответ.
+
+## Инварианты
+
+1. `userId` берётся только из доверенной серверной сессии.
+2. Тело HTTP-запроса валидируется `agentInputSchema`, в котором поля `userId` нет.
+3. `user_id` в сообщении пользователя удаляется до маршрутизации и не попадает в аргументы инструментов.
+4. Перед фактическим ответом вызывается соответствующий источник.
+5. Сервис принимает только ответы инструментов, прошедшие Zod-валидацию.
+6. Citations создаёт `AgentService` из фактических результатов портов; LLM не может добавить неподтверждённую ссылку.
+7. Допустимость аналога определяется найденным правилом Normative и доменной функцией `buildAnalogueCoverage`, а не LLM.
+8. Вызов и безопасная сводка результата каждого инструмента записываются через `AuditPort`.
+9. Отказ аудита не раскрывается пользователю и не открывает доступ к данным.
+10. Ошибка источника или LLM не заменяется предположением.
+
+## Поток запроса
+
+```mermaid
+flowchart LR
+  U["Сообщение пользователя"] --> V["Zod: input без userId"]
+  S["Доверенная server session"] -->|"trusted userId"| A["AgentService"]
+  V --> A
+  A --> G{"Проверка injection / user_id"}
+  G -->|"атака"| B["Безопасный отказ"]
+  G -->|"предметный запрос"| R["Определение intent"]
+  R --> T["Вызовы Appius / SAP / гибридный Normative / Scenario / Report"]
+  T --> Z["Zod-валидация результатов"]
+  Z --> D["Доменный расчёт при необходимости"]
+  D --> L["LLMProvider"]
+  L --> C["Фильтрация citations и финальный контракт"]
+  A --> AU["AuditPort"]
+  T --> AU
+  L --> AU
+```
+
+## Серверный контракт
+
+Рекомендуемый вызов отделяет недоверенное тело от доверенной identity:
+
+```ts
+const input = agentInputSchema.parse(await request.json());
+const userId = session.user.id;
+const result = await agentService.respond(input, userId);
+```
+
+Для серверного кода также доступен эквивалентный overload:
+
+```ts
+const result = await agentService.respond({
+  userId: session.user.id,
+  message: input.message,
+  threadId: input.threadId,
+});
+```
+
+Внешний Route Handler не должен копировать `userId` из JSON в trusted request.
+
+Фабрики:
+
+- `createAgentService(dependencies)` создаёт application service;
+- `createMockLLMProvider()` создаёт детерминированный offline-провайдер;
+- HTTP runtime оборачивает его в `IntegrationAwareLlmProvider`, поэтому состояние LLM из админки управляет реальным вызовом;
+- `MockLLMProvider` реализует общий `LLMProvider` и не знает о базе или HTTP.
+
+## Маршрутизация инструментов
+
+| Вопрос | Обязательные вызовы |
+|---|---|
+| Список спецификаций | `appius.getState` → `appius.listSpecifications` |
+| Актуальная версия | `appius.getState` → `appius.listSpecifications` → `appius.getLatestVersion` |
+| Позиции | предыдущие вызовы → `appius.getPositions` для актуальной версии |
+| Остаток по SAP-коду | `sap.getState` → `sap.getMaterialStock` |
+| Название, синоним, RU/EN или legacy-код | `sap.getState` → `sap.searchMaterialStock` |
+| Ответственность | актуальная позиция Appius → `norms.searchResponsibilityRules` |
+| Аналог | актуальная позиция Appius → `norms.searchAnalogueRules` → при наличии правила SAP-поиск → доменный расчёт |
+| Статус запуска | `scenario.getRun` |
+| Результат позиции запуска | `scenario.getRun` → `scenario.getPositionResult` |
+| Отчёт | `scenario.getRun` → `report.getSummary` |
+
+`AgentService` передаёт `userId` каждому порту отдельным аргументом. Аргументы, извлечённые из текста, содержат только идентификатор предметной сущности или поисковую строку.
+
+## Гибридный нормативный поиск и словари
+
+`NormativeMockAdapter` читает применимые правила, versioned нормативные chunks и активный словарь `MTR_SEARCH_SYNONYMS` для trusted user. Он отбрасывает chunks без доступа, чужие данные и неприменимые типы оборудования, затем ранжирует оставшееся детерминированно:
+
+- `55%` — совпадение структурированных metadata и applicability;
+- `30%` — semantic-like сигнал по нормализованным понятиям, stems и словарю;
+- `15%` — лексическое пересечение.
+
+Внешний embedding service не используется. Для лучшего bilingual chunk правило получает `retrievalEvidence`: `chunkId`, `language`, итоговый `score`, `metadataScore`, `semanticScore`, `lexicalScore` и `matchedAttributes`. Citation при этом остаётся точной ссылкой на `documentId`, version и `clauseId`, а не на неподтверждённый текст.
+
+Изменение активного словаря через админку действует со следующего запроса. Одни и те же понятия расширяют intent routing, разрешение позиции, SAP query/ranking и нормативные токены. Неактивные записи игнорируются; ошибка чтения словаря безопасно сводит расширение к пустому набору и фиксируется в audit.
+
+## Источники и citations
+
+Каждая citation содержит:
+
+```json
+{
+  "sourceSystem": "APPIUS|SAP|NORMATIVE|SCENARIO|REPORT",
+  "entityId": "точный идентификатор",
+  "versionOrSnapshot": "версия или snapshot",
+  "clauseId": "точный пункт правила либо null"
+}
+```
+
+Правила ответственности и аналогов всегда получают `documentId`, версию и `clauseId`. Для Appius указывается версия спецификации; для SAP — дата снимка; для запуска — версия сохранённой записи и время обновления.
+
+При пустом SAP-поиске citation указывает на сам запрос и snapshot результата. Это подтверждает отрицательный результат, не создавая несуществующую карточку материала.
+
+## Внутренний ответ и пользовательская проекция
+
+Сервис возвращает `GroundedAgentOutput`:
+
+```json
+{
+  "answer": "краткий ответ на русском",
+  "facts": [],
+  "recommendations": [],
+  "citations": [],
+  "confidence": 0,
+  "requiresHumanReview": false,
+  "toolCalls": []
+}
+```
+
+`toolCalls` формируется сервером по фактически выполненным действиям. Mock LLM возвращает это поле пустым, поэтому он не может заявить о несуществующем вызове.
+
+Это внутренний контракт application-слоя. Перед HTTP-ответом `toPublicAgentDecision` создаёт отдельную проекцию: пользователь получает только итоговый `content`, citations, `confidence` и `requiresHumanReview`. Facts, recommendations, tool names, arguments, raw JSON, prompt/model metadata и технические ошибки в user chat/API не сериализуются. Если итоговый текст сам содержит имя внутреннего инструмента, JSON или признаки internal reasoning, он заменяется безопасным сообщением с обязательной экспертной проверкой.
+
+ADMIN видит фактические операции отдельно на `/admin/agent-logs`: correlation, system/tool, редактированные args/result, duration, attempts, prompt/model metadata, citations и безопасный error code. Таким образом, наблюдаемость не расширяет публичную поверхность диалога.
+
+Если был фактический intent, но подтверждённых citations нет, сервис принудительно выставляет `confidence = 0` и `requiresHumanReview = true`.
+
+## Детерминированный mock-провайдер
+
+`MockLLMProvider` работает без ключа и сети. Он:
+
+- читает только trusted fact envelopes от `AgentService`;
+- формирует стабильные русские шаблоны для спецификаций, остатков, ответственности, аналогов, запусков и отчётов;
+- выводит максимум восемь складских строк в основном ответе;
+- не изменяет данные и не запускает инструменты самостоятельно;
+- не добавляет citations, которых нет в envelope;
+- использует `ru-RU` для чисел и UTC для отображения snapshot.
+
+`IntegrationAwareLlmProvider` перед каждым ответом читает persisted state `LLM`: `AVAILABLE` вызывает mock сразу, `SLOW` — после контролируемой задержки, а `UNAVAILABLE`, `RATE_LIMITED` и `MALFORMED_RESPONSE` останавливают provider call с точным `LLM_*` code. `AgentService` тогда возвращает безопасный fallback с `confidence = 0` и `requiresHumanReview = true`; citations и tool calls, полученные до отказа LLM, сохраняются. Замена на внешний провайдер требует только другой реализации `LLMProvider`. Оркестрация, server-side identity, validation, citations, аудит и доменный расчёт остаются в application-слое.
+
+## Аналоги
+
+Последовательность жёстко ограничена:
+
+1. Найти только актуальную позицию Appius.
+2. Запросить правила Normative.
+3. Если правил нет, остановить поиск и сообщить, что основание отсутствует.
+4. Если правило есть, получить кандидатов SAP.
+5. Передать позицию, кандидатов и правила в `buildAnalogueCoverage`.
+6. Сформировать основной план покрытия и до трёх контрфактических альтернатив из того же набора допустимых кандидатов и того же pre-primary reservation snapshot.
+7. Цитировать только реально распределённые материалы либо snapshot отрицательного поиска.
+
+Внутри одного плана несколько allocations являются совместно необходимыми компонентами, а не альтернативами. Только основной план учитывается в общем run-local reservation ledger; альтернативы не меняют ledger и не изменяют базовый seed. Старый persisted coverage без explicit plans читается как один основной план. Неполное покрытие и любой verdict, отличный от `SUITABLE`, отправляются на экспертную проверку.
+
+## Отказы и fallback
+
+| Состояние | Поведение |
+|---|---|
+| Appius `UNAVAILABLE` | Не запрашивать спецификации; предложить ручную загрузку |
+| Appius `ACCESS_DENIED` | Не запрашивать позиции; показать безопасный запрет доступа |
+| Appius `STALE_VERSION` | Не анализировать устаревшие позиции; запросить актуальный источник/ручную загрузку |
+| SAP `UNAVAILABLE` | Не утверждать остаток; предложить CSV/Excel |
+| SAP `RATE_LIMITED` | Не повторять автоматически в рамках ответа; предложить ручной импорт/повтор позднее |
+| SAP `MALFORMED_RESPONSE` | Отклонить payload после валидации; не показывать частичные данные |
+| SAP `STALE` | Разрешить чтение с датой snapshot, предупреждением и human review |
+| RAG `SLOW` | Выполнить тот же детерминированный гибридный поиск после `delayMs` |
+| RAG `UNAVAILABLE` | Вернуть `RAG_UNAVAILABLE`; не назначать ответственность и не подтверждать аналог |
+| RAG `RATE_LIMITED` | Вернуть `RAG_RATE_LIMITED`; не повторять инструмент автоматически в рамках ответа |
+| RAG `MALFORMED_RESPONSE` | Вернуть `RAG_MALFORMED_RESPONSE`; сценарный шаг сохраняет failure и рекомендует retry |
+| Scenario/Report недоступен | Не угадывать статус или сводку |
+| LLM `SLOW` | Вызвать offline mock после `delayMs` |
+| LLM `UNAVAILABLE`, `RATE_LIMITED`, `MALFORMED_RESPONSE` | Вернуть соответствующий безопасный `LLM_*` fallback без придуманного вывода, сохранив подтверждённые citations |
+
+Пользовательские ошибки не содержат stack trace, SQL, connection string, секрет или внутренний endpoint. Технический аудит хранит только код ошибки и безопасную сводку.
+
+## Аудит
+
+Для каждого tool call записываются две операции:
+
+- `agent.tool.request` — имя инструмента, система и идентификатор сущности;
+- `agent.tool.result` — исход `SUCCESS|FAILURE`, длительность, количество/статус и безопасный error code.
+
+Текст сообщения, prompt, payload, content, секреты, токены, cookies и ключи редактируются. Отдельно фиксируются:
+
+- `agent.request.received`;
+- `agent.security.prompt_injection_blocked`;
+- `agent.security.user_id_override_ignored`;
+- `agent.response.completed`.
+
+Repository-фильтры `/admin/agent-logs` применяются в параметризованном user-scoped SQL до pagination. Общие метрики request/success/failure, p50/p95, retry и review считаются по полному user-scoped набору независимо от страницы, а журнал показывает bounded page до 100 отфильтрованных операций и честные значения «найдено/показано»; старые correlations не теряются за лимитом последних событий.
+
+## Prompt injection и privacy
+
+Прямая попытка изменить системные правила, раскрыть system prompt или вызвать неразрешённый инструмент блокируется до LLM и бизнес-инструментов. Инструкции внутри загруженного документа считаются данными.
+
+Если сообщение содержит `user_id=other-user-999`, это значение удаляется. Инструменты всё равно вызываются только с `demo-user-001`, полученным из server session. В ответе появляется краткая отметка, что текстовый `user_id` проигнорирован; чужой идентификатор не отражается обратно.
+
+В prompt, few-shot, eval и runtime-ответах используются только синтетические демонстрационные сущности. Реальные контакты и персональные данные не допускаются.
+
+## Eval-набор
+
+Файл `evals/mtr-agent-cases.jsonl` содержит 34 золотых случая. Покрыты:
+
+- точный код, синоним, RU/EN-название и legacy-код;
+- недостаточное количество;
+- одиночный и составной аналог;
+- отсутствие нормативного основания;
+- актуальная и устаревшая версия;
+- запрет доступа;
+- `UNAVAILABLE`, `STALE`, `RATE_LIMITED`, `MALFORMED_RESPONSE`;
+- prompt injection из сообщения и документа;
+- подмена `user_id`;
+- status, position result и report;
+- отказ Normative и LLM.
+
+Каждая строка — отдельный валидный JSON-объект с обязательными/запрещёнными инструментами, требованиями к citations и безопасному ответу.
+
+Отдельный integration-набор `tests/integration/normative-agent-runtime.test.ts` проверяет bilingual hybrid retrieval, влияние активного admin-словаря, точные `RAG_*`/`LLM_*` коды, audit и сохранение citations при отказе LLM.
+
+## Ограничения прототипа
+
+- Intent routing и извлечение идентификаторов детерминированы и рассчитаны на демонстрационные формулировки.
+- Mock-провайдер не ведёт свободный многошаговый диалог и не заменяет инженерную экспертизу.
+- Текущий объём и latency подтверждаются только для fixture-набора прототипа.
+- Достоверность промышленного Appius/SAP-контракта должна проверяться отдельными production-адаптерами.

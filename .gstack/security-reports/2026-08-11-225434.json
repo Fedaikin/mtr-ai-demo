@@ -1,0 +1,75 @@
+{
+  "version": "2.0.0",
+  "date": "2026-08-11T22:54:34Z",
+  "mode": "daily",
+  "scope": "full",
+  "diff_mode": true,
+  "phases_run": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+  "attack_surface": {
+    "code": {
+      "public_endpoints": 4,
+      "authenticated": 45,
+      "admin": 14,
+      "api": 34,
+      "uploads": 3,
+      "integrations": 4,
+      "background_jobs": 0,
+      "websockets": 0
+    },
+    "infrastructure": {
+      "ci_workflows": 0,
+      "webhook_receivers": 0,
+      "container_configs": 2,
+      "iac_configs": 0,
+      "deploy_targets": 2,
+      "secret_management": "environment variables and Vercel secret stores"
+    }
+  },
+  "findings": [],
+  "supply_chain_summary": {
+    "direct_deps": 22,
+    "transitive_deps": 431,
+    "critical_cves": 0,
+    "high_cves": 0,
+    "install_scripts": 0,
+    "lockfile_present": true,
+    "lockfile_tracked": true,
+    "tools_skipped": []
+  },
+  "filter_stats": {
+    "candidates_scanned": 4,
+    "hard_exclusion_filtered": 3,
+    "confidence_gate_filtered": 1,
+    "verification_filtered": 0,
+    "reported": 0
+  },
+  "totals": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "tentative": 0
+  },
+  "trend": {
+    "prior_report_date": null,
+    "resolved": 0,
+    "persistent": 0,
+    "new": 0,
+    "direction": "first_run"
+  },
+  "verification": {
+    "secrets_history": "no credential patterns found",
+    "tracked_env": "only .env.example; runtime env files ignored",
+    "dependency_audit": "pnpm audit --prod: no known vulnerabilities",
+    "authorization": "global proxy plus per-route trusted session and ADMIN checks",
+    "session": "opaque token; SHA-256 at rest; HttpOnly SameSite=Lax; Secure on Vercel; revocation verified",
+    "llm": "deterministic tool boundary, strict schemas, prompt-injection tests, escaped React rendering, no eval",
+    "uploads": "10 MB limit, extension/MIME/signature checks, sanitized filename, private storage",
+    "redaction": "recursive persistence-boundary redaction and presentation re-redaction verified"
+  },
+  "filtered_candidates": [
+    "Known demo credentials are an explicit acceptance requirement and are displayed only in demo mode.",
+    "Authentication throttling is absent, but rate-limit-only findings are excluded in daily mode and this is a one-user protected demo.",
+    "The production CSP permits unsafe-inline/unsafe-eval for framework compatibility; no executable user-controlled HTML or script sink was found.",
+    "No local gitleaks/secretlint policy exists; this is a hardening recommendation without a concrete exploit path."
+  ]
+}

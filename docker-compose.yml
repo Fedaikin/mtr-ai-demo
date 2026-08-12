@@ -1,0 +1,107 @@
+name: mtr-ai-demo
+
+x-app-build: &app-build
+  context: .
+  dockerfile: Dockerfile
+  args:
+    NODE_IMAGE: ${NODE_IMAGE:-node:24-alpine3.23}
+
+x-app-environment: &app-environment
+  DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in an uncommitted .env file}
+  LLM_PROVIDER: mock
+  APP_MODE: ${APP_MODE:-demo}
+
+x-job-security: &job-security
+  read_only: true
+  user: node
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  tmpfs:
+    - /tmp:rw,nosuid,nodev,size=64m
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:16.14-alpine3.23}
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mtr_demo}
+      POSTGRES_USER: ${POSTGRES_USER:-mtr}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in an uncommitted .env file}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -q -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    stop_grace_period: 1m
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+
+  migrate:
+    image: ${MTR_TOOLING_IMAGE:-mtr-ai-demo-tooling:local}
+    build:
+      <<: *app-build
+      target: tooling
+    environment: *app-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    <<: *job-security
+    restart: "no"
+
+  seed:
+    image: ${MTR_TOOLING_IMAGE:-mtr-ai-demo-tooling:local}
+    build:
+      <<: *app-build
+      target: tooling
+    command: ["pnpm", "db:seed"]
+    environment: *app-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ["seed"]
+    <<: *job-security
+    restart: "no"
+
+  web:
+    image: ${MTR_IMAGE:-mtr-ai-demo:local}
+    build:
+      <<: *app-build
+      target: runner
+    environment: *app-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "${MTR_BIND_ADDRESS:-127.0.0.1}:${MTR_PORT:-3000}:3000"
+    volumes:
+      - uploads_data:/app/.data/uploads
+      - next_cache:/app/.next/cache
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=64m
+    restart: unless-stopped
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+
+volumes:
+  postgres_data:
+  uploads_data:
+  next_cache:
