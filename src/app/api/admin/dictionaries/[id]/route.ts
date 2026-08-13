@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { getRepository, OptimisticLockError } from "@/adapters/persistence/repository";
 import { ApiError, ok, parseJson, toErrorResponse } from "@/lib/api";
-import { requireDemoRole } from "@/lib/session";
+import { requirePermission } from "@/lib/session";
 
 export const runtime = "nodejs";
 
@@ -25,7 +25,7 @@ export async function PATCH(
 ) {
   try {
     const [session, repository, input, params] = await Promise.all([
-      requireDemoRole("ADMIN"),
+      requirePermission("dictionary.manage"),
       getRepository(),
       parseJson(request).then((body) => dictionaryUpdateSchema.parse(body)),
       context.params,

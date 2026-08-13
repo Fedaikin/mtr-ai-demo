@@ -1,6 +1,6 @@
 vi.mock("server-only", () => ({}));
 
-import { eq } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { NextRequest } from "next/server";
 
 import { AppiusMockAdapter } from "@/adapters/mock/appius-adapter";
@@ -34,7 +34,9 @@ describe.sequential("persistent demo authentication", () => {
 
   it("uses a valid login as the lazy seed boundary before protected reads", async () => {
     const emptyDatabase = await getDatabase();
-    await expect(emptyDatabase.select().from(users)).resolves.toHaveLength(0);
+    // The RBAC migration creates only the root identity required by project
+    // provenance; the canonical operational seed still remains lazy.
+    await expect(emptyDatabase.select().from(users)).resolves.toHaveLength(1);
 
     const response = await login(
       jsonRequest("http://localhost/api/auth/login", {
@@ -284,14 +286,11 @@ describe.sequential("persistent demo authentication", () => {
 
     const database = await getDatabase();
     try {
-      await database.update(users).set({ roles: ["USER"] }).where(eq(users.id, "demo-user-001"));
+      await database.execute(sql`update role_assignments set status='REVOKED' where id='assign-demo-admin'`);
       const forbidden = await proxy(authenticated("/api/admin/integrations"));
       expect(forbidden.status).toBe(403);
     } finally {
-      await database
-        .update(users)
-        .set({ roles: ["USER", "ADMIN"] })
-        .where(eq(users.id, "demo-user-001"));
+      await database.execute(sql`update role_assignments set status='ACTIVE', revoked_at=null, revoked_by=null where id='assign-demo-admin'`);
     }
   });
 

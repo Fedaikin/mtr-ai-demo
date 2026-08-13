@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { getRepository } from "@/adapters/persistence/repository";
 import { AdminConfigPrompts, type AdminPromptView } from "@/components/admin-config-prompts";
 import { PageHeader } from "@/components/page-header";
-import { requireDemoRole } from "@/lib/session";
+import { requirePermission } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Промпты" };
 export const runtime = "nodejs";
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminPromptsPage() {
   const [session, repository] = await Promise.all([
-    requireDemoRole("ADMIN"),
+    requirePermission("prompt.manage"),
     getRepository(),
   ]);
   const records = await repository.listPrompts(session.user.id);

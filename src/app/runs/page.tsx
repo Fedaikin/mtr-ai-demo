@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/page-header";
 import { StatusPill } from "@/components/status-pill";
 import { formatDateTime } from "@/lib/format";
 import { scenarioLabel } from "@/lib/localization";
-import { requireDemoRole } from "@/lib/session";
+import { requirePermission } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Мои запуски" };
 export const dynamic = "force-dynamic";
@@ -17,7 +17,7 @@ export default async function RunsPage() {
 }
 
 export async function RunsWorkspace() {
-  const [{ user }, service] = await Promise.all([requireDemoRole("USER"), ScenarioService.create()]);
+  const [{ user }, service] = await Promise.all([requirePermission("analysis.read"), ScenarioService.create()]);
   const runs = await service.listRuns(user.id, { includeSteps: false });
   return (
     <>

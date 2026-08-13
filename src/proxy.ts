@@ -64,7 +64,9 @@ export async function proxy(request: NextRequest) {
     pathname === "/api/admin" ||
     pathname.startsWith("/api/admin/") ||
     pathname.startsWith("/api/mock/admin/");
-  if (isAdminPath && !session.user.roles.includes("ADMIN")) {
+  const isScenarioWorkspace = pathname === "/admin/scenarios" || pathname.startsWith("/api/admin/scenarios/");
+  const canUseScenarioWorkspace = session.authorization.permissionKeys.has("analysis.read") || session.authorization.permissionKeys.has("scenario_template.manage");
+  if (isAdminPath && !session.user.roles.includes("ADMIN") && !(isScenarioWorkspace && canUseScenarioWorkspace)) {
     return pathname.startsWith("/api/")
       ? NextResponse.json(
           { error: { code: "FORBIDDEN", message: "Недостаточно прав для выполнения операции." } },

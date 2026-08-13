@@ -21,7 +21,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
           <p className="mt-3 text-sm leading-6 text-slate-600">
             Введите выданные владельцем прототипа реквизиты доступа.
           </p>
-          <div className="mt-8"><LoginForm returnTo={returnTo} /></div>
+          <div className="mt-8"><LoginForm returnTo={returnTo} showPersonaSelector={process.env.DEMO_ROLE_SELECTOR === "true"} /></div>
           <p className="mt-6 border-t border-slate-200 pt-5 text-xs leading-5 text-slate-500">
             Нет реквизитов? Обратитесь к владельцу прототипа.
           </p>

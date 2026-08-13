@@ -16,7 +16,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="ru" className="h-full antialiased">
       <body className="min-h-full">
-        {session ? <AppShell displayName={session.user.displayName}>{children}</AppShell> : children}
+        {session ? <AppShell displayName={session.user.displayName} permissionKeys={[...session.authorization.permissionKeys]} roleKeys={[...session.authorization.globalRoleKeys, ...session.authorization.projectRoleKeys]}>{children}</AppShell> : children}
       </body>
     </html>
   );

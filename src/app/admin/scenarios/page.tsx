@@ -7,7 +7,7 @@ import { AdminScenarioToggle } from "@/components/admin-scenario-toggle";
 import { PageHeader } from "@/components/page-header";
 import { ScenarioLauncher } from "@/components/scenario-launcher";
 import { integrationStatusLabel, integrationSystemLabel } from "@/lib/localization";
-import { requireDemoRole } from "@/lib/session";
+import { requireAnyPermission } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Сценарии и запуски" };
 export const dynamic = "force-dynamic";
@@ -42,7 +42,8 @@ function Tab({ href, active, children }: { href: string; active: boolean; childr
 }
 
 async function ScenariosWorkspace() {
-  const [{ user }, repository] = await Promise.all([requireDemoRole("ADMIN"), getRepository()]);
+  const [session, repository] = await Promise.all([requireAnyPermission(["analysis.read", "scenario_template.manage"]), getRepository()]);
+  const { user } = session;
   const [scenarios, specifications, integrations] = await Promise.all([
     repository.listScenarios(user.id),
     repository.listSpecifications(user.id),
@@ -64,14 +65,14 @@ async function ScenariosWorkspace() {
           </span>
         ))}
       </div>
-      <AdminScenarioToggle
+      {session.authorization.permissionKeys.has("scenario_template.manage") ? <AdminScenarioToggle
         initialScenarios={scenarios.map((scenario) => ({
           id: scenario.id,
           name: scenario.name,
           enabled: scenario.enabled,
         }))}
-      />
-      <ScenarioLauncher
+      /> : null}
+      {session.authorization.permissionKeys.has("analysis.create") ? <ScenarioLauncher
         scenarios={enabledScenarios.map((scenario) => ({
           id: scenario.id,
           name: scenario.name,
@@ -80,7 +81,7 @@ async function ScenariosWorkspace() {
           defaultSeed: typeof scenario.configuration.seedSet === "string" ? scenario.configuration.seedSet : undefined,
         }))}
         specifications={specifications}
-      />
+      /> : null}
     </>
   );
 }

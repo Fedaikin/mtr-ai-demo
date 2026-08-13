@@ -20,8 +20,8 @@ export function AppNavigation({
       aria-label="Основная навигация"
       className="flex gap-1 overflow-x-auto px-3 py-3 lg:block lg:space-y-5 lg:overflow-visible"
     >
-      <NavGroup label="Рабочее место" items={userItems} activeHref={activeHref} />
-      <NavGroup label="Администрирование" items={adminItems} activeHref={activeHref} />
+      {userItems.length > 0 ? <NavGroup label="Рабочее место" items={userItems} activeHref={activeHref} /> : null}
+      {adminItems.length > 0 ? <NavGroup label="Администрирование" items={adminItems} activeHref={activeHref} /> : null}
     </nav>
   );
 }

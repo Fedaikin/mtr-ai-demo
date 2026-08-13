@@ -3,7 +3,7 @@ import { z } from "zod";
 import { EXPECTED_BASE_COUNTS, initializeDatabase } from "@/adapters/persistence/bootstrap";
 import { getRepository } from "@/adapters/persistence/repository";
 import { ApiError, ok, parseJson, toErrorResponse } from "@/lib/api";
-import { requireDemoRole } from "@/lib/session";
+import { requirePermission } from "@/lib/session";
 
 export const runtime = "nodejs";
 
@@ -15,7 +15,7 @@ export async function POST(request: Request) {
   try {
     assertDemoMode();
     const [session, repository] = await Promise.all([
-      requireDemoRole("ADMIN"),
+      requirePermission("demo.reset"),
       initializeDatabase().then(() => getRepository()),
       parseJson(request).then((body) => resetSchema.parse(body)),
     ]);

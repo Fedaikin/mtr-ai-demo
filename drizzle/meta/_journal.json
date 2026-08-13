@@ -36,6 +36,13 @@
       "when": 1786581000000,
       "tag": "0004_product_iteration",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1786608000000,
+      "tag": "0005_scoped_rbac",
+      "breakpoints": true
     }
   ]
 }

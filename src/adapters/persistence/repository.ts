@@ -423,6 +423,9 @@ export interface RepositoryCounts extends SeedCounts {
 export interface AuthUserRecord extends DemoUser {
   login: string;
   passwordHash: string;
+  status: string;
+  accountType: string;
+  authorizationVersion: number;
 }
 
 export interface AuthSessionRecord {
@@ -491,6 +494,9 @@ export class MtrRepository {
           displayName: row.displayName,
           roles: row.roles as UserRole[],
           locale: row.locale as "ru-RU",
+          status: row.status,
+          accountType: row.accountType,
+          authorizationVersion: row.authorizationVersion,
         }
       : null;
   }
@@ -500,6 +506,8 @@ export class MtrRepository {
     userId: string;
     tokenHash: string;
     expiresAt: string;
+    authorizationVersion?: number;
+    activatedRoleAssignmentIds?: string[];
   }): Promise<AuthSessionRecord> {
     trustedUser(input.userId);
     await this.db
@@ -512,7 +520,7 @@ export class MtrRepository {
       );
     const [row] = await this.db
       .insert(authSessions)
-      .values(input)
+      .values({ ...input, authorizationVersion: input.authorizationVersion ?? 1, activatedRoleAssignmentIds: input.activatedRoleAssignmentIds ?? [] })
       .returning();
     if (!row) throw new Error("Не удалось создать пользовательскую сессию.");
     const user = await this.getAuthUser(input.userId);
@@ -531,6 +539,8 @@ export class MtrRepository {
           eq(authSessions.tokenHash, tokenHash),
           isNull(authSessions.revokedAt),
           gt(authSessions.expiresAt, new Date().toISOString()),
+          eq(authSessions.authorizationVersion, users.authorizationVersion),
+          eq(users.status, "ACTIVE"),
         ),
       )
       .limit(1);
@@ -565,6 +575,9 @@ export class MtrRepository {
           displayName: row.displayName,
           roles: row.roles as UserRole[],
           locale: row.locale as "ru-RU",
+          status: row.status,
+          accountType: row.accountType,
+          authorizationVersion: row.authorizationVersion,
         }
       : null;
   }

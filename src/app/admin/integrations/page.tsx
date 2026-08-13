@@ -6,7 +6,7 @@ import {
   type AdminIntegrationView,
 } from "@/components/admin-config-integrations";
 import { PageHeader } from "@/components/page-header";
-import { requireDemoRole } from "@/lib/session";
+import { requirePermission } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Интеграции" };
 export const runtime = "nodejs";
@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminIntegrationsPage() {
   const [session, repository] = await Promise.all([
-    requireDemoRole("ADMIN"),
+    requirePermission("integration.read"),
     getRepository(),
   ]);
   const states = await repository.listIntegrationStates(session.user.id);

@@ -5,7 +5,7 @@ import { getRepository } from "@/adapters/persistence/repository";
 import { PageHeader } from "@/components/page-header";
 import { CATALOGUE_CATEGORIES, type CatalogueCategory, type CatalogueItemKind } from "@/domain/catalogue";
 import { formatDateTime, formatNumber } from "@/lib/format";
-import { requireDemoRole } from "@/lib/session";
+import { requirePermission } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Промышленный каталог" };
 export const dynamic = "force-dynamic";
@@ -17,11 +17,13 @@ export default async function CatalogPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const [parameters, { user }, repository] = await Promise.all([
+  const [parameters, session, repository] = await Promise.all([
     searchParams,
-    requireDemoRole("USER"),
+    requirePermission("catalog.read"),
     getRepository(),
   ]);
+  const { user } = session;
+  const canReadStock = session.authorization.permissionKeys.has("stock.search");
   const query = first(parameters.q)?.trim().slice(0, 240) ?? "";
   const category = catalogCategory(first(parameters.category));
   const itemKind = catalogItemKind(first(parameters.itemKind));
@@ -44,7 +46,7 @@ export default async function CatalogPage({
       <PageHeader
         eyebrow="Промышленный каталог · синтетические данные"
         title="Номенклатура и складские остатки"
-        description={`${formatNumber(overview.items)} позиций, ${formatNumber(overview.families)} семейств взаимозаменяемости и ${formatNumber(overview.stockBalanceRows)} складских записей.`}
+        description={`${formatNumber(overview.items)} позиций и ${formatNumber(overview.families)} семейств взаимозаменяемости${canReadStock ? `, ${formatNumber(overview.stockBalanceRows)} складских записей` : ""}.`}
         action={
           <Link href="/agent" className="focus-ring inline-flex rounded-md bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-800">
             Спросить МТР-аналитика
@@ -95,8 +97,8 @@ export default async function CatalogPage({
                   <td className="max-w-[360px] px-4 py-3 align-top"><Link href={`/catalog/${encodeURIComponent(item.itemCode)}`} className="font-medium text-slate-950 hover:text-teal-800">{item.nameRu}</Link><p className="mt-1 text-xs text-slate-500">{item.standard ?? "Без стандарта"} · {item.materialGrade ?? "марка не указана"}</p></td>
                   <td className="px-4 py-3 align-top text-slate-700">{item.category ? categoryLabel(item.category) : "—"}<p className="mt-1 font-mono text-[11px] text-slate-400">{item.equipmentType}</p></td>
                   <td className="px-4 py-3 align-top text-slate-700">{item.manufacturer ?? "—"}</td>
-                  <td className="px-4 py-3 text-right align-top font-semibold tabular-nums text-slate-950">{formatNumber(item.totalAvailableQuantity)} <span className="font-normal text-slate-500">{item.unit}</span><p className="mt-1 text-[11px] font-normal text-slate-400">{formatDateTime(item.latestSnapshotAt)}</p></td>
-                  <td className="px-4 py-3 text-right align-top tabular-nums text-slate-700">{item.balanceCount}</td>
+                  <td className="px-4 py-3 text-right align-top font-semibold tabular-nums text-slate-950">{canReadStock ? <>{formatNumber(item.totalAvailableQuantity)} <span className="font-normal text-slate-500">{item.unit}</span><p className="mt-1 text-[11px] font-normal text-slate-400">{formatDateTime(item.latestSnapshotAt)}</p></> : <span className="text-xs font-normal text-slate-400">Нет доступа</span>}</td>
+                  <td className="px-4 py-3 text-right align-top tabular-nums text-slate-700">{canReadStock ? item.balanceCount : "—"}</td>
                 </tr>
               ))}
             </tbody>

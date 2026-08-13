@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { getRepository } from "@/adapters/persistence/repository";
 import { ApiError, ok, toErrorResponse } from "@/lib/api";
-import { requireDemoRole } from "@/lib/session";
+import { requirePermission } from "@/lib/session";
 
 export const runtime = "nodejs";
 
@@ -14,7 +14,7 @@ export async function POST(
 ) {
   try {
     const [session, repository, params] = await Promise.all([
-      requireDemoRole("ADMIN"),
+      requirePermission("prompt.activate"),
       getRepository(),
       context.params,
     ]);

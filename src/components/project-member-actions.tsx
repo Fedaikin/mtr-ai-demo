@@ -1,0 +1,10 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+
+export function ProjectMemberActions({ projectId, userId, status, roles }: { projectId: string; userId: string; status: string; roles: Array<{ assignmentId: string; roleName: string }> }) {
+  const router = useRouter(); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
+  async function mutate(body: Record<string, unknown>) { setBusy(true); setError(""); try { const response = await fetch(`/api/projects/${projectId}/members/${userId}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error?.message ?? "Не удалось изменить доступ"); router.refresh(); } catch (caught) { setError(caught instanceof Error ? caught.message : "Ошибка"); } finally { setBusy(false); } }
+  return <div className="space-y-2"><div className="flex flex-wrap gap-2"><button disabled={busy} onClick={() => mutate({ action: "membership", status: status === "ACTIVE" ? "SUSPENDED" : "ACTIVE" })} className="rounded-md border px-2 py-1 text-xs">{status === "ACTIVE" ? "Приостановить" : "Активировать"}</button><select disabled={busy || status !== "ACTIVE"} defaultValue="" onChange={(event) => { if (event.target.value) void mutate({ action: "assign", roleKey: event.target.value }); event.target.value = ""; }} className="rounded-md border px-2 py-1 text-xs"><option value="">Назначить роль…</option><option value="PROJECT_VIEWER">Наблюдатель</option><option value="MTR_ANALYST">Аналитик МТР</option><option value="MTR_EXPERT">Эксперт МТР</option><option value="PROJECT_MANAGER">Руководитель проекта</option></select></div><div className="flex flex-wrap gap-1">{roles.map((role) => <button key={role.assignmentId} disabled={busy} onClick={() => mutate({ action: "revoke", assignmentId: role.assignmentId })} className="rounded-full bg-slate-100 px-2 py-1 text-[11px] hover:bg-rose-50">{role.roleName} ×</button>)}</div>{error ? <p className="text-xs text-rose-700">{error}</p> : null}</div>;
+}

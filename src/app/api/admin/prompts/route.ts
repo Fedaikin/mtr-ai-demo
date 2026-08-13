@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { getRepository } from "@/adapters/persistence/repository";
 import { ApiError, created, ok, parseJson, toErrorResponse } from "@/lib/api";
-import { requireDemoRole } from "@/lib/session";
+import { requirePermission } from "@/lib/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,7 +24,7 @@ const createPromptSchema = z
 export async function GET() {
   try {
     const [session, repository] = await Promise.all([
-      requireDemoRole("ADMIN"),
+      requirePermission("prompt.manage"),
       getRepository(),
     ]);
     return ok({ prompts: await repository.listPrompts(session.user.id), isSyntheticDemo: true });
@@ -36,7 +36,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const [session, repository, input] = await Promise.all([
-      requireDemoRole("ADMIN"),
+      requirePermission("prompt.manage"),
       getRepository(),
       parseJson(request).then((body) => createPromptSchema.parse(body)),
     ]);

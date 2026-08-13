@@ -1,7 +1,7 @@
 import { getRepository } from "@/adapters/persistence/repository";
 import { agentInputSchema } from "@/application/agent-service";
 import { ApiError, created, ok, parseJson, toErrorResponse } from "@/lib/api";
-import { requireDemoRole } from "@/lib/session";
+import { requirePermission } from "@/lib/session";
 
 import {
   createAgentRuntime,
@@ -20,7 +20,7 @@ interface MessagesRouteContext {
 export async function GET(_request: Request, { params }: MessagesRouteContext) {
   try {
     const paramsPromise = params.then(({ id }) => threadIdSchema.parse(id));
-    const sessionPromise = requireDemoRole("USER");
+    const sessionPromise = requirePermission("agent.chat");
     const repositoryPromise = getRepository();
     const [threadId, session, repository] = await Promise.all([
       paramsPromise,
@@ -46,7 +46,7 @@ export async function GET(_request: Request, { params }: MessagesRouteContext) {
 export async function POST(request: Request, { params }: MessagesRouteContext) {
   try {
     const paramsPromise = params.then(({ id }) => threadIdSchema.parse(id));
-    const sessionPromise = requireDemoRole("USER");
+    const sessionPromise = requirePermission("agent.chat");
     const repositoryPromise = getRepository();
     const bodyPromise = parseJson(request);
     const [threadId, session, repository, body] = await Promise.all([

@@ -17,7 +17,7 @@ import {
   localizeAuditDetails,
 } from "@/lib/localization";
 import { safeAuditPreview } from "@/lib/redaction";
-import { requireDemoRole } from "@/lib/session";
+import { requireAnyPermission } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Аудит" };
 export const runtime = "nodejs";
@@ -35,7 +35,7 @@ export default async function AdminAuditPage({
   searchParams: Promise<AuditSearchParams>;
 }) {
   const [session, repository, rawQuery] = await Promise.all([
-    requireDemoRole("ADMIN"),
+    requireAnyPermission(["audit.read.global", "audit.read.project"]),
     getRepository(),
     searchParams,
   ]);

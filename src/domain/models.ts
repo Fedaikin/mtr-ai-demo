@@ -5,8 +5,13 @@ export type UserRole = "USER" | "ADMIN";
 
 export interface DemoUser {
   id: string;
+  subjectId?: string;
   displayName: string;
   roles: UserRole[];
+  globalRoleKeys?: string[];
+  projectRoleKeys?: string[];
+  permissionKeys?: string[];
+  activeProjectId?: string | null;
   locale: "ru-RU";
 }
 

@@ -37,6 +37,12 @@ export const users = pgTable("users", {
   roles: jsonb("roles").$type<string[]>().notNull(),
   locale: text("locale").notNull().default("ru-RU"),
   isSyntheticDemo: boolean("is_synthetic_demo").notNull().default(true),
+  status: text("status").notNull().default("ACTIVE"),
+  accountType: text("account_type").notNull().default("HUMAN"),
+  authSource: text("auth_source").notNull().default("DEMO"),
+  externalSubjectId: text("external_subject_id"),
+  lastLoginAt: timestamp("last_login_at", { withTimezone: true, mode: "string" }),
+  authorizationVersion: integer("authorization_version").notNull().default(1),
   ...mutableColumns,
 });
 
@@ -51,6 +57,8 @@ export const authSessions = pgTable(
       .notNull()
       .defaultNow(),
     revokedAt: timestamp("revoked_at", { withTimezone: true, mode: "string" }),
+    authorizationVersion: integer("authorization_version").notNull().default(1),
+    activatedRoleAssignmentIds: jsonb("activated_role_assignment_ids").$type<string[]>().notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
   },
   (table) => [

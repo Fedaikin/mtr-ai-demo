@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/application/scenario-service", () => ({
+  ScenarioServiceError: class ScenarioServiceError extends Error {},
   ScenarioService: {
     create: vi.fn(async () => ({
       createRun: mocks.createRun,
@@ -26,6 +27,9 @@ vi.mock("@/application/scenario-background", () => ({
 }));
 vi.mock("@/lib/session", () => ({
   requireDemoRole: vi.fn(async () => ({ user: { id: "demo-user-001" } })),
+  requirePermission: vi.fn(async () => ({ user: { id: "demo-user-001", subjectId: "demo-user-001" }, authorization: { permissionKeys: new Set(["analysis.retry.any"]) } })),
+  requireAnyPermission: vi.fn(async () => ({ user: { id: "demo-user-001", subjectId: "demo-user-001" }, authorization: { permissionKeys: new Set(["analysis.retry.any"]) } })),
+  SessionError: class SessionError extends Error {},
 }));
 
 import { GET as getRunRoute } from "@/app/api/scenario-runs/[id]/route";

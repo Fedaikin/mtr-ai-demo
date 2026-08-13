@@ -16,7 +16,7 @@ describe.sequential("database migration boundary", () => {
 
   it("keeps direct local/test database access auto-migrated by default", async () => {
     const database = await getDatabase();
-    await expect(database.select().from(users)).resolves.toEqual([]);
+    await expect(database.select().from(users)).resolves.toHaveLength(1);
   });
 
   it("returns 503 without migrating when readiness sees an unavailable schema", async () => {
@@ -55,6 +55,6 @@ describe.sequential("database migration boundary", () => {
     expect(await response.json()).toMatchObject({
       user: { id: "demo-user-001", displayName: "Демо-пользователь 1" },
     });
-    await expect(database.select().from(users)).resolves.toHaveLength(1);
+    await expect(database.select().from(users)).resolves.toHaveLength(7);
   });
 });

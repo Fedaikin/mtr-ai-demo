@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { getRepository, OptimisticLockError } from "@/adapters/persistence/repository";
 import { ApiError, ok, parseJson, toErrorResponse } from "@/lib/api";
-import { requireDemoRole } from "@/lib/session";
+import { requirePermission } from "@/lib/session";
 
 const overrideSchema = z
   .object({
@@ -19,7 +19,7 @@ export async function PATCH(
   try {
     const [{ runId, positionId }, { user }, input] = await Promise.all([
       params,
-      requireDemoRole("ADMIN"),
+      requirePermission("result.override"),
       parseJson(request).then((body) => overrideSchema.parse(body)),
     ]);
     const updated = await (await getRepository()).overrideAnalysisResponsibility(user.id, {

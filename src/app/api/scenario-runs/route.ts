@@ -3,14 +3,14 @@ import { scheduleScenarioRunDrain } from "@/application/scenario-background";
 import { TERMINAL_STATUSES } from "@/domain/scenario";
 import { created, ok, parseJson } from "@/lib/api";
 import { toScenarioErrorResponse } from "@/lib/scenario-http";
-import { requireDemoRole } from "@/lib/session";
+import { requirePermission } from "@/lib/session";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
 export async function GET() {
   try {
-    const [{ user }, service] = await Promise.all([requireDemoRole("USER"), ScenarioService.create()]);
+    const [{ user }, service] = await Promise.all([requirePermission("analysis.read"), ScenarioService.create()]);
     const runs = await service.listRuns(user.id);
     for (const run of runs.filter((item) => !TERMINAL_STATUSES.has(item.status)).slice(0, 4)) {
       scheduleScenarioRunDrain(user.id, run.id);
@@ -23,11 +23,11 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const sessionPromise = requireDemoRole("ADMIN");
+    const sessionPromise = requirePermission("analysis.create");
     const servicePromise = ScenarioService.create();
     const bodyPromise = parseJson(request);
     const [{ user }, service, body] = await Promise.all([sessionPromise, servicePromise, bodyPromise]);
-    const run = await service.createRun(user.id, body);
+    const run = await service.createRun(user.id, body, user.subjectId ?? user.id);
     scheduleScenarioRunDrain(user.id, run.id);
     return created(run);
   } catch (error) {

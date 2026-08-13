@@ -38,7 +38,7 @@ import {
 } from "./schema";
 
 export const EXPECTED_BASE_COUNTS = {
-  users: 1,
+  users: 7,
   specifications: 3,
   specificationVersions: 8,
   canonicalPositions: 24,
@@ -135,8 +135,8 @@ export async function seedDatabase(
 }
 
 async function seedDatabaseUncached(userId: string, db: Database): Promise<SeedCounts> {
-  const existingUsers = await db.select({ id: users.id }).from(users).limit(2);
-  if (existingUsers.some((row) => row.id !== userId)) {
+  const existingUsers = await db.select({ id: users.id }).from(users);
+  if (existingUsers.some((row) => row.id !== userId && !row.id.startsWith("demo-"))) {
     throw new Error(
       "Seed остановлен: база содержит пользователя вне демонстрационного контура; чужие данные не изменены.",
     );
@@ -200,7 +200,7 @@ export async function getSeedCounts(
   // Scalar subqueries preserve the invariants in one PostgreSQL round-trip.
   const result = await database.execute(sql`
     select
-      (select count(*)::int from ${users} where ${users.userId} = ${userId}) as "users",
+      (select count(*)::int from ${users}) as "users",
       (select count(*)::int from ${specifications} where ${specifications.userId} = ${userId}) as "specifications",
       (select count(*)::int from ${specificationVersions} where ${specificationVersions.userId} = ${userId}) as "specificationVersions",
       (select count(*)::int
@@ -267,6 +267,8 @@ async function insertFixtureRows(db: Database, userId: string): Promise<void> {
         updatedAt: new Date().toISOString(),
       },
     });
+
+  await seedRbacSubjects(db);
 
   await db.insert(specifications).values(
     appiusFixture.specifications.map((item) => ({
@@ -481,6 +483,25 @@ async function insertFixtureRows(db: Database, userId: string): Promise<void> {
       createdBy: userId,
     })),
   );
+}
+
+async function seedRbacSubjects(db: Database): Promise<void> {
+  const fixtureHash = "scrypt$16384$8$1$bXRyLWRlbW8tYXV0aC12MQ$GcR_B-AFou6BJpPfLHVa0afwkfnOh5_ehbSyTSL2TFn7UARDrszHNcwtC19lk40LVfg7sGA_roL4NX7hUkexBA";
+  await db.execute(sql`update users set password_hash=coalesce(password_hash,${fixtureHash}), account_type=coalesce(account_type,'HUMAN'), auth_source=coalesce(auth_source,'DEMO') where id='demo-user-001'`);
+  await db.execute(sql`insert into users (id,user_id,login,password_hash,display_name,roles,locale,is_synthetic_demo,created_by,status,account_type,auth_source) values
+    ('demo-viewer-001','demo-viewer-001','viewer',${fixtureHash},'Наблюдатель проекта','["USER"]'::jsonb,'ru-RU',true,'demo-user-001','ACTIVE','HUMAN','DEMO'),
+    ('demo-analyst-001','demo-analyst-001','analyst',${fixtureHash},'Аналитик МТР','["USER"]'::jsonb,'ru-RU',true,'demo-user-001','ACTIVE','HUMAN','DEMO'),
+    ('demo-expert-001','demo-expert-001','expert',${fixtureHash},'Эксперт МТР','["USER"]'::jsonb,'ru-RU',true,'demo-user-001','ACTIVE','HUMAN','DEMO'),
+    ('demo-admin-001','demo-admin-001','admin',${fixtureHash},'Системный администратор','["ADMIN"]'::jsonb,'ru-RU',true,'demo-user-001','ACTIVE','HUMAN','DEMO'),
+    ('demo-auditor-001','demo-auditor-001','auditor',${fixtureHash},'Аудитор','["ADMIN"]'::jsonb,'ru-RU',true,'demo-user-001','ACTIVE','HUMAN','DEMO'),
+    ('demo-service-001','demo-service-001','integration-service',${fixtureHash},'Интеграционная служба','[]'::jsonb,'ru-RU',true,'demo-user-001','ACTIVE','SERVICE_ACCOUNT','DEMO')
+    on conflict (id) do nothing`);
+  await db.execute(sql`insert into project_memberships (project_id,user_id,status,added_by) values
+    ('demo-project-001','demo-user-001','ACTIVE','demo-user-001'),('demo-project-001','demo-viewer-001','ACTIVE','demo-user-001'),('demo-project-001','demo-analyst-001','ACTIVE','demo-user-001'),('demo-project-001','demo-expert-001','ACTIVE','demo-user-001'),('demo-project-001','demo-auditor-001','ACTIVE','demo-user-001') on conflict do nothing`);
+  await db.execute(sql`insert into role_assignments (id,user_id,role_id,scope_type,project_id,status,assigned_by) values
+    ('assign-demo-admin','demo-user-001','role-system-admin','GLOBAL',null,'ACTIVE','demo-user-001'),('assign-demo-manager','demo-user-001','role-project-manager','PROJECT','demo-project-001','ACTIVE','demo-user-001'),
+    ('assign-viewer','demo-viewer-001','role-project-viewer','PROJECT','demo-project-001','ACTIVE','demo-user-001'),('assign-analyst','demo-analyst-001','role-mtr-analyst','PROJECT','demo-project-001','ACTIVE','demo-user-001'),('assign-expert','demo-expert-001','role-mtr-expert','PROJECT','demo-project-001','ACTIVE','demo-user-001'),
+    ('assign-admin','demo-admin-001','role-system-admin','GLOBAL',null,'ACTIVE','demo-user-001'),('assign-auditor-global','demo-auditor-001','role-auditor','GLOBAL',null,'ACTIVE','demo-user-001'),('assign-auditor-project','demo-auditor-001','role-project-viewer','PROJECT','demo-project-001','ACTIVE','demo-user-001'),('assign-service','demo-service-001','role-integration-service','SERVICE',null,'ACTIVE','demo-user-001') on conflict do nothing`);
 }
 
 export async function deleteUserScopedRows(

@@ -1,6 +1,6 @@
 import { CatalogService } from "@/application/catalog-service";
 import { ApiError, ok, toErrorResponse } from "@/lib/api";
-import { requireDemoRole } from "@/lib/session";
+import { requirePermission } from "@/lib/session";
 import {
   CATALOGUE_CATEGORIES,
   type CatalogueCategory,
@@ -12,8 +12,8 @@ const ITEM_KINDS = new Set<CatalogueItemKind>(["COMPONENT", "ASSEMBLY"]);
 
 export async function GET(request: Request) {
   try {
-    const [{ user }, service] = await Promise.all([
-      requireDemoRole("USER"),
+    const [session, service] = await Promise.all([
+      requirePermission("catalog.read"),
       CatalogService.create(),
     ]);
     const parameters = new URL(request.url).searchParams;
@@ -34,9 +34,10 @@ export async function GET(request: Request) {
       limit: integerParameter(parameters, "limit", 50, 1, 200),
       offset: integerParameter(parameters, "offset", 0, 0, 1_000_000),
     };
-    const result = await service.search(user.id, query);
+    const result = await service.search(session.user.id, query);
+    const items = session.authorization.permissionKeys.has("stock.search") ? result.items : result.items.map((item) => ({ ...item, totalAvailableQuantity: undefined, latestSnapshotAt: undefined, balanceCount: undefined }));
     return ok(
-      { ...result, source: "INDUSTRIAL_CATALOG", isSyntheticDemo: true },
+      { ...result, items, source: "INDUSTRIAL_CATALOG", isSyntheticDemo: true },
       { headers: { "cache-control": "private, no-store" } },
     );
   } catch (error) {

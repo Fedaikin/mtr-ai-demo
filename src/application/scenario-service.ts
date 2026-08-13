@@ -55,7 +55,7 @@ export class ScenarioService {
     return new ScenarioService(await getRepository());
   }
 
-  async createRun(userId: string, rawInput: unknown): Promise<ScenarioRun> {
+  async createRun(userId: string, rawInput: unknown, requestedBy = userId): Promise<ScenarioRun> {
     const input = createScenarioRunSchema.parse(rawInput);
     const [scenario, specifications] = await Promise.all([
       this.repository.getScenario(userId, input.scenarioId),
@@ -86,6 +86,7 @@ export class ScenarioService {
         scenarioId: scenario.id,
         scenarioKind: scenario.kind,
         scenarioConfiguration: scenario.configuration,
+        requestedBy,
         specificationScope: isAllCurrent ? "ALL_CURRENT" : "SINGLE",
         requestedSpecificationId,
         specificationIds: selected.map((item) => item.id),

@@ -7,13 +7,13 @@ import { AnalysisReviewQueue } from "@/components/analysis-review-queue";
 import { PageHeader } from "@/components/page-header";
 import { formatDateTime, formatNumber } from "@/lib/format";
 import { responsibilityLabel } from "@/lib/localization";
-import { requireDemoRole } from "@/lib/session";
+import { requirePermission } from "@/lib/session";
 
 export const metadata: Metadata = { title: "МТР-анализ" };
 export const dynamic = "force-dynamic";
 
 export default async function MtrAnalysisPage() {
-  const [{ user }, repository] = await Promise.all([requireDemoRole("USER"), getRepository()]);
+  const [{ user }, repository] = await Promise.all([requirePermission("report.read"), getRepository()]);
   const [latest] = await repository.listRuns(user.id, {
     status: "COMPLETED",
     limit: 1,

@@ -5,25 +5,34 @@ import { AppNavigation } from "@/components/app-navigation";
 import { AgentWidget } from "@/components/agent-widget";
 import { LogoutButton } from "@/components/logout-button";
 import type { NavigationItem } from "@/lib/navigation";
+import { ROLE_LABELS, type PermissionKey, type RoleKey } from "@/domain/rbac";
 
 const USER_NAVIGATION = [
-  { name: "Обзор", href: "/" },
-  { name: "Промышленный каталог", href: "/catalog" },
-  { name: "Спецификации", href: "/specifications" },
-  { name: "МТР-анализ", href: "/mtr-analysis" },
-  { name: "Пульс МТР", href: "/pulse" },
-] as const satisfies readonly NavigationItem[];
+  { name: "Обзор", href: "/", permissions: ["project.read"] },
+  { name: "Промышленный каталог", href: "/catalog", permissions: ["catalog.read"] },
+  { name: "Спецификации", href: "/specifications", permissions: ["specification.read"] },
+  { name: "МТР-анализ", href: "/mtr-analysis", permissions: ["report.read"] },
+  { name: "Экспертная очередь", href: "/reviews", permissions: ["review.queue.read"] },
+  { name: "Пульс МТР", href: "/pulse", permissions: ["analysis.read"] },
+] as const;
 
 const ADMIN_NAVIGATION = [
-  { name: "Сценарии и запуски", href: "/admin/scenarios" },
-  { name: "Интеграции", href: "/admin/integrations" },
-  { name: "Промпты", href: "/admin/prompts" },
-  { name: "Словари", href: "/admin/dictionaries" },
-  { name: "Логи агента", href: "/admin/agent-logs" },
-  { name: "Аудит", href: "/admin/audit" },
-] as const satisfies readonly NavigationItem[];
+  { name: "Сценарии и запуски", href: "/admin/scenarios", permissions: ["analysis.read", "scenario_template.manage"] },
+  { name: "Пользователи", href: "/admin/users", permissions: ["user.manage"] },
+  { name: "Роли", href: "/admin/roles", permissions: ["global_role.manage"] },
+  { name: "Участники проекта", href: "/projects/demo-project-001/members", permissions: ["project.members.manage"] },
+  { name: "Интеграции", href: "/admin/integrations", permissions: ["integration.read"] },
+  { name: "Промпты", href: "/admin/prompts", permissions: ["prompt.manage"] },
+  { name: "Словари", href: "/admin/dictionaries", permissions: ["dictionary.manage"] },
+  { name: "Логи агента", href: "/admin/agent-logs", permissions: ["agent.logs.read"] },
+  { name: "Аудит", href: "/admin/audit", permissions: ["audit.read.global", "audit.read.project"] },
+] as const;
 
-export function AppShell({ children, displayName }: { children: ReactNode; displayName: string }) {
+export function AppShell({ children, displayName, permissionKeys, roleKeys }: { children: ReactNode; displayName: string; permissionKeys: readonly string[]; roleKeys: readonly string[] }) {
+  const permissions = new Set(permissionKeys);
+  const userItems = visibleItems(USER_NAVIGATION, permissions);
+  const adminItems = visibleItems(ADMIN_NAVIGATION, permissions);
+  const roleNames = roleKeys.map((role) => ROLE_LABELS[role as RoleKey] ?? role).join(" · ");
   return (
     <div className="min-h-screen bg-[#f5f7f6] text-slate-950">
       <a
@@ -45,10 +54,11 @@ export function AppShell({ children, displayName }: { children: ReactNode; displ
               MOCK
             </span>
           </div>
-          <AppNavigation userItems={USER_NAVIGATION} adminItems={ADMIN_NAVIGATION} />
+          <AppNavigation userItems={userItems} adminItems={adminItems} />
           <div className="hidden border-t border-slate-100 p-4 lg:absolute lg:bottom-0 lg:block lg:w-[231px]">
             <p className="text-xs text-slate-500">Текущий пользователь</p>
             <p className="mt-1 truncate text-sm font-medium">{displayName}</p>
+            <p className="mt-1 text-[11px] leading-4 text-teal-700">{roleNames || "Без активной роли"}</p>
             <p className="mt-2 text-[11px] leading-4 text-slate-500">Только синтетические демонстрационные данные</p>
           </div>
         </aside>
@@ -70,7 +80,11 @@ export function AppShell({ children, displayName }: { children: ReactNode; displ
           </main>
         </div>
       </div>
-      <AgentWidget displayName={displayName} />
+      {permissions.has("agent.chat") ? <AgentWidget displayName={displayName} /> : null}
     </div>
   );
+}
+
+function visibleItems(items: readonly { name: string; href: string; permissions: readonly PermissionKey[] }[], permissions: ReadonlySet<string>): NavigationItem[] {
+  return items.filter((item) => item.permissions.some((permission) => permissions.has(permission))).map(({ name, href }) => ({ name, href }));
 }

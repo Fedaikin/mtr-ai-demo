@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { getRepository } from "@/adapters/persistence/repository";
 import { ApiError, ok, parseJson, toErrorResponse } from "@/lib/api";
-import { requireDemoRole } from "@/lib/session";
+import { requirePermission } from "@/lib/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +16,7 @@ export async function PATCH(
 ) {
   try {
     const [session, repository, input, routeParams] = await Promise.all([
-      requireDemoRole("ADMIN"),
+      requirePermission("scenario_template.manage"),
       getRepository(),
       parseJson(request).then((body) => updateSchema.parse(body)),
       params.then((value) => routeParamsSchema.parse(value)),

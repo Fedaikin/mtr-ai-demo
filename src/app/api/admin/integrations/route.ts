@@ -6,7 +6,7 @@ import {
 } from "@/adapters/persistence/repository";
 import type { IntegrationStatus, IntegrationSystem } from "@/domain/models";
 import { ok, parseJson, toErrorResponse } from "@/lib/api";
-import { requireDemoRole } from "@/lib/session";
+import { requirePermission } from "@/lib/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,7 +49,7 @@ const integrationUpdateSchema = z
 export async function GET() {
   try {
     const [session, repository] = await Promise.all([
-      requireDemoRole("ADMIN"),
+      requirePermission("integration.read"),
       getRepository(),
     ]);
     const integrations = await repository.listIntegrationStates(session.user.id);
@@ -62,7 +62,7 @@ export async function GET() {
 export async function PATCH(request: Request) {
   try {
     const [session, repository, input] = await Promise.all([
-      requireDemoRole("ADMIN"),
+      requirePermission("integration.manage"),
       getRepository(),
       parseJson(request).then((body) => integrationUpdateSchema.parse(body)),
     ]);

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getRepository } from "@/adapters/persistence/repository";
 import { ok, toErrorResponse } from "@/lib/api";
 import { redactSensitiveRecord } from "@/lib/redaction";
-import { requireDemoRole } from "@/lib/session";
+import { requireAnyPermission } from "@/lib/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,7 +19,7 @@ const auditQuerySchema = z.object({
 export async function GET(request: Request) {
   try {
     const [session, repository] = await Promise.all([
-      requireDemoRole("ADMIN"),
+      requireAnyPermission(["audit.read.global", "audit.read.project"]),
       getRepository(),
     ]);
     const searchParams = new URL(request.url).searchParams;

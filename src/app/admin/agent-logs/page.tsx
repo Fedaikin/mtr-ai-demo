@@ -21,7 +21,7 @@ import {
   localizeKnownEnum,
 } from "@/lib/localization";
 import { safeAuditPreview } from "@/lib/redaction";
-import { requireDemoRole } from "@/lib/session";
+import { requirePermission } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Логи AI-агента" };
 export const runtime = "nodejs";
@@ -51,7 +51,7 @@ export default async function AdminAgentLogsPage({
   searchParams: Promise<AgentLogSearchParams>;
 }) {
   const [session, repository, rawQuery] = await Promise.all([
-    requireDemoRole("ADMIN"),
+    requirePermission("agent.logs.read"),
     getRepository(),
     searchParams,
   ]);

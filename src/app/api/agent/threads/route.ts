@@ -1,6 +1,6 @@
 import { getRepository } from "@/adapters/persistence/repository";
 import { created, ok, parseJson, toErrorResponse } from "@/lib/api";
-import { requireDemoRole } from "@/lib/session";
+import { requirePermission } from "@/lib/session";
 
 import { createThreadInputSchema, serializeAgentThread } from "../_shared";
 
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const sessionPromise = requireDemoRole("USER");
+    const sessionPromise = requirePermission("agent.chat");
     const repositoryPromise = getRepository();
     const [{ user }, repository] = await Promise.all([sessionPromise, repositoryPromise]);
     const threads = await repository.listAgentThreads(user.id);
@@ -23,7 +23,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const sessionPromise = requireDemoRole("USER");
+    const sessionPromise = requirePermission("agent.chat");
     const repositoryPromise = getRepository();
     const bodyPromise = parseJson(request).then((body) => createThreadInputSchema.parse(body));
     const [{ user }, repository, body] = await Promise.all([

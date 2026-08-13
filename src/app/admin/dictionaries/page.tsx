@@ -6,7 +6,7 @@ import {
   type AdminDictionaryView,
 } from "@/components/admin-config-dictionaries";
 import { PageHeader } from "@/components/page-header";
-import { requireDemoRole } from "@/lib/session";
+import { requirePermission } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Словари" };
 export const runtime = "nodejs";
@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminDictionariesPage() {
   const [session, repository] = await Promise.all([
-    requireDemoRole("ADMIN"),
+    requirePermission("dictionary.manage"),
     getRepository(),
   ]);
   const records = await repository.listDictionaries(session.user.id);

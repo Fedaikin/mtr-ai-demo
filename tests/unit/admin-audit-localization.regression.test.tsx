@@ -12,7 +12,7 @@ vi.mock("@/adapters/persistence/repository", () => ({
 }));
 
 vi.mock("@/lib/session", () => ({
-  requireDemoRole: vi.fn(async () => ({
+  requireAnyPermission: vi.fn(async () => ({
     id: "session-demo",
     user: {
       id: "demo-user-001",
@@ -21,6 +21,7 @@ vi.mock("@/lib/session", () => ({
     },
     expiresAt: "2026-08-13T00:00:00.000Z",
   })),
+  SessionError: class SessionError extends Error {},
 }));
 
 vi.mock("@/components/admin-config-reset", () => ({

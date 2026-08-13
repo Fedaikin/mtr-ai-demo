@@ -3,7 +3,7 @@ import { scheduleScenarioRunDrain } from "@/application/scenario-background";
 import { TERMINAL_STATUSES } from "@/domain/scenario";
 import { ok } from "@/lib/api";
 import { toScenarioErrorResponse } from "@/lib/scenario-http";
-import { requireDemoRole } from "@/lib/session";
+import { requirePermission } from "@/lib/session";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -12,7 +12,7 @@ export async function GET(_request: Request, { params }: RouteContext<"/api/scen
   try {
     const [{ id }, { user }, service] = await Promise.all([
       params,
-      requireDemoRole("USER"),
+      requirePermission("analysis.read"),
       ScenarioService.create(),
     ]);
     const run = await service.getRun(user.id, id);
