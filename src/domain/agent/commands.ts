@@ -1,7 +1,7 @@
 import type { TrustedRequestContext } from "@/application/authorization-service";
 import type { PermissionKey } from "@/domain/rbac";
 
-export const AGENT_COMMAND_KEYS = ["SUMMARY", "MY_TASKS", "RISKS", "STOCKS", "KPI"] as const;
+export const AGENT_COMMAND_KEYS = ["SUMMARY", "MY_TASKS", "RISKS", "STOCKS", "KPI", "ANALYSIS"] as const;
 export type AgentCommandKey = (typeof AGENT_COMMAND_KEYS)[number];
 
 export interface AgentCommandDefinition {
@@ -46,6 +46,19 @@ export const AGENT_COMMANDS: readonly AgentCommandDefinition[] = Object.freeze([
     label: "KPI и SLA",
     description: "Показать versioned KPI/SLA разрешённого проекта.",
     requiredPermissions: ["agent.chat", "analysis.read", "project.read"],
+    readOnly: true,
+  },
+  {
+    key: "ANALYSIS",
+    label: "Анализ позиции",
+    description: "Объяснить дефицит, построить проверяемый прогноз и сравнить варианты.",
+    requiredPermissions: [
+      "agent.chat",
+      "analysis.read",
+      "specification.read",
+      "catalog.read",
+      "stock.search",
+    ],
     readOnly: true,
   },
 ]);

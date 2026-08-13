@@ -11,7 +11,7 @@ export type NaturalAgentCommand = {
 }[AgentCommandKey];
 
 /**
- * Narrow deterministic router for the five read-only commands. Ambiguous
+ * Narrow deterministic router for read-only commands. Ambiguous
  * domain questions deliberately stay in the grounded legacy capability.
  */
 export function routeNaturalAgentCommand(
@@ -20,6 +20,19 @@ export function routeNaturalAgentCommand(
 ): NaturalAgentCommand | null {
   const normalized = message.trim().toLocaleLowerCase("ru-RU");
   if (!normalized) return null;
+
+  if (/(?:почему\s+(?:возник|будет|ожидается).*дефицит|что\s+если|сравн\p{L}*\s+вариант|сценари\p{L}*\s+(?:постав|спрос|резерв)|прогноз\p{L}*\s+по\s+позици)/iu.test(normalized)) {
+    const horizonDays = requestedHorizonDays(normalized);
+    const positionId = message.match(/\bposition-[A-Za-z0-9-]+\b/u)?.[0];
+    return {
+      commandKey: "ANALYSIS",
+      selection,
+      filters: {
+        ...(positionId === undefined ? {} : { positionId }),
+        ...(horizonDays === null ? {} : { horizonWeeks: Math.max(1, Math.ceil(horizonDays / 7)) }),
+      },
+    };
+  }
 
   if (/(?:\bkpi\b|\bsla\b|ключев\p{L}*\s+показател|метрик\p{L}*)/iu.test(normalized)) {
     const metricKeys = requestedMetricKeys(normalized);
@@ -86,7 +99,7 @@ function requestedRiskLevels(message: string): Array<"LOW" | "MEDIUM" | "HIGH" |
 }
 
 function requestedHorizonDays(message: string): number | null {
-  const value = message.match(/(?:^|\s)(\d{1,3})\s*(?:дн(?:ей|я)?|день)(?=\s|$|[.,])/iu)?.[1];
+  const value = message.match(/(?:^|\s)(\d{1,3})\s*(?:дн(?:ей|я)?|день)(?=\s|$|[.,!?])/iu)?.[1];
   if (value === undefined) return null;
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed >= 1 && parsed <= 365 ? parsed : null;

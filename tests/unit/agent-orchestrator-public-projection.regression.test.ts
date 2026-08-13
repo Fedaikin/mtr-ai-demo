@@ -126,7 +126,9 @@ describe("D-09: публичная проекция результата МТР-
       "technicalContentRemoved",
       "generatedAt",
       "sources",
+      "analysis",
     ]);
+    expect(result.analysis).toBeNull();
     expect(result).toMatchObject({
       responseLabel: "Список рисков",
       statusLabel: "Доступен частичный результат",

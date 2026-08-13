@@ -14,6 +14,7 @@ import type {
 import type { IntegrationState, ScenarioRun } from "@/domain/models";
 import type {
   AgentOrchestratorPorts,
+  AnalyticalReadPort,
   ValidatedAgentSelection,
 } from "@/ports/agent-orchestrator";
 
@@ -26,6 +27,11 @@ const MAX_STOCK_PAGE = 500;
  */
 export function createAgentOrchestratorPersistencePorts(
   repository: MtrRepository,
+  analytics: AnalyticalReadPort = {
+    async analyze() {
+      throw new AgentCommandExecutionError("AGENT_COMMAND_NOT_REGISTERED");
+    },
+  },
 ): AgentOrchestratorPorts {
   const taskService = new AgentTaskService(createAnalysisReviewDecisionReadPort(repository));
   const analyticsService = new RuntimeAgentAnalyticsService(repository);
@@ -300,6 +306,7 @@ export function createAgentOrchestratorPersistencePorts(
         return analyticsService.calculateKpi(context, query);
       },
     },
+    analytics,
   };
 }
 

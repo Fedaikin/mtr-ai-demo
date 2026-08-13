@@ -52,6 +52,7 @@ const SUGGESTIONS = [
   "Покажи состав узла CAT-DEMO-ASM-PIP-0001.",
   "Кто отвечает за позицию position-007?",
   "Подбери составной аналог для позиции position-022.",
+  "Почему ожидается дефицит по position-portfolio-072-003 и какой вариант лучше?",
 ] as const;
 
 const QUICK_COMMANDS: readonly { key: AgentCommandKey; label: string }[] = [

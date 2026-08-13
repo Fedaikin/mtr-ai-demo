@@ -11,6 +11,8 @@ export const AGENT_EVIDENCE_SOURCE_KINDS = [
   "SPECIFICATION_VERSION",
   "TASK_RECORD",
   "RISK_RECORD",
+  "CATALOG_ITEM",
+  "NORMATIVE_RULE",
 ] as const;
 
 export type AgentEvidenceSourceKind = (typeof AGENT_EVIDENCE_SOURCE_KINDS)[number];
@@ -25,6 +27,8 @@ export const AGENT_EVIDENCE_SOURCE_SYSTEMS = [
   "METRIC_REGISTRY",
   "TASK_STORE",
   "RISK_ENGINE",
+  "CATALOG",
+  "NORMATIVE",
 ] as const;
 
 export type AgentEvidenceSourceSystem = (typeof AGENT_EVIDENCE_SOURCE_SYSTEMS)[number];

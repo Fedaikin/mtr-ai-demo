@@ -83,6 +83,20 @@ const commandSchemas = {
         .optional(),
     })
     .strict(),
+  ANALYSIS: z
+    .object({
+      context: contextSchema,
+      filters: z
+        .object({
+          positionId: z.string().trim().min(1).max(200).optional(),
+          horizonWeeks: z.number().int().min(1).max(26).optional(),
+          demandMultiplier: z.number().min(0.5).max(3).optional(),
+          deliveryDelayDays: z.number().int().min(0).max(180).optional(),
+        })
+        .strict()
+        .optional(),
+    })
+    .strict(),
 } satisfies Record<AgentCommandKey, z.ZodType>;
 
 export type AgentCommandRequest = z.output<(typeof commandSchemas)[AgentCommandKey]> & {

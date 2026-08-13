@@ -10,6 +10,7 @@ import type {
   TaskReviewPriority,
   TaskReviewStatus,
 } from "@/domain/agent/task-review";
+import type { PublicAnalyticalAnswer } from "@/domain/agent/analytics/answer";
 
 export type {
   AgentCitation,
@@ -170,12 +171,29 @@ export interface KpiCalculationPort {
   ): Promise<{ readonly metrics: readonly KpiMetric[]; readonly evidence: AgentEvidence }>;
 }
 
+export interface AnalyticalReadQuery {
+  readonly selection: ValidatedAgentSelection;
+  readonly positionId: string;
+  readonly question: string;
+  readonly horizonWeeks: number;
+  readonly demandMultiplier?: number;
+  readonly deliveryDelayDays?: number;
+}
+
+export interface AnalyticalReadPort {
+  analyze(
+    context: AgentExecutionContext,
+    query: AnalyticalReadQuery,
+  ): Promise<PublicAnalyticalAnswer>;
+}
+
 export interface AgentOrchestratorPorts {
   readonly summary: SummaryReadPort;
   readonly tasks: PersonalTaskReadPort;
   readonly risks: RiskEvaluationPort;
   readonly stocks: AgentStockReadPort;
   readonly metrics: KpiCalculationPort;
+  readonly analytics?: AnalyticalReadPort;
 }
 
 interface CommandRequestBase<K extends string, F> {
@@ -212,6 +230,15 @@ export type KpiCommandRequest = CommandRequestBase<
   "KPI",
   { readonly metricKeys?: readonly string[] }
 >;
+export type AnalysisCommandRequest = CommandRequestBase<
+  "ANALYSIS",
+  {
+    readonly positionId?: string;
+    readonly horizonWeeks?: number;
+    readonly demandMultiplier?: number;
+    readonly deliveryDelayDays?: number;
+  }
+>;
 
 export interface AgentCommandRequestMap {
   readonly SUMMARY: SummaryCommandRequest;
@@ -219,6 +246,7 @@ export interface AgentCommandRequestMap {
   readonly RISKS: RisksCommandRequest;
   readonly STOCKS: StocksCommandRequest;
   readonly KPI: KpiCommandRequest;
+  readonly ANALYSIS: AnalysisCommandRequest;
 }
 
 export type AgentOrchestratorCommandRequest = AgentCommandRequestMap[keyof AgentCommandRequestMap];
@@ -255,12 +283,17 @@ export interface KpiCommandResult extends AgentCommandResultBase<"KPI"> {
   readonly metrics: readonly KpiMetric[];
 }
 
+export interface AnalysisCommandResult extends AgentCommandResultBase<"ANALYSIS"> {
+  readonly analysis: PublicAnalyticalAnswer;
+}
+
 export interface AgentCommandResultMap {
   readonly SUMMARY: SummaryCommandResult;
   readonly MY_TASKS: TasksCommandResult;
   readonly RISKS: RisksCommandResult;
   readonly STOCKS: StocksCommandResult;
   readonly KPI: KpiCommandResult;
+  readonly ANALYSIS: AnalysisCommandResult;
 }
 
 export type AgentOrchestratorCommandResult = AgentCommandResultMap[keyof AgentCommandResultMap];

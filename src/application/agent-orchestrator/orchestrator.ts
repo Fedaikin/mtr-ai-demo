@@ -222,6 +222,8 @@ function executeCommand(
       return capability.execute(context, commandRequest("STOCKS", request));
     case "KPI":
       return capability.execute(context, commandRequest("KPI", request));
+    case "ANALYSIS":
+      return capability.execute(context, commandRequest("ANALYSIS", request));
   }
 }
 

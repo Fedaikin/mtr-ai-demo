@@ -149,6 +149,58 @@ export function createAgentCommandHandlers(
         };
       },
     },
+    ANALYSIS: {
+      key: "ANALYSIS",
+      async execute(context, request, selection) {
+        const positionId = selection.positionId ?? request.filters?.positionId;
+        if (!positionId) {
+          throw new AgentCommandExecutionError("AGENT_POSITION_CONTEXT_REQUIRED");
+        }
+        if (!ports.analytics) {
+          throw new AgentCommandExecutionError("AGENT_COMMAND_NOT_REGISTERED");
+        }
+        const analysis = await ports.analytics.analyze(context, {
+          selection,
+          positionId,
+          question: "Почему возникнет дефицит и какой вариант предпочтителен?",
+          horizonWeeks: request.filters?.horizonWeeks ?? 8,
+          demandMultiplier: request.filters?.demandMultiplier,
+          deliveryDelayDays: request.filters?.deliveryDelayDays,
+        });
+        const citations: AgentCitation[] = analysis.citations.map((citation) => ({
+          sourceKind:
+            citation.sourceSystem === "APPIUS"
+              ? "SPECIFICATION_VERSION"
+              : citation.sourceSystem === "SAP"
+                ? "STOCK_SNAPSHOT"
+                : citation.sourceSystem === "CATALOG"
+                  ? "CATALOG_ITEM"
+                  : citation.sourceSystem === "NORMATIVE"
+                    ? "NORMATIVE_RULE"
+                    : "PROCESS_EVENT",
+          sourceSystem: citation.sourceSystem,
+          entityId: citation.entityId,
+          sourceSnapshot: citation.versionOrSnapshot,
+          observedAt: citation.observedAt,
+          clauseId: citation.clauseId,
+        }));
+        return {
+          responseType: "ANALYSIS",
+          title: "Анализ позиции",
+          summary: analysis.executiveSummary,
+          analysis,
+          citations,
+          missingData: analysis.missingData.map((item) => ({
+            code: item.code,
+            message: item.messageRu,
+          })),
+          confidence: analysis.confidence,
+          requiresHumanReview: true,
+          negativeEvidence: analysis.confidence > 0 ? "NOT_EMPTY" : "UNPROVEN_EMPTY",
+          generatedAt: analysis.generatedAt,
+        };
+      },
+    },
   };
 }
 

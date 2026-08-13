@@ -64,4 +64,27 @@ describe("контракт быстрых команд МТР-агента", () 
       ).toThrow();
     },
   );
+
+  it("валидирует allowlisted параметры аналитического сценария", () => {
+    expect(
+      parseAgentCommandRequest("ANALYSIS", {
+        context: { projectId: "demo-project-001" },
+        filters: {
+          positionId: "position-portfolio-072-003",
+          horizonWeeks: 8,
+          demandMultiplier: 1.2,
+          deliveryDelayDays: 14,
+        },
+      }),
+    ).toMatchObject({
+      commandKey: "ANALYSIS",
+      filters: { horizonWeeks: 8, demandMultiplier: 1.2, deliveryDelayDays: 14 },
+    });
+    expect(() =>
+      parseAgentCommandRequest("ANALYSIS", {
+        context: {},
+        filters: { demandMultiplier: 100 },
+      }),
+    ).toThrow();
+  });
 });

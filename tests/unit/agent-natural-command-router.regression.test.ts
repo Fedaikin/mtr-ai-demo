@@ -9,10 +9,22 @@ describe("natural-language typed command routing", () => {
     ["Покажи критические риски нехватки на 30 дней", "RISKS"],
     ["Покажи остатки SAP-DEMO-0001 на WH-DEMO-NORTH", "STOCKS"],
     ["Покажи KPI по длительности цикла", "KPI"],
+    ["Почему ожидается дефицит по position-portfolio-072-003?", "ANALYSIS"],
   ] as const)("маршрутизирует «%s» в %s", (message, commandKey) => {
     expect(routeNaturalAgentCommand(message, { projectId: "project-1" })).toMatchObject({
       commandKey,
       selection: { projectId: "project-1" },
+    });
+  });
+
+  it("извлекает позицию и переводит горизонт аналитики из дней в недели", () => {
+    expect(routeNaturalAgentCommand(
+      "Почему ожидается дефицит по position-portfolio-072-003 на 30 дней?",
+      { projectId: "demo-project-001" },
+    )).toEqual({
+      commandKey: "ANALYSIS",
+      selection: { projectId: "demo-project-001" },
+      filters: { positionId: "position-portfolio-072-003", horizonWeeks: 5 },
     });
   });
 

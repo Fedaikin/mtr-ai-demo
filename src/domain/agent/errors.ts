@@ -2,6 +2,7 @@ export type AgentCommandExecutionErrorCode =
   | "AGENT_COMMAND_FORBIDDEN"
   | "AGENT_COMMAND_NOT_REGISTERED"
   | "AGENT_PROJECT_CONTEXT_REQUIRED"
+  | "AGENT_POSITION_CONTEXT_REQUIRED"
   | "AGENT_SELECTION_STALE"
   | "AGENT_WAREHOUSE_SCOPE_DENIED";
 
@@ -20,6 +21,8 @@ function messageFor(code: AgentCommandExecutionErrorCode): string {
       return "Команда МТР-агента недоступна";
     case "AGENT_PROJECT_CONTEXT_REQUIRED":
       return "Не выбран доступный проект";
+    case "AGENT_POSITION_CONTEXT_REQUIRED":
+      return "Для аналитической команды выберите позицию";
     case "AGENT_SELECTION_STALE":
       return "Контекст команды изменился, обновите данные";
     case "AGENT_WAREHOUSE_SCOPE_DENIED":

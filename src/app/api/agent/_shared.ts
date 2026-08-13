@@ -5,6 +5,7 @@ import { z } from "zod";
 import { AppiusMockAdapter } from "@/adapters/mock/appius-adapter";
 import { IntegrationAwareLlmProvider } from "@/adapters/mock/integration-aware-llm-provider";
 import { createMockLLMProvider } from "@/adapters/mock/mock-llm-provider";
+import { createModelAnalyticalReadPort } from "@/adapters/mock/agent-analytical-read-port";
 import { NormativeMockAdapter } from "@/adapters/mock/normative-adapter";
 import { SapMockAdapter } from "@/adapters/mock/sap-adapter";
 import { createCatalogRepositoryPort } from "@/adapters/persistence/catalog-port";
@@ -98,7 +99,9 @@ export function createMtrAgentOrchestrator(
   const policy = readAgentFeaturePolicy();
   const commandCapability = policy.orchestratorEnabled && policy.executionAllowed
     ? new AuditedAgentCommandCapability(
-        createAgentCommandRegistry(createAgentOrchestratorPersistencePorts(repository)),
+        createAgentCommandRegistry(
+          createAgentOrchestratorPersistencePorts(repository, createModelAnalyticalReadPort()),
+        ),
         repository,
         undefined,
         repository,

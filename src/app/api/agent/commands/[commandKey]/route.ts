@@ -89,6 +89,8 @@ function commandErrorResponse(error: unknown) {
   if (error instanceof AgentCommandExecutionError) {
     const status = error.code === "AGENT_COMMAND_NOT_REGISTERED"
       ? 404
+      : error.code === "AGENT_POSITION_CONTEXT_REQUIRED"
+        ? 400
       : error.code === "AGENT_SELECTION_STALE"
         ? 409
         : 403;

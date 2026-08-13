@@ -14,6 +14,7 @@ const RESPONSE_TYPE_LABELS: Readonly<Record<string, string>> = Object.freeze({
   STOCKS: "Остатки",
   STOCK_LIST: "Остатки",
   ACTION_PROPOSAL: "Предложенное действие",
+  ANALYSIS: "Анализ позиции",
 });
 
 const STATUS_LABELS: Readonly<Record<string, string>> = Object.freeze({
@@ -117,6 +118,37 @@ export interface PublicAgentCommandResult {
   readonly technicalContentRemoved: boolean;
   readonly generatedAt: string | null;
   readonly sources: readonly PublicAgentSource[];
+  readonly analysis: PublicAgentAnalysisSummary | null;
+}
+
+export interface PublicAgentAnalysisSummary {
+  readonly executiveSummary: string;
+  readonly facts: readonly string[];
+  readonly findings: readonly string[];
+  readonly drivers: readonly {
+    readonly title: string;
+    readonly status: string;
+    readonly relationship: string;
+    readonly contributionPercent: number;
+  }[];
+  readonly forecast: {
+    readonly model: string;
+    readonly horizonWeeks: number;
+    readonly mae: number;
+    readonly wapePercent: number;
+    readonly bias: number;
+    readonly interval: readonly { readonly week: string; readonly lower: number; readonly point: number; readonly upper: number }[];
+  } | null;
+  readonly scenarios: readonly {
+    readonly kind: string;
+    readonly score: number;
+    readonly feasible: boolean;
+    readonly coveredQuantity: number;
+    readonly remainingShortage: number;
+  }[];
+  readonly recommendation: string | null;
+  readonly limitations: readonly string[];
+  readonly nextActions: readonly string[];
 }
 
 export function responseTypeLabel(value: unknown): string {
@@ -170,6 +202,7 @@ export function toPublicAgentCommandResult(input: unknown): PublicAgentCommandRe
     technicalContentRemoved,
     generatedAt: safeIsoTimestamp(record?.generatedAt),
     sources: Object.freeze(projectSources(record?.sources)),
+    analysis: projectAnalysis(record?.analysis),
   });
 }
 
@@ -204,6 +237,70 @@ export function projectAgentCommandResult(
       availability: "AVAILABLE",
       href: citationHref(citation.sourceSystem, citation.entityId),
     })),
+    ...(result.responseType === "ANALYSIS" ? { analysis: result.analysis } : {}),
+  });
+}
+
+function projectAnalysis(value: unknown): PublicAgentAnalysisSummary | null {
+  const record = asRecord(value);
+  if (record?.schemaVersion !== "mtr-analytical-answer-1.0.0") return null;
+  const facts = arrayOfRecords(record.confirmedFacts)
+    .map((item) => safeDisplayText(item.text, 500))
+    .filter((item): item is string => item !== null)
+    .slice(0, 10);
+  const findings = arrayOfRecords(record.findings)
+    .map((item) => safeDisplayText(item.text, 500))
+    .filter((item): item is string => item !== null)
+    .slice(0, 10);
+  const drivers = arrayOfRecords(record.drivers).slice(0, 5).flatMap((item) => {
+    const title = safeDisplayText(item.titleRu, 300);
+    if (!title) return [];
+    return [{
+      title,
+      status: hypothesisStatusLabel(item.status),
+      relationship: relationshipLabel(item.relationship),
+      contributionPercent: percent(item.contribution),
+    }];
+  });
+  const forecastRecord = asRecord(record.forecast);
+  const modelRecord = asRecord(forecastRecord?.selectedModel);
+  const metricRecord = asRecord(modelRecord?.metrics);
+  const model = safeDisplayText(modelRecord?.modelVersion, 200);
+  const forecast = forecastRecord?.status === "COMPLETE" && model
+    ? {
+        model,
+        horizonWeeks: safeInteger(forecastRecord.horizonWeeks, 1, 26),
+        mae: safeNumber(metricRecord?.mae),
+        wapePercent: percent(metricRecord?.wape),
+        bias: safeNumber(metricRecord?.bias),
+        interval: arrayOfRecords(forecastRecord.points).slice(0, 26).map((point) => ({
+          week: safeIsoTimestamp(point.weekStart) ?? "",
+          lower: safeNumber(point.lower),
+          point: safeNumber(point.point),
+          upper: safeNumber(point.upper),
+        })).filter((point) => point.week !== ""),
+      }
+    : null;
+  const scenarios = arrayOfRecords(record.scenarios).slice(0, 3).map((scenario) => ({
+    kind: scenarioKindLabel(scenario.kind),
+    score: safeNumber(scenario.score),
+    feasible: scenario.feasible === true,
+    coveredQuantity: safeNumber(scenario.coveredQuantity),
+    remainingShortage: safeNumber(scenario.remainingShortage),
+  }));
+  const recommendationRecord = asRecord(record.recommendation);
+  const executiveSummary = safeDisplayText(record.executiveSummary, 2_000);
+  if (!executiveSummary) return null;
+  return Object.freeze({
+    executiveSummary,
+    facts,
+    findings,
+    drivers,
+    forecast,
+    scenarios,
+    recommendation: safeDisplayText(recommendationRecord?.nextAction, 500),
+    limitations: arrayOfStrings(asRecord(record.uncertainty)?.limitations, 10, 500),
+    nextActions: arrayOfStrings(record.nextActions, 5, 500),
   });
 }
 
@@ -253,6 +350,74 @@ function knownLabel(
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
+}
+
+function arrayOfRecords(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value)
+    ? value.map((item) => asRecord(item)).filter((item): item is Record<string, unknown> => item !== null)
+    : [];
+}
+
+function arrayOfStrings(value: unknown, maxItems: number, maxLength: number): string[] {
+  return Array.isArray(value)
+    ? value
+        .map((item) => safeDisplayText(item, maxLength))
+        .filter((item): item is string => item !== null)
+        .slice(0, maxItems)
+    : [];
+}
+
+function safeNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function safeInteger(value: unknown, minimum: number, maximum: number): number {
+  return typeof value === "number" && Number.isInteger(value)
+    ? Math.min(maximum, Math.max(minimum, value))
+    : minimum;
+}
+
+function percent(value: unknown): number {
+  return Math.round(Math.min(1, Math.max(0, safeNumber(value))) * 10_000) / 100;
+}
+
+function hypothesisStatusLabel(value: unknown): string {
+  return knownLabel(
+    {
+      UNTESTED: "Не проверена",
+      SUPPORTED: "Поддержана данными",
+      REFUTED: "Опровергнута",
+      UNKNOWN: "Недостаточно данных",
+    },
+    value,
+    "Статус не определён",
+  );
+}
+
+function relationshipLabel(value: unknown): string {
+  return knownLabel(
+    {
+      CAUSAL: "Подтверждённая причина",
+      ASSOCIATED: "Связанный фактор",
+      NONE: "Связь не подтверждена",
+      UNKNOWN: "Характер связи не определён",
+    },
+    value,
+    "Характер связи не определён",
+  );
+}
+
+function scenarioKindLabel(value: unknown): string {
+  return knownLabel(
+    {
+      DIRECT: "Прямой остаток",
+      SINGLE_SUBSTITUTE: "Один нормативный аналог",
+      COMPOSITE_SUBSTITUTE: "Комбинация нормативных аналогов",
+      PROCUREMENT: "Проект закупки",
+    },
+    value,
+    "Вариант",
+  );
 }
 
 function safeIdentifier(value: unknown): string {

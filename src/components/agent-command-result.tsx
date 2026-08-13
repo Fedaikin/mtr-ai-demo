@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import type {
+  PublicAgentAnalysisSummary,
   PublicAgentCommandResult,
   PublicAgentSource,
 } from "@/application/agent-orchestrator/public-projection";
@@ -61,6 +62,8 @@ export function AgentCommandResult({ result }: { result: PublicAgentCommandResul
         </p>
       ) : null}
 
+      {result.analysis ? <AnalyticalDetails analysis={result.analysis} /> : null}
+
       {result.sources.length > 0 ? (
         <section aria-labelledby={sourcesTitleId} className="mt-5 border-t border-slate-100 pt-4">
           <h3 id={sourcesTitleId} className="text-sm font-semibold text-slate-900">
@@ -77,6 +80,100 @@ export function AgentCommandResult({ result }: { result: PublicAgentCommandResul
       ) : null}
     </section>
   );
+}
+
+function AnalyticalDetails({ analysis }: { analysis: PublicAgentAnalysisSummary }) {
+  return (
+    <section aria-label="Доказательная аналитика" className="mt-5 space-y-4 border-t border-slate-100 pt-4">
+      <div>
+        <h3 className="text-sm font-semibold text-slate-950">Подтверждённые факты</h3>
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+          {analysis.facts.map((fact) => <li key={fact}>{fact}</li>)}
+        </ul>
+      </div>
+
+      {analysis.drivers.length > 0 ? (
+        <div>
+          <h3 className="text-sm font-semibold text-slate-950">Главные факторы</h3>
+          <ul className="mt-2 grid gap-2 md:grid-cols-3">
+            {analysis.drivers.map((driver) => (
+              <li key={`${driver.title}-${driver.status}`} className="rounded-lg bg-slate-50 p-3 text-sm">
+                <p className="font-semibold text-slate-900">{driver.title}</p>
+                <p className="mt-1 text-slate-600">{driver.relationship} · {driver.contributionPercent}%</p>
+                <p className="mt-1 text-xs text-slate-500">{driver.status}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {analysis.forecast ? (
+        <details className="rounded-lg border border-slate-200 p-3">
+          <summary className="cursor-pointer text-sm font-semibold text-slate-900">
+            Прогноз и backtest
+          </summary>
+          <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-4">
+            <Metric label="Горизонт" value={`${analysis.forecast.horizonWeeks} нед.`} />
+            <Metric label="MAE" value={formatNumber(analysis.forecast.mae)} />
+            <Metric label="WAPE" value={`${formatNumber(analysis.forecast.wapePercent)}%`} />
+            <Metric label="Bias" value={formatNumber(analysis.forecast.bias)} />
+          </dl>
+          <p className="mt-2 break-all text-xs text-slate-500">Модель: {analysis.forecast.model}</p>
+        </details>
+      ) : null}
+
+      {analysis.scenarios.length > 0 ? (
+        <div>
+          <h3 className="text-sm font-semibold text-slate-950">Сравнение вариантов</h3>
+          <div className="mt-2 overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="text-slate-500">
+                <tr>
+                  <th className="px-2 py-1 font-medium">Вариант</th>
+                  <th className="px-2 py-1 font-medium">Покрыто</th>
+                  <th className="px-2 py-1 font-medium">Дефицит</th>
+                  <th className="px-2 py-1 font-medium">Проверка</th>
+                </tr>
+              </thead>
+              <tbody>
+                {analysis.scenarios.map((scenario) => (
+                  <tr key={`${scenario.kind}-${scenario.score}`} className="border-t border-slate-100">
+                    <td className="px-2 py-2 font-medium text-slate-900">{scenario.kind}</td>
+                    <td className="px-2 py-2 text-slate-700">{formatNumber(scenario.coveredQuantity)}</td>
+                    <td className="px-2 py-2 text-slate-700">{formatNumber(scenario.remainingShortage)}</td>
+                    <td className="px-2 py-2 text-slate-700">{scenario.feasible ? "Допустим" : "Отклонён"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
+
+      {analysis.recommendation ? (
+        <p className="rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-medium text-teal-950">
+          Следующий шаг: {analysis.recommendation}
+        </p>
+      ) : null}
+
+      {analysis.limitations.length > 0 ? (
+        <details className="text-sm text-slate-600">
+          <summary className="cursor-pointer font-medium text-slate-800">Ограничения расчёта</summary>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            {analysis.limitations.map((limitation) => <li key={limitation}>{limitation}</li>)}
+          </ul>
+        </details>
+      ) : null}
+    </section>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return <div><dt className="text-slate-500">{label}</dt><dd className="font-semibold text-slate-900">{value}</dd></div>;
+}
+
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value);
 }
 
 function SourceCard({ source }: { source: PublicAgentSource }) {
