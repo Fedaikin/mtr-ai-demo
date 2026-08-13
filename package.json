@@ -28,7 +28,8 @@
     "eval:agent:analytical": "node --conditions=react-server --import tsx scripts/eval-agent-analytical.ts",
     "eval:agent:learning": "node --conditions=react-server --import tsx scripts/eval-agent-learning.ts",
     "eval:agent:provider": "node --conditions=react-server --import tsx scripts/eval-agent-provider.ts",
-    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm privacy:scan && pnpm eval:agent && pnpm eval:agent:analytical && pnpm eval:agent:learning && pnpm eval:agent:provider && pnpm build"
+    "eval:agent:security": "node --conditions=react-server --import tsx scripts/eval-agent-security.ts",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm privacy:scan && pnpm eval:agent && pnpm eval:agent:analytical && pnpm eval:agent:learning && pnpm eval:agent:provider && pnpm eval:agent:security && pnpm build"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
