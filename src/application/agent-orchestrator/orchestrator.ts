@@ -14,8 +14,14 @@ import type { AgentCommandKey } from "@/domain/agent/commands";
 import {
   createAgentExecutionContext,
   type AgentContextSelection,
+  type AgentExecutionContext,
 } from "@/domain/agent/context";
 import type { GroundedAgentOutput } from "@/domain/models";
+import type {
+  AgentCommandRequestMap,
+  AgentCommandResultMap,
+  AgentOrchestratorCommandResult,
+} from "@/ports/agent-orchestrator";
 
 const periodSchema = z
   .object({
@@ -53,13 +59,17 @@ export interface AgentChatOrchestratorRequest {
   readonly promptVersion?: string;
 }
 
-export interface AgentCommandOrchestratorRequest {
+type AgentCommandOrchestratorEnvelope<K extends AgentCommandKey> = {
   readonly kind: "COMMAND";
-  readonly commandKey: AgentCommandKey;
+  readonly commandKey: K;
   readonly selection?: AgentContextSelection;
-  readonly filters?: Readonly<Record<string, unknown>>;
+  readonly filters?: AgentCommandRequestMap[K]["filters"];
   readonly correlationId?: string;
-}
+};
+
+export type AgentCommandOrchestratorRequest = {
+  readonly [K in AgentCommandKey]: AgentCommandOrchestratorEnvelope<K>;
+}[AgentCommandKey];
 
 export interface AgentEventOrchestratorRequest {
   readonly kind: "EVENT";
@@ -75,35 +85,76 @@ export type MtrAgentOrchestratorRequest =
   | AgentCommandOrchestratorRequest
   | AgentEventOrchestratorRequest;
 
-export type MtrAgentOrchestratorResult = Readonly<{
+export type AgentChatOrchestratorResult = Readonly<{
   kind: "CHAT";
   output: GroundedAgentOutput;
 }>;
+
+export type AgentCommandOrchestratorResult = Readonly<{
+  kind: "COMMAND";
+  output: AgentOrchestratorCommandResult;
+}>;
+
+export type MtrAgentOrchestratorResult =
+  | AgentChatOrchestratorResult
+  | AgentCommandOrchestratorResult;
 
 export interface LegacyAgentCapability {
   respond(request: TrustedAgentRequest): Promise<GroundedAgentOutput>;
 }
 
+export interface AgentCommandCapability {
+  execute<K extends AgentCommandKey>(
+    context: AgentExecutionContext,
+    request: AgentCommandRequestMap[K] & { readonly commandKey: K },
+  ): Promise<AgentCommandResultMap[K]>;
+}
+
 /**
  * Single application seam for every MTR-agent entry channel.
- * Only CHAT is enabled in this increment; COMMAND and EVENT are explicit closed branches.
+ * All entry channels share this authorization/context boundary. EVENT remains
+ * explicitly closed until its capability is injected.
  */
 export class MtrAgentOrchestrator {
-  constructor(private readonly legacyChat: LegacyAgentCapability) {}
+  constructor(
+    private readonly legacyChat: LegacyAgentCapability,
+    private readonly commands?: AgentCommandCapability,
+  ) {}
 
+  async handle(
+    request: AgentChatOrchestratorRequest,
+    authorization: TrustedRequestContext,
+  ): Promise<AgentChatOrchestratorResult>;
+  async handle(
+    request: AgentCommandOrchestratorRequest,
+    authorization: TrustedRequestContext,
+  ): Promise<AgentCommandOrchestratorResult>;
+  async handle(
+    request: MtrAgentOrchestratorRequest,
+    authorization: TrustedRequestContext,
+  ): Promise<MtrAgentOrchestratorResult>;
   async handle(
     request: MtrAgentOrchestratorRequest,
     authorization: TrustedRequestContext,
   ): Promise<MtrAgentOrchestratorResult> {
-    if (request.kind !== "CHAT") {
-      throw new AgentOrchestratorChannelUnavailableError(request.kind);
+    if (request.kind === "EVENT") {
+      throw new AgentOrchestratorChannelUnavailableError("EVENT");
     }
 
-    requirePermission(authorization, "agent.chat");
     const executionContext = createAgentExecutionContext(authorization, {
       selection: request.selection,
       correlationId: request.correlationId,
     });
+
+    if (request.kind === "COMMAND") {
+      if (!this.commands) {
+        throw new AgentOrchestratorChannelUnavailableError("COMMAND");
+      }
+      const output = await executeCommand(this.commands, executionContext, request);
+      return Object.freeze({ kind: "COMMAND", output });
+    }
+
+    requirePermission(authorization, "agent.chat");
 
     const output = await this.legacyChat.respond({
       message: request.message,
@@ -115,6 +166,36 @@ export class MtrAgentOrchestrator {
 
     return Object.freeze({ kind: "CHAT", output });
   }
+}
+
+function executeCommand(
+  capability: AgentCommandCapability,
+  context: AgentExecutionContext,
+  request: AgentCommandOrchestratorRequest,
+): Promise<AgentOrchestratorCommandResult> {
+  switch (request.commandKey) {
+    case "SUMMARY":
+      return capability.execute(context, commandRequest("SUMMARY", request));
+    case "MY_TASKS":
+      return capability.execute(context, commandRequest("MY_TASKS", request));
+    case "RISKS":
+      return capability.execute(context, commandRequest("RISKS", request));
+    case "STOCKS":
+      return capability.execute(context, commandRequest("STOCKS", request));
+    case "KPI":
+      return capability.execute(context, commandRequest("KPI", request));
+  }
+}
+
+function commandRequest<K extends AgentCommandKey>(
+  commandKey: K,
+  request: AgentCommandOrchestratorEnvelope<K>,
+): AgentCommandRequestMap[K] & { readonly commandKey: K } {
+  return {
+    commandKey,
+    context: request.selection ?? {},
+    ...(request.filters === undefined ? {} : { filters: request.filters }),
+  } as unknown as AgentCommandRequestMap[K] & { readonly commandKey: K };
 }
 
 export class AgentOrchestratorChannelUnavailableError extends Error {

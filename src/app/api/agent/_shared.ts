@@ -8,8 +8,10 @@ import { createMockLLMProvider } from "@/adapters/mock/mock-llm-provider";
 import { NormativeMockAdapter } from "@/adapters/mock/normative-adapter";
 import { SapMockAdapter } from "@/adapters/mock/sap-adapter";
 import { createCatalogRepositoryPort } from "@/adapters/persistence/catalog-port";
+import { createAgentOrchestratorPersistencePorts } from "@/adapters/persistence/agent-orchestrator-ports";
 import type { MtrRepository } from "@/adapters/persistence/repository";
 import { toPublicAgentDecision } from "@/application/agent-presentation";
+import { createAgentCommandRegistry } from "@/application/agent-orchestrator/command-registry";
 import {
   agentChatInputSchema,
   MtrAgentOrchestrator,
@@ -87,7 +89,10 @@ export function createAgentRuntime(repository: MtrRepository): AgentService {
 }
 
 export function createMtrAgentOrchestrator(repository: MtrRepository): MtrAgentOrchestrator {
-  return new MtrAgentOrchestrator(createAgentRuntime(repository));
+  return new MtrAgentOrchestrator(
+    createAgentRuntime(repository),
+    createAgentCommandRegistry(createAgentOrchestratorPersistencePorts(repository)),
+  );
 }
 
 export async function requireOwnedAgentThread(

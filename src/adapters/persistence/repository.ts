@@ -105,6 +105,8 @@ export interface SapMaterialQuery {
   text?: string;
   equipmentType?: string;
   materialCode?: string;
+  /** Trusted storage-location scope applied by SQL before paging or counting. */
+  warehouseIds?: readonly string[];
   limit?: number;
   offset?: number;
   /** OData-compatible aliases used by the SAP mock port. */
@@ -3879,6 +3881,13 @@ function sapConditions(userId: string, options: SapMaterialQuery): SQL[] {
   const conditions: SQL[] = [eq(sapMaterials.userId, userId)];
   if (options.equipmentType) conditions.push(eq(sapMaterials.equipmentType, options.equipmentType));
   if (options.materialCode) conditions.push(eq(sapMaterials.materialCode, options.materialCode));
+  if (options.warehouseIds) {
+    conditions.push(
+      options.warehouseIds.length > 0
+        ? inArray(sapStockBalances.storageLocation, [...options.warehouseIds])
+        : sql<boolean>`false`,
+    );
+  }
   if (options.text?.trim()) {
     const pattern = `%${escapeLike(options.text.trim())}%`;
     conditions.push(

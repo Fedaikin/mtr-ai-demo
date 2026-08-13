@@ -104,8 +104,10 @@ export interface AgentStockItem {
   readonly materialCode: string;
   readonly warehouseId: string;
   readonly availableQuantity: number;
-  readonly reservedQuantity: number;
-  readonly quarantinedQuantity: number;
+  /** Null means the current repository source does not expose this dimension. */
+  readonly reservedQuantity: number | null;
+  /** Null means the current repository source does not expose this dimension. */
+  readonly quarantinedQuantity: number | null;
   readonly unit: string;
   readonly snapshotAt: string;
 }
@@ -125,9 +127,14 @@ export interface AgentStockReadPort {
   ): Promise<{ readonly items: readonly AgentStockItem[]; readonly evidence: AgentEvidence }>;
 }
 
-export type KpiSourceKind = AgentCitation["sourceKind"];
+export type KpiSourceKind = Extract<
+  AgentCitation["sourceKind"],
+  "MATERIAL_MOVEMENT" | "PROCESS_EVENT" | "TECHNICAL_SAMPLE" | "DEFINITION"
+>;
 
-export type KpiDrillDownItem = AgentCitation;
+export interface KpiDrillDownItem extends Omit<AgentCitation, "sourceKind"> {
+  readonly sourceKind: KpiSourceKind;
+}
 
 export interface KpiMetric {
   readonly metricKey: string;

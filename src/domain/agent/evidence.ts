@@ -7,6 +7,10 @@ export const AGENT_EVIDENCE_SOURCE_KINDS = [
   "PROCESS_EVENT",
   "TECHNICAL_SAMPLE",
   "DEFINITION",
+  "STOCK_SNAPSHOT",
+  "SPECIFICATION_VERSION",
+  "TASK_RECORD",
+  "RISK_RECORD",
 ] as const;
 
 export type AgentEvidenceSourceKind = (typeof AGENT_EVIDENCE_SOURCE_KINDS)[number];
@@ -14,6 +18,8 @@ export type AgentEvidenceSourceKind = (typeof AGENT_EVIDENCE_SOURCE_KINDS)[numbe
 export const AGENT_EVIDENCE_SOURCE_SYSTEMS = [
   "SAP",
   "APPIUS",
+  "RAG",
+  "LLM",
   "PROCESS_ENGINE",
   "TELEMETRY",
   "METRIC_REGISTRY",
