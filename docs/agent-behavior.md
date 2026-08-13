@@ -242,6 +242,8 @@ Versioned `evals/mtr-agent-security-cases.jsonl` содержит ещё 32 ис
 
 Versioned `evals/mtr-agent-scale-cases.jsonl` содержит 20 distinct ANALYSIS-кейсов по 12 спецификациям санкционированной когорты `g1-vertical-v1`: components, assemblies, intentional negatives и analogue boundaries. Runner выполняет два батча по 10 запросов к единому runtime, проверяет соответствие ответа позиции, отсутствие cross-request context mixing, bounded public payload и нулевое обращение к legacy/LLM capability. Запуск: `pnpm eval:agent:scale`.
 
+Versioned `evals/mtr-agent-multi-turn-cases.jsonl` завершает curriculum 27 трёхходовыми диалогами. Пятнадцать sensitivity-кейсов проверяют базовый анализ, эллиптический follow-up в том же thread/page context и детерминированное восстановление исходного расчёта. Двенадцать feedback-кейсов проверяют цепочку analysis → quarantined feedback → повторный analysis: поведение не меняется online, а prompt/model/rule/evidence provenance сохраняется. Запуск: `pnpm eval:agent:multi-turn`.
+
 ## Ограничения прототипа
 
 - Intent routing и извлечение идентификаторов детерминированы и рассчитаны на демонстрационные формулировки.
