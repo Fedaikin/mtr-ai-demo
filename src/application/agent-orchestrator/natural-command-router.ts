@@ -60,7 +60,7 @@ export function routeNaturalAgentCommand(
       ...(Object.keys(filters).length > 0 ? { filters } : {}),
     };
   }
-  if (/(?:остатк\p{L}*|складск\p{L}*\s+(?:налич|запас)|налич\p{L}*\s+на\s+склад)/iu.test(normalized)) {
+  if (/(?:остат(?:ок|к\p{L}*)|складск\p{L}*\s+(?:налич|запас)|налич\p{L}*\s+на\s+склад)/iu.test(normalized)) {
     const materialCode = message.match(/\bSAP-DEMO-[A-Z0-9-]+\b/iu)?.[0]?.toLocaleUpperCase("en-US");
     const warehouseIds = [...message.matchAll(/\bWH-[A-Z0-9-]+\b/giu)]
       .map((match) => match[0].toLocaleUpperCase("en-US"));

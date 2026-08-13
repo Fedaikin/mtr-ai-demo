@@ -191,4 +191,32 @@ describe("agent message serialization boundary", () => {
     });
     expect(json).not.toMatch(/demo-analyst-001|assign-secret-1|demo-project-001|fromRoleKey|toRoleKey|internalTrace/u);
   });
+
+  it("restores universal business cards but takes sources only from reauthorized citations", () => {
+    const saved = bundle();
+    (saved.message as { structuredOutput: Record<string, unknown> | null }).structuredOutput = {
+      schemaVersion: "universal-agent-answer-v1",
+      output: {
+        summary: "Доступно 12 EA.",
+        resolvedContext: { businessProject: { id: "private-project-id" } },
+        facts: [{ key: "available", label: "Доступно", value: 12, unit: "EA", status: "NORMAL" }],
+        tables: [], risks: [], compatibility: [], recommendations: [], actions: [], missingData: [],
+        citations: [{ sourceSystem: "SAP", entityId: "private-revoked-source" }],
+        confidence: 1,
+        requiresHumanReview: false,
+        generatedAt: "2026-08-13T09:15:00.000Z",
+        mode: "DETERMINISTIC_FALLBACK",
+        runtime: { model: "private-model" },
+      },
+    };
+
+    const serialized = serializeAgentMessage(saved, []);
+    const json = JSON.stringify(serialized);
+    expect(serialized.structuredOutput).toMatchObject({
+      schemaVersion: "universal-agent-answer-public-v1",
+      facts: [{ label: "Доступно", value: 12, unit: "EA", statusLabel: "Норма" }],
+    });
+    expect(serialized.citations).toEqual([]);
+    expect(json).not.toMatch(/private-project-id|private-revoked-source|private-model|runtime|resolvedContext/u);
+  });
 });

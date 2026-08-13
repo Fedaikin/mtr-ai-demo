@@ -906,6 +906,29 @@ export class MtrRepository {
     return row ? toSpecification(row) : null;
   }
 
+  async getBusinessProjectInProject(
+    userId: string,
+    projectId: string,
+    businessProjectId: string,
+  ): Promise<{ id: string; accessProjectId: string } | null> {
+    trustedUser(userId);
+    const [row] = executedRows(await this.db.execute(sql`
+      select bp.id, bp.access_project_id
+      from business_projects bp
+      join project_memberships pm
+        on pm.project_id=bp.access_project_id
+       and pm.user_id=${userId}
+       and pm.status='ACTIVE'
+      where bp.tenant_id='demo-tenant-001'
+        and bp.access_project_id=${projectId}
+        and bp.id=${businessProjectId}
+      limit 1
+    `));
+    return row
+      ? { id: String(row.id), accessProjectId: String(row.access_project_id) }
+      : null;
+  }
+
   async listSpecificationVersions(
     userId: string,
     specificationId: string,

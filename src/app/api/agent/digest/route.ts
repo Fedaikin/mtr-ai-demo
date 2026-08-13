@@ -47,7 +47,7 @@ function assertEnabled(): void {
   }
 }
 
-export function digestErrorResponse(error: unknown) {
+function digestErrorResponse(error: unknown) {
   if (error instanceof WeeklyDigestServiceError || error instanceof AgentTaskServiceError) {
     return toErrorResponse(new ApiError(400, error.code, error.message));
   }

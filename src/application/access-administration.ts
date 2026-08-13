@@ -41,9 +41,12 @@ export async function listProjectMembers(projectId: string) {
 
 export async function setProjectMembership(input: { actorId: string; projectId: string; userId: string; status: "ACTIVE" | "SUSPENDED" }) {
   const db = await getDatabase();
-  if (input.status === "SUSPENDED") await assertNotLastProjectManager(db, input.projectId, input.userId);
   await db.transaction(async (transaction) => {
     const tx = transaction as unknown as Database;
+    if (input.status === "SUSPENDED") {
+      await lockProject(tx, input.projectId);
+      await assertNotLastProjectManager(tx, input.projectId, input.userId);
+    }
     await tx.execute(sql`insert into project_memberships (project_id,user_id,status,valid_from,created_by) values (${input.projectId},${input.userId},${input.status},now(),${input.actorId}) on conflict (project_id,user_id) do update set status=excluded.status, updated_at=now()`);
     if (input.status === "SUSPENDED") await tx.execute(sql`update role_assignments set status='REVOKED', revoked_by=${input.actorId}, revoked_at=now(), updated_at=now() where project_id=${input.projectId} and user_id=${input.userId} and status='ACTIVE'`);
     await tx.execute(sql`update users set authorization_version=authorization_version+1 where id=${input.userId}`);
@@ -55,9 +58,12 @@ export async function setProjectMembership(input: { actorId: string; projectId: 
 export async function setUserStatus(actorId: string, userId: string, status: "ACTIVE" | "BLOCKED") {
   if (actorId === userId && status === "BLOCKED") throw new Error("Нельзя заблокировать собственную учётную запись");
   const db = await getDatabase();
-  if (status === "BLOCKED") await assertNotLastAdministrator(db, userId);
   await db.transaction(async (transaction) => {
     const tx = transaction as unknown as Database;
+    if (status === "BLOCKED") {
+      await lockRole(tx, "SYSTEM_ADMIN");
+      await assertNotLastAdministrator(tx, userId);
+    }
     await tx.execute(sql`update users set status=${status}, authorization_version=authorization_version+1, updated_at=now() where id=${userId}`);
     await tx.execute(sql`update auth_sessions set revoked_at=now() where user_id=${userId} and revoked_at is null`);
     await writeAccessAudit(tx, actorId, "RBAC_USER_STATUS_CHANGED", userId, { status });
@@ -90,16 +96,35 @@ export async function assignRole(input: { actorId: string; userId: string; roleK
 
 export async function revokeAssignment(actorId: string, assignmentId: string) {
   const db = await getDatabase();
-  const found = rows(await db.execute(sql`select ra.user_id, r.key from role_assignments ra join roles r on r.id=ra.role_id where ra.id=${assignmentId} and ra.status='ACTIVE' limit 1`))[0];
-  if (!found) throw new Error("Активное назначение не найдено");
-  if (actorId === found.user_id && ["SYSTEM_ADMIN", "AUDITOR"].includes(String(found.key))) throw new Error("Нельзя отозвать собственную глобальную роль");
-  if (found.key === "SYSTEM_ADMIN") await assertNotLastAdministrator(db, String(found.user_id));
-  if (found.key === "PROJECT_MANAGER") {
-    const assignment = rows(await db.execute(sql`select project_id from role_assignments where id=${assignmentId}`))[0];
-    if (assignment?.project_id) await assertNotLastProjectManager(db, String(assignment.project_id), String(found.user_id));
-  }
+  const candidate = rows(await db.execute(sql`
+    select ra.user_id, ra.project_id, r.key
+    from role_assignments ra join roles r on r.id=ra.role_id
+    where ra.id=${assignmentId} and ra.status='ACTIVE'
+    limit 1
+  `))[0];
+  if (!candidate) throw new Error("Активное назначение не найдено");
   await db.transaction(async (transaction) => {
     const tx = transaction as unknown as Database;
+    if (candidate.key === "SYSTEM_ADMIN") await lockRole(tx, "SYSTEM_ADMIN");
+    if (candidate.key === "PROJECT_MANAGER" && candidate.project_id) {
+      await lockProject(tx, String(candidate.project_id));
+    }
+    const found = rows(await tx.execute(sql`
+      select ra.user_id, ra.project_id, r.key
+      from role_assignments ra join roles r on r.id=ra.role_id
+      where ra.id=${assignmentId} and ra.status='ACTIVE'
+      for update
+    `))[0];
+    if (!found) throw new Error("Активное назначение не найдено");
+    if (actorId === found.user_id && ["SYSTEM_ADMIN", "AUDITOR"].includes(String(found.key))) {
+      throw new Error("Нельзя отозвать собственную глобальную роль");
+    }
+    if (found.key === "SYSTEM_ADMIN") {
+      await assertNotLastAdministrator(tx, String(found.user_id));
+    }
+    if (found.key === "PROJECT_MANAGER" && found.project_id) {
+      await assertNotLastProjectManager(tx, String(found.project_id), String(found.user_id));
+    }
     await tx.execute(sql`update role_assignments set status='REVOKED', revoked_by=${actorId}, revoked_at=now(), updated_at=now() where id=${assignmentId}`);
     await tx.execute(sql`update users set authorization_version=authorization_version+1 where id=${String(found.user_id)}`);
     await tx.execute(sql`update auth_sessions set revoked_at=now() where user_id=${String(found.user_id)} and revoked_at is null`);
@@ -120,6 +145,7 @@ export async function changeProjectRole(input: {
   const db = await getDatabase();
   await db.transaction(async (transaction) => {
     const tx = transaction as unknown as Database;
+    await lockProject(tx, input.projectId);
     const [membership] = rows(await tx.execute(sql`
       select status from project_memberships
       where project_id=${input.projectId} and user_id=${input.userId}
@@ -216,7 +242,17 @@ async function assertNotLastAdministrator(db: Database, userId: string) {
 
 async function writeAccessAudit(db: Database, actorId: string, action: string, entityId: string, details: Record<string, unknown>) {
   const actor = rows(await db.execute(sql`select display_name from users where id=${actorId} limit 1`))[0];
-  await db.execute(sql`insert into audit_logs (id,user_id,actor_display_name,action,entity_type,entity_id,outcome,details,retention_until,request_id) values (${`audit-${randomUUID()}`},'demo-user-001',${String(actor?.display_name ?? "Системный пользователь")},${action},'RBAC',${entityId},'SUCCESS',${JSON.stringify(details)}::jsonb,now()+interval '1 year',${randomUUID()})`);
+  await db.execute(sql`insert into audit_logs (id,user_id,actor_display_name,action,entity_type,entity_id,outcome,details,retention_until,request_id) values (${`audit-${randomUUID()}`},${actorId},${String(actor?.display_name ?? "Системный пользователь")},${action},'RBAC',${entityId},'SUCCESS',${JSON.stringify(details)}::jsonb,now()+interval '1 year',${randomUUID()})`);
+}
+
+async function lockRole(db: Database, roleKey: RoleKey): Promise<void> {
+  const locked = rows(await db.execute(sql`select id from roles where key=${roleKey} for update`));
+  if (locked.length !== 1) throw new Error("Роль не найдена");
+}
+
+async function lockProject(db: Database, projectId: string): Promise<void> {
+  const locked = rows(await db.execute(sql`select id from projects where id=${projectId} for update`));
+  if (locked.length !== 1) throw new Error("Проект не найден");
 }
 
 function rows(result: unknown): Array<Record<string, unknown>> {

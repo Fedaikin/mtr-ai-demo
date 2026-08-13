@@ -12,6 +12,7 @@ import { PlatformAgentActionExecutor } from "@/application/agent-orchestrator/ac
 import { AgentCaseService } from "@/application/agent-orchestrator/case-service";
 import { PrivilegedActionChatService } from "@/application/agent-orchestrator/privileged-action-chat-service";
 import { resolveAuthorizationContext } from "@/application/authorization-service";
+import { setUserStatus } from "@/application/access-administration";
 import { DEMO_USER_ID } from "@/domain/models";
 
 describe.sequential("privileged chat actions", () => {
@@ -80,6 +81,35 @@ describe.sequential("privileged chat actions", () => {
     expect(activeRoles).toEqual([{ key: "MTR_EXPERT" }]);
     const audit = rows(await db.execute("select action from audit_logs where action='RBAC_PROJECT_ROLE_CHANGED' and entity_id='demo-analyst-001'"));
     expect(audit).toHaveLength(1);
+  });
+
+  it("serializes last-administrator changes and attributes the audit to the acting administrator", async () => {
+    const concurrent = await Promise.allSettled([
+      setUserStatus("demo-user-001", "demo-admin-001", "BLOCKED"),
+      setUserStatus("demo-admin-001", "demo-user-001", "BLOCKED"),
+    ]);
+    expect(concurrent.filter((item) => item.status === "fulfilled")).toHaveLength(1);
+
+    const db = await getDatabase({ migrations: "skip" });
+    const activeAdministrators = rows(await db.execute(`
+      select count(distinct ra.user_id)::int as count
+      from role_assignments ra join roles r on r.id=ra.role_id join users u on u.id=ra.user_id
+      where r.key='SYSTEM_ADMIN' and ra.status='ACTIVE' and u.status='ACTIVE'
+    `));
+    expect(Number(activeAdministrators[0]?.count ?? 0)).toBe(1);
+
+    await resetDemoDatabase(DEMO_USER_ID);
+    await setUserStatus("demo-admin-001", "demo-analyst-001", "BLOCKED");
+    const audit = rows(await db.execute(`
+      select user_id, actor_display_name
+      from audit_logs
+      where action='RBAC_USER_STATUS_CHANGED' and entity_id='demo-analyst-001'
+      order by occurred_at desc limit 1
+    `));
+    expect(audit).toEqual([{
+      user_id: "demo-admin-001",
+      actor_display_name: "Системный администратор",
+    }]);
   });
 
   it("blocks SoD conflicts, self-management, protected ambiguity and active-role deactivation", async () => {

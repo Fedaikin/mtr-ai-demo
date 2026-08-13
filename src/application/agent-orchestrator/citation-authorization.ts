@@ -13,6 +13,11 @@ export interface AgentCitationReadPort {
   getPosition(userId: string, positionId: string): Promise<Position | null>;
   getSapMaterialStock(userId: string, materialCode: string): Promise<SapMaterial[]>;
   getCatalogItemByCode(userId: string, itemCode: string): Promise<unknown | null>;
+  getBusinessProjectInProject?(
+    userId: string,
+    projectId: string,
+    businessProjectId: string,
+  ): Promise<{ id: string; accessProjectId: string } | null>;
   getScenarioRunInProject(userId: string, projectId: string, runId: string): Promise<ScenarioRun | null>;
   listNormativeChunks(
     userId: string,
@@ -80,6 +85,20 @@ async function isReadable(
   if (!projectId) return false;
   switch (citation.sourceSystem) {
     case "APPIUS": {
+      if (citation.entityId.startsWith("business-project-")) {
+        if (!can(context, "project.read", {
+          resourceType: "business_project",
+          resourceId: citation.entityId,
+          projectId,
+        })) return false;
+        if (!context.sourceScopeIds.includes("demo-system-config-001")) return false;
+        const businessProject = await repository.getBusinessProjectInProject?.(
+          context.subjectId,
+          projectId,
+          citation.entityId,
+        );
+        return businessProject?.accessProjectId === projectId;
+      }
       if (!can(context, "specification.read", { resourceType: "specification", resourceId: citation.entityId, projectId })) return false;
       if (!context.sourceScopeIds.includes("demo-system-config-001")) return false;
       if (citation.entityId === "integration-state") return true;

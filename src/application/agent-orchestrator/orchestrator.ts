@@ -26,7 +26,10 @@ import type {
   AgentCommandResultMap,
   AgentOrchestratorCommandResult,
 } from "@/ports/agent-orchestrator";
-import { routeNaturalAgentCommand } from "@/application/agent-orchestrator/natural-command-router";
+import {
+  routeNaturalAgentCommand,
+  type NaturalAgentCommand,
+} from "@/application/agent-orchestrator/natural-command-router";
 
 const periodSchema = z
   .object({
@@ -207,35 +210,81 @@ export class MtrAgentOrchestrator {
 
     requirePermission(authorization, "agent.chat");
 
+    const naturalCommand = this.commands
+      ? routeNaturalAgentCommand(request.message, request.selection)
+      : null;
+    if (naturalCommand && shouldPreferTypedCommand(naturalCommand)) {
+      const output = await executeNaturalCommand(
+        this.commands!,
+        executionContext,
+        naturalCommand,
+        request.correlationId,
+      );
+      return Object.freeze({ kind: "COMMAND", output });
+    }
+
+    if (isDirectSapStockQuery(request.message)) {
+      const output = await executeLegacyChat(this.legacyChat, request, executionContext);
+      return Object.freeze({ kind: "CHAT", output });
+    }
+
     if (this.universalChat) {
       const universal = await this.universalChat.respond(request, executionContext);
       if (universal) return Object.freeze({ kind: "UNIVERSAL", output: universal });
     }
 
-    const naturalCommand = this.commands
-      ? routeNaturalAgentCommand(request.message, request.selection)
-      : null;
     if (naturalCommand) {
-      const output = await executeCommand(this.commands!, executionContext, {
-        kind: "COMMAND",
-        commandKey: naturalCommand.commandKey,
-        selection: naturalCommand.selection,
-        ...(naturalCommand.filters === undefined ? {} : { filters: naturalCommand.filters }),
-        correlationId: request.correlationId,
-      } as AgentCommandOrchestratorRequest);
+      const output = await executeNaturalCommand(
+        this.commands!,
+        executionContext,
+        naturalCommand,
+        request.correlationId,
+      );
       return Object.freeze({ kind: "COMMAND", output });
     }
 
-    const output = await this.legacyChat.respond({
-      message: request.message,
-      ...(request.threadId === undefined ? {} : { threadId: request.threadId }),
-      userId: executionContext.trusted.subjectId,
-      correlationId: executionContext.correlationId,
-      ...(request.promptVersion === undefined ? {} : { promptVersion: request.promptVersion }),
-    });
+    const output = await executeLegacyChat(this.legacyChat, request, executionContext);
 
     return Object.freeze({ kind: "CHAT", output });
   }
+}
+
+function executeLegacyChat(
+  capability: LegacyAgentCapability,
+  request: AgentChatOrchestratorRequest,
+  context: AgentExecutionContext,
+): Promise<GroundedAgentOutput> {
+  return capability.respond({
+      message: request.message,
+      ...(request.threadId === undefined ? {} : { threadId: request.threadId }),
+      userId: context.trusted.subjectId,
+      correlationId: context.correlationId,
+      ...(request.promptVersion === undefined ? {} : { promptVersion: request.promptVersion }),
+    });
+}
+
+function shouldPreferTypedCommand(command: NaturalAgentCommand): boolean {
+  return command.commandKey === "ANALYSIS";
+}
+
+function isDirectSapStockQuery(message: string): boolean {
+  return /\bSAP-[A-Z0-9-]+\b/iu.test(message)
+    && /как(?:ов|ой)\s+(?:текущ\p{L}*\s+)?остаток\s+материал/iu.test(message);
+}
+
+function executeNaturalCommand(
+  capability: AgentCommandCapability,
+  context: AgentExecutionContext,
+  command: NaturalAgentCommand,
+  correlationId?: string,
+): Promise<AgentOrchestratorCommandResult> {
+  return executeCommand(capability, context, {
+    kind: "COMMAND",
+    commandKey: command.commandKey,
+    selection: command.selection,
+    ...(command.filters === undefined ? {} : { filters: command.filters }),
+    ...(correlationId === undefined ? {} : { correlationId }),
+  } as AgentCommandOrchestratorRequest);
 }
 
 function executeCommand(

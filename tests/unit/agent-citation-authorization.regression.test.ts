@@ -9,11 +9,13 @@ import {
 } from "@/application/agent-orchestrator/citation-authorization";
 
 describe("saved agent citation reauthorization", () => {
+  const getBusinessProjectInProject = vi.fn();
   const repository: AgentCitationReadPort = {
     getSpecification: vi.fn(),
     getPosition: vi.fn(),
     getSapMaterialStock: vi.fn(),
     getCatalogItemByCode: vi.fn(),
+    getBusinessProjectInProject,
     getScenarioRunInProject: vi.fn(),
     listNormativeChunks: vi.fn(),
     listAgentMetricEvents: vi.fn(),
@@ -77,6 +79,19 @@ describe("saved agent citation reauthorization", () => {
     );
   });
 
+  it("повторно авторизует только существующий business-project в активном проекте", async () => {
+    getBusinessProjectInProject.mockResolvedValue({ id: "business-project-1", accessProjectId: "project-1" });
+    const citation = saved("APPIUS", "business-project-1");
+
+    await expect(reauthorizeSavedAgentCitations(trusted(), repository, [citation]))
+      .resolves.toEqual([citation]);
+    expect(getBusinessProjectInProject).toHaveBeenCalledWith("subject-1", "project-1", "business-project-1");
+
+    getBusinessProjectInProject.mockResolvedValue(null);
+    await expect(reauthorizeSavedAgentCitations(trusted(), repository, [citation]))
+      .resolves.toEqual([]);
+  });
+
   it("fail-closed скрывает неизвестную source system", async () => {
     await expect(reauthorizeSavedAgentCitations(trusted(), repository, [saved("INTERNAL_TOOL", "secret")]))
       .resolves.toEqual([]);
@@ -90,6 +105,7 @@ function saved(sourceSystem: string, entityId: string) {
 function trusted(
   permissionKeys: TrustedRequestContext["permissionKeys"] = new Set([
     "agent.chat",
+    "project.read",
     "specification.read",
     "stock.search",
     "catalog.read",

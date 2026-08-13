@@ -70,6 +70,15 @@ export class UniversalChatService {
     if (asksPortfolioAttention(normalized)) return this.portfolioAttention(context, normalized);
     if (asksPortfolioExhaustion(normalized)) return this.portfolioExhaustion(context, requestedDays(normalized) ?? 30);
 
+    const materialCodes = extractMaterialCodes(message);
+    // An explicit public material code is a stronger signal than generic words
+    // such as «материал», which also appear in project-level questions. Resolve
+    // it before project intent routing so an unknown code produces an honest
+    // material answer instead of unrelated project candidates.
+    if (materialCodes.length > 0) {
+      return this.materialQuestion(context, message, normalized, materialCodes);
+    }
+
     const projects = await this.execute<readonly BusinessProject[]>("project.list", context, {
       status: ["ACTIVE", "ON_HOLD", "PLANNED"],
       limit: 200,
@@ -104,8 +113,7 @@ export class UniversalChatService {
       );
     }
 
-    const materialCodes = extractMaterialCodes(message);
-    if (materialCodes.length > 0 || asksMaterialQuestion(normalized)) {
+    if (asksMaterialQuestion(normalized)) {
       return this.materialQuestion(context, message, normalized, materialCodes);
     }
     return null;
@@ -174,8 +182,13 @@ export class UniversalChatService {
         totalRows: rows.length,
       }],
       citations: uniqueCitations(rows.map(({ project }) => projectCitation(project))),
-      confidence: 1,
-      requiresHumanReview: false,
+      missingData: rows.length ? [] : [{
+        code: "DEADLINE_SCOPE_EMPTY",
+        message: "В доступном контуре нет подтверждённых сроков для выбранного горизонта.",
+        impact: "Нельзя делать вывод о сроках вне разрешённого контура.",
+      }],
+      confidence: rows.length ? 1 : 0,
+      requiresHumanReview: rows.length === 0,
     }, this.clock);
   }
 
@@ -228,8 +241,13 @@ export class UniversalChatService {
         label: `Жизненный цикл ${item.specificationId}`,
         observedAt: item.receivedAt,
       })),
-      confidence: 1,
-      requiresHumanReview: (statusCounts.get("FAILED") ?? 0) > 0 || (statusCounts.get("NEEDS_REVIEW") ?? 0) > 0,
+      missingData: rows.length ? [] : [{
+        code: "INTAKE_SCOPE_EMPTY",
+        message: "В доступном контуре нет подтверждённых записей обработки спецификаций.",
+        impact: "Нельзя утверждать отсутствие поступлений или очереди вне разрешённого контура.",
+      }],
+      confidence: rows.length ? 1 : 0,
+      requiresHumanReview: rows.length === 0 || (statusCounts.get("FAILED") ?? 0) > 0 || (statusCounts.get("NEEDS_REVIEW") ?? 0) > 0,
     }, this.clock);
   }
 
@@ -298,7 +316,7 @@ export class UniversalChatService {
         totalRows: rows.length,
       }],
       citations: uniqueCitations([
-        ...projects.filter((project) => riskProjectIds.has(project.id)).map(projectCitation),
+        ...projects.map(projectCitation),
         ...(selected as ReadonlyArray<SpecificationIntakeItem | { businessProjectId: string; project: BusinessProject }>).flatMap((entry) =>
           "id" in entry ? [{
             sourceSystem: "PROCESS" as const,
@@ -308,8 +326,13 @@ export class UniversalChatService {
             observedAt: entry.receivedAt,
           }] : []),
       ]),
-      confidence: 1,
-      requiresHumanReview: mode === "HUMAN" && humanDecisions.length > 0,
+      missingData: projects.length || queue.length ? [] : [{
+        code: "PORTFOLIO_SCOPE_EMPTY",
+        message: "В доступном контуре нет подтверждённых проектов или записей процесса.",
+        impact: "Нельзя утверждать отсутствие рисков, SLA-отклонений или решений человека.",
+      }],
+      confidence: projects.length || queue.length ? 1 : 0,
+      requiresHumanReview: projects.length === 0 && queue.length === 0 || mode === "HUMAN" && humanDecisions.length > 0,
     }, this.clock);
   }
 
@@ -495,18 +518,26 @@ export class UniversalChatService {
         })),
         totalRows: rows.length,
       }],
-      citations: uniqueCitations(rows.flatMap(({ material }) => [
-        materialStockCitation(material),
-        {
-          sourceSystem: "FORECAST" as const,
-          entityId: material.materialCode,
-          versionOrSnapshot: "universal-chat-movements-v1",
-          label: `История расхода ${material.materialCode}`,
-          observedAt: material.asOf,
-        },
-      ])),
-      confidence: rows.length ? 0.9 : 0.85,
-      requiresHumanReview: rows.length > 0,
+      citations: uniqueCitations([
+        ...projects.map(projectCitation),
+        ...rows.flatMap(({ material }) => [
+          materialStockCitation(material),
+          {
+            sourceSystem: "FORECAST" as const,
+            entityId: material.materialCode,
+            versionOrSnapshot: "universal-chat-movements-v1",
+            label: `История расхода ${material.materialCode}`,
+            observedAt: material.asOf,
+          },
+        ]),
+      ]),
+      missingData: projects.length ? [] : [{
+        code: "FORECAST_SCOPE_EMPTY",
+        message: "В доступном контуре нет проектов для расчёта исчерпания.",
+        impact: "Нельзя утверждать отсутствие риска по недоступным проектам.",
+      }],
+      confidence: projects.length ? 0.9 : 0,
+      requiresHumanReview: projects.length === 0 || rows.length > 0,
     }, this.clock);
   }
 
@@ -1133,7 +1164,8 @@ function asksActiveProjects(message: string): boolean {
 }
 
 function asksUpcomingDeadlines(message: string): boolean {
-  return /(?:дедлайн|срок).{0,25}(?:ближайш|следующ|три\s+дн|3\s+дн)/iu.test(message);
+  return /(?:дедлайн|срок).{0,25}(?:ближайш|следующ|три\s+дн|3\s+дн)/iu.test(message) ||
+    /(?:ближайш|следующ|три\s+дн|3\s+дн).{0,25}(?:дедлайн|срок)/iu.test(message);
 }
 
 function asksPortfolioAttention(message: string): boolean {
@@ -1141,7 +1173,9 @@ function asksPortfolioAttention(message: string): boolean {
 }
 
 function asksSpecificationIntake(message: string): boolean {
-  return /(?:сколько|что).{0,35}(?:спецификац).{0,35}(?:упал|приш|поступ|загруз|обработ|очеред|ошиб|остал)/iu.test(message) || /что\s+сейчас\s+в\s+очеред/iu.test(message);
+  return /(?:сколько|что).{0,35}(?:спецификац).{0,35}(?:упал|приш|поступ|загруз|обработ|очеред|ошиб|остал)/iu.test(message) ||
+    /(?:сколько|что).{0,35}(?:остал|очеред|обработ).{0,35}(?:спецификац)/iu.test(message) ||
+    /что\s+сейчас\s+в\s+очеред/iu.test(message);
 }
 
 function asksSpecificationVersionChange(message: string): boolean {

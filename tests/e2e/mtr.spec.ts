@@ -28,13 +28,15 @@ interface RunView {
 
 const isRemotePreview = Boolean(process.env.PLAYWRIGHT_BASE_URL);
 const scenarioCompletionTimeout = isRemotePreview ? 90_000 : 15_000;
-const resetCompletionTimeout = isRemotePreview ? 30_000 : 5_000;
+const resetCompletionTimeout = 60_000;
 const INTERNAL_AGENT_CONTENT_PATTERN =
   /\b(?:appius|sap|norms?|normative|scenarios?|reports?|llm)\.[a-z][a-z0-9_.-]*\b|"(?:toolCalls|systemPrompt|arguments|stackTrace)"\s*:/iu;
 
 test.describe("МТР — обязательные сценарии мастер-промта", () => {
   test.beforeEach(async ({ page }, testInfo) => {
-    if (isRemotePreview) testInfo.setTimeout(120_000);
+    // The isolation reset recreates thousands of rows. A long sequential run
+    // can make that setup exceed Playwright's 30-second default on local PGlite.
+    testInfo.setTimeout(120_000);
     await loginDemoUser(page.request);
     await resetDemoData(page.request);
   });
@@ -286,6 +288,7 @@ test.describe("МТР — обязательные сценарии мастер
   });
 
   test("8. reset восстанавливает 83 спецификации Appius и 30 записей SAP", async ({ page }) => {
+    test.setTimeout(resetCompletionTimeout + 30_000);
     const request = page.request;
     await setIntegrationState(request, {
       system: "SAP",

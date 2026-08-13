@@ -4,7 +4,7 @@ import { readAgentFeaturePolicy } from "@/application/agent-orchestrator/feature
 import { ApiError, ok } from "@/lib/api";
 import { requirePermission } from "@/lib/session";
 
-import { caseErrorResponse } from "../route";
+import { caseErrorResponse } from "../_errors";
 
 export const dynamic = "force-dynamic";
 

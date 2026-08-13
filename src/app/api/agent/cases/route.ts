@@ -1,10 +1,12 @@
 import { z } from "zod";
 
 import { createAgentCaseStore } from "@/adapters/persistence/agent-case-store";
-import { AgentCaseService, AgentCaseServiceError } from "@/application/agent-orchestrator/case-service";
+import { AgentCaseService } from "@/application/agent-orchestrator/case-service";
 import { readAgentFeaturePolicy } from "@/application/agent-orchestrator/feature-policy";
-import { ApiError, created, ok, parseJson, toErrorResponse } from "@/lib/api";
+import { ApiError, created, ok, parseJson } from "@/lib/api";
 import { requirePermission } from "@/lib/session";
+
+import { caseErrorResponse } from "./_errors";
 
 export const dynamic = "force-dynamic";
 
@@ -57,12 +59,4 @@ function assertEnabled(): void {
   if (!policy.executionAllowed) {
     throw new ApiError(503, "MTR_AGENT_KILL_SWITCH_ACTIVE", "МТР-агент временно остановлен");
   }
-}
-
-export function caseErrorResponse(error: unknown) {
-  if (error instanceof AgentCaseServiceError) {
-    const status = error.code === "AGENT_CASE_NOT_FOUND" ? 404 : error.code.endsWith("DENIED") ? 403 : 400;
-    return toErrorResponse(new ApiError(status, error.code, error.message));
-  }
-  return toErrorResponse(error);
 }

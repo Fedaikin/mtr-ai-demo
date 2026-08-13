@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChangeEvent, DragEvent, FormEvent, KeyboardEvent, useEffect, useRef, useState, useTransition } from "react";
 import { AgentCommandResult } from "@/components/agent-command-result";
+import { UniversalAgentResult } from "@/components/universal-agent-result";
+import { restorePublicUniversalResult } from "@/application/agent-orchestrator/universal-chat/public-projection";
 import {
   restorePublicAgentCommandResult,
   type PublicAgentCommandResult,
@@ -578,6 +580,9 @@ function AgentMessage({ message }: { message: AgentMessageView }) {
   const commandResult = assistant
     ? restorePublicAgentCommandResult(message.structuredOutput)
     : null;
+  const universalResult = assistant
+    ? restorePublicUniversalResult(message.structuredOutput)
+    : null;
   const output = parseStructuredOutput(message.structuredOutput);
   const attachmentImport = parseAttachmentImport(message.structuredOutput);
   const actionProposal = parseChatActionProposal(message.structuredOutput);
@@ -606,6 +611,8 @@ function AgentMessage({ message }: { message: AgentMessageView }) {
         </div>
         {commandResult ? (
           <AgentCommandResult result={commandResult} />
+        ) : universalResult ? (
+          <UniversalAgentResult result={universalResult} />
         ) : (
           <p className="whitespace-pre-wrap text-sm leading-6">{message.content}</p>
         )}
@@ -622,7 +629,7 @@ function AgentMessage({ message }: { message: AgentMessageView }) {
           <ChatActionCard initial={actionProposal} />
         ) : null}
 
-        {assistant && !commandResult && output ? (
+        {assistant && !commandResult && !universalResult && output ? (
           <div className="mt-4 border-t border-slate-100 pt-4">
             <AgentDecisionMeta output={output} />
           </div>

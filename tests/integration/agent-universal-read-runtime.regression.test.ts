@@ -6,6 +6,7 @@ import { generateUniversalChatDataset } from "@/adapters/mock/fixtures/universal
 import { resetDemoDatabase } from "@/adapters/persistence/bootstrap";
 import { seedIndustrialCatalogue } from "@/adapters/persistence/catalog-bootstrap";
 import { closeDatabase, getDatabase } from "@/adapters/persistence/db";
+import { MtrRepository } from "@/adapters/persistence/repository";
 import { createUniversalAgentReadPort } from "@/adapters/persistence/universal-agent-read-port";
 import { seedUniversalChatDataset } from "@/adapters/persistence/universal-chat-bootstrap";
 import type { TrustedRequestContext } from "@/application/authorization-service";
@@ -168,6 +169,19 @@ describe.sequential("universal read capabilities on persisted universal-chat-v1"
     expect(output.citations).toHaveLength(1);
   });
 
+  test("не принимает неизвестный публичный код материала за запрос проекта", async () => {
+    const output = await service.respond({
+      message: "Что это за материал CAT-DEMO-NOT-9999?",
+    }, context());
+    if (!output || "kind" in output) throw new Error("expected honest material answer");
+
+    expect(output).toMatchObject({ confidence: 0, requiresHumanReview: true });
+    expect(output.missingData).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "MATERIAL_NOT_FOUND" }),
+    ]));
+    expect(output.citations).toEqual([]);
+  });
+
   test("строит портфельный прогноз исчерпания на фиксированном горизонте", async () => {
     const output = await service.respond({
       message: "Что закончится в ближайшие 30 дней?",
@@ -197,6 +211,17 @@ describe.sequential("universal read capabilities on persisted universal-chat-v1"
     expect(output).toMatchObject({ confidence: 0, requiresHumanReview: true });
     expect(output.tables[0]).toMatchObject({ totalRows: 0, rows: [] });
     expect(output.citations).toEqual([]);
+  });
+
+  test("повторно авторизует бизнес-проект для участника, а не только создателя записи", async () => {
+    const database = await getDatabase({ migrations: "skip" });
+    const repository = new MtrRepository(database);
+
+    await expect(repository.getBusinessProjectInProject(
+      "demo-analyst-001",
+      "demo-project-001",
+      PIPE_PROJECT_ID,
+    )).resolves.toEqual({ id: PIPE_PROJECT_ID, accessProjectId: "demo-project-001" });
   });
 
   test("складская проекция включает только разрешённые warehouseIds", async () => {

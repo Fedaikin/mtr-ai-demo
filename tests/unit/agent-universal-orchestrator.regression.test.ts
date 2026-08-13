@@ -52,6 +52,56 @@ describe("universal capability in the single MtrAgentOrchestrator", () => {
     expect(legacy.respond).not.toHaveBeenCalled();
   });
 
+  it("сохраняет проверенный typed-контур аналитики раньше универсального ответа", async () => {
+    const message = "Почему ожидается дефицит по position-portfolio-072-003 на 56 дней?";
+    const commandKey = "ANALYSIS";
+    const execute = vi.fn(async () => ({
+      responseType: commandKey,
+      title: "Проверенный ответ",
+      summary: "Ответ typed-контура",
+      citations: [],
+      missingData: [],
+      confidence: 1,
+      requiresHumanReview: false,
+      negativeEvidence: "NOT_EMPTY",
+      generatedAt: "2026-08-13T09:15:00.000Z",
+    }));
+    const universal = { respond: vi.fn(async () => universalOutput) };
+    const orchestrator = new MtrAgentOrchestrator(
+      { respond: vi.fn(async () => legacyOutput) },
+      { execute } as never,
+      undefined,
+      universal,
+    );
+
+    const result = await orchestrator.handle({ kind: "CHAT", message }, trusted());
+
+    expect(result.kind).toBe("COMMAND");
+    expect(execute).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ commandKey }),
+    );
+    expect(universal.respond).not.toHaveBeenCalled();
+  });
+
+  it("сохраняет подтверждённый SAP tool flow для прямого запроса материала", async () => {
+    const legacy = { respond: vi.fn(async () => legacyOutput) };
+    const universal = { respond: vi.fn(async () => universalOutput) };
+    const orchestrator = new MtrAgentOrchestrator(
+      legacy,
+      { execute: vi.fn() } as never,
+      undefined,
+      universal,
+    );
+
+    await expect(orchestrator.handle({
+      kind: "CHAT",
+      message: "Каков текущий остаток материала SAP-DEMO-0001?",
+    }, trusted())).resolves.toEqual({ kind: "CHAT", output: legacyOutput });
+    expect(legacy.respond).toHaveBeenCalledOnce();
+    expect(universal.respond).not.toHaveBeenCalled();
+  });
+
   it("оставляет legacy fallback для неподдержанного вопроса", async () => {
     const legacy = { respond: vi.fn(async () => legacyOutput) };
     const universal = { respond: vi.fn(async () => null) };

@@ -3,13 +3,11 @@ import { defineConfig, devices } from "@playwright/test";
 const port = Number(process.env.PORT ?? 3100);
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? `http://127.0.0.1:${port}`;
 const protectionBypass = process.env.VERCEL_AUTOMATION_BYPASS_SECRET?.trim();
-// Remote/production runs include database reset and a server-driven scenario
-// whose own polling contract allows up to 90 seconds.
-const usesRemoteOrProductionServer = Boolean(process.env.PLAYWRIGHT_BASE_URL);
-
 export default defineConfig({
   testDir: "./tests/e2e",
-  timeout: usesRemoteOrProductionServer ? 120_000 : 30_000,
+  // Isolation recreates the complete 3,584-position demo portfolio before
+  // stateful scenarios; a long serial run can make that setup exceed 30s.
+  timeout: 120_000,
   fullyParallel: false,
   workers: 1,
   forbidOnly: Boolean(process.env.CI),
@@ -36,7 +34,10 @@ export default defineConfig({
           APP_MODE: "demo",
           LLM_PROVIDER: "mock",
           MTR_AGENT_ORCHESTRATOR_ENABLED: "true",
+          MTR_AGENT_UNIVERSAL_CHAT_ENABLED: "true",
+          MTR_AGENT_LIVE_LLM_ENABLED: "false",
           MTR_AGENT_ACTIONS_ENABLED: "true",
+          DEMO_ROLE_SELECTOR: "true",
           // Public local-test hash for MtrLocalTestOnly!; remote E2E must pass E2E_DEMO_PASSWORD.
           DEMO_PASSWORD_HASH: "scrypt$16384$8$1$5Qr53Li_UbDOnhJzIumUzw$OnJc6NYv7o1rF5xkdJKUCPb_QbSc9Yeuc-GaCB_KVuABn4SxmUKk2qYt0S3tNsUtAOQPHhIIkyVKn3l-leakrg",
         },

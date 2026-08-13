@@ -33,6 +33,7 @@ import {
   readOpenAIResponsesPlannerConfig,
 } from "@/application/agent-orchestrator/universal-chat/live-planner";
 import { MTR_AGENT_UNIVERSAL_PROMPT } from "@/application/agent-orchestrator/system-prompt";
+import { projectUniversalAgentOutput } from "@/application/agent-orchestrator/universal-chat/public-projection";
 import {
   agentChatInputSchema,
   MtrAgentOrchestrator,
@@ -269,6 +270,9 @@ export function serializeAgentMessage(
     ? toPublicAgentDecision(bundle.message.content, bundle.message.structuredOutput)
     : null;
   const attachmentOutput = toPublicAttachmentOutput(bundle.message.structuredOutput, assistant);
+  const universalOutput = assistant
+    ? projectUniversalAgentOutput(bundle.message.structuredOutput)
+    : null;
   const privilegedActionOutput = assistant
     ? toPublicPrivilegedActionOutput(bundle.message.structuredOutput)
     : null;
@@ -277,7 +281,7 @@ export function serializeAgentMessage(
     threadId: bundle.message.threadId,
     role: bundle.message.role,
     content: commandResult?.answer ?? decision?.answer ?? bundle.message.content,
-    structuredOutput: commandResult ?? attachmentOutput ?? privilegedActionOutput ?? (decision
+    structuredOutput: commandResult ?? attachmentOutput ?? privilegedActionOutput ?? universalOutput ?? (decision
       ? {
           ...(decision.confidence === undefined ? {} : { confidence: decision.confidence }),
           ...(decision.requiresHumanReview === undefined

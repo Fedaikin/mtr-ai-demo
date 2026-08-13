@@ -8,6 +8,7 @@ describe("natural-language typed command routing", () => {
     ["Какие мои задачи требуют решения?", "MY_TASKS"],
     ["Покажи критические риски нехватки на 30 дней", "RISKS"],
     ["Покажи остатки SAP-DEMO-0001 на WH-DEMO-NORTH", "STOCKS"],
+    ["Каков текущий остаток материала SAP-DEMO-0001?", "STOCKS"],
     ["Покажи KPI по длительности цикла", "KPI"],
     ["Почему ожидается дефицит по position-portfolio-072-003?", "ANALYSIS"],
   ] as const)("маршрутизирует «%s» в %s", (message, commandKey) => {
