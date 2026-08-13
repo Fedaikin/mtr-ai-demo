@@ -25,7 +25,8 @@
     "perf:smoke": "tsx scripts/performance-smoke.ts",
     "privacy:scan": "tsx scripts/privacy-scan.ts",
     "eval:agent": "tsx scripts/eval-agent.ts",
-    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm privacy:scan && pnpm eval:agent && pnpm build"
+    "eval:agent:analytical": "node --conditions=react-server --import tsx scripts/eval-agent-analytical.ts",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm privacy:scan && pnpm eval:agent && pnpm eval:agent:analytical && pnpm build"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

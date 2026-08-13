@@ -39,6 +39,6 @@ Base: `70543c6c34d6778695a07a5400006742ed5e3a21`
 - [ ] G2 engines реализованы и unit/integration green; oracle/eval gate ещё не достигнут.
 - [ ] G3 unified `ANALYSIS` runtime/verifier/public UX и safe rich message history реализованы; durable evidence lineage и model-source citation adapter ещё открыты.
 - [ ] G4 recommendation/autonomy/feedback.
-- [ ] ≥200 eval, ≥40 E2E, held-out/adversarial/backtesting/scale.
+- [ ] ≥200 eval, ≥40 E2E, held-out/adversarial/backtesting/scale; сейчас 34 legacy + 20 отдельных current-runtime analytical eval.
 - [ ] Clean full gate, strict acceptance и scoped fix-loop.
 - [ ] Draft PR и Preview exact SHA; Production не затронут.

@@ -375,7 +375,7 @@ Route возвращает:
 - Rich public projection сохраняется в существующем `agent_messages.structured_output` и повторно проходит fail-closed projection при чтении; новая migration для истории сообщений не требуется.
 - Full analytical graph пока не сохраняется как отдельная versioned evidence-history запись; command audit и bounded plan сохраняются.
 - Сохранённые source citations повторно авторизуются. Model-only SAP/normative references, которых нет в canonical persistence, fail-closed исключаются из истории до появления production-shaped source adapter.
-- Eval gate из мастер-промпта не закрыт: legacy corpus содержит 34 кейса, а целевой набор требует не менее 200 production-shaped eval.
+- Eval gate из мастер-промпта не закрыт: legacy corpus содержит 34 кейса, отдельный current-runtime analytical corpus — 20 кейсов, а целевой набор требует не менее 200 production-shaped eval.
 - Ни один сценарий не выполняет SAP/Appius write и не принимает экспертное решение.
 
 ## Связанные документы
