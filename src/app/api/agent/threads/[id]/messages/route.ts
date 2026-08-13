@@ -1,8 +1,11 @@
 import { getRepository } from "@/adapters/persistence/repository";
+import { createUniversalAgentReadPort } from "@/adapters/persistence/universal-agent-read-port";
 import { AuthorizationError } from "@/application/authorization-service";
+import { AttachmentImportService } from "@/application/agent-orchestrator/universal-chat/attachment-import-service";
 import { projectAgentCommandResult } from "@/application/agent-orchestrator/public-projection";
 import { reauthorizeSavedAgentCitations } from "@/application/agent-orchestrator/citation-authorization";
 import { AgentContextError } from "@/domain/agent/context";
+import { createAgentExecutionContext } from "@/domain/agent/context";
 import { composeUniversalChatResult } from "@/application/agent-orchestrator/universal-chat/answer-composer";
 import { ApiError, created, ok, parseJson, toErrorResponse } from "@/lib/api";
 import { requirePermission } from "@/lib/session";
@@ -98,45 +101,73 @@ export async function POST(request: Request, { params }: MessagesRouteContext) {
       throw new ApiError(404, "AGENT_THREAD_NOT_FOUND", "Диалог агента не найден");
     }
 
+    const correlationId = `agent-${crypto.randomUUID()}`;
     const [userMessage, activePrompt] = await Promise.all([
       repository.appendAgentMessage(subjectId, {
         threadId,
         role: "user",
-        content: input.message,
+        content: input.message || "Приложен файл для проверки.",
+        structuredOutput: input.attachments?.length
+          ? {
+              schemaVersion: "agent-attachment-refs-v1",
+              attachments: input.attachments,
+            }
+          : undefined,
       }),
       repository.getActivePrompt(subjectId),
     ]);
 
-    const orchestrator = createMtrAgentOrchestrator(repository);
-    const result = await orchestrator.handle({
-      kind: "CHAT",
-      message: input.message,
-      threadId,
-      ...(input.selection === undefined ? {} : { selection: input.selection }),
-      correlationId: `agent-${crypto.randomUUID()}`,
-      promptVersion: activePrompt?.promptVersion ?? "mtr-agent-system-v1",
-    }, session.authorization);
+    const attachmentResult = input.attachments?.length
+      ? await new AttachmentImportService(
+          repository,
+          createUniversalAgentReadPort(),
+        ).handle(
+          input.message,
+          input.attachments,
+          createAgentExecutionContext(session.authorization, {
+            selection: input.selection,
+            correlationId,
+          }),
+        )
+      : null;
+    const result = attachmentResult
+      ? null
+      : await createMtrAgentOrchestrator(repository).handle({
+          kind: "CHAT",
+          message: input.message,
+          threadId,
+          ...(input.selection === undefined ? {} : { selection: input.selection }),
+          correlationId,
+          promptVersion: activePrompt?.promptVersion ?? "mtr-agent-system-v1",
+        }, session.authorization);
     const learningProjectId = session.authorization.activeProjectId;
-    const assistant = result.kind === "UNIVERSAL"
+    const assistant = attachmentResult
+      ? {
+          answer: attachmentResult.content,
+          structuredOutput: attachmentResult.structuredOutput as unknown as Record<string, unknown>,
+          citations: [],
+        }
+      : result!.kind === "UNIVERSAL"
       ? (() => {
-          const content = composeUniversalChatResult(result.output);
-          const clarification = "kind" in result.output;
+          const universalOutput = result!.output;
+          const content = composeUniversalChatResult(universalOutput);
+          const clarification = "kind" in universalOutput;
           return {
             answer: content,
             structuredOutput: {
               schemaVersion: "universal-agent-answer-v1",
-              output: result.output,
+              output: universalOutput,
               learningProvenance: {
                 projectId: learningProjectId,
                 caseId: null,
                 modelVersion: clarification
                   ? "deterministic-universal-runtime-v1"
-                  : result.output.runtime?.model ?? "deterministic-universal-runtime-v1",
+                  : universalOutput.runtime?.model ?? "deterministic-universal-runtime-v1",
                 ruleVersions: ["project-material-balance-v1", "technical-compatibility-v1", "reliability-comparison-v1"],
                 evidenceVersion: "universal-chat-v1@1.0.0-DEMO",
               },
             } as unknown as Record<string, unknown>,
-            citations: clarification ? [] : result.output.citations.flatMap((citation) => {
+            citations: clarification ? [] : universalOutput.citations.flatMap((citation) => {
               const sourceSystem = universalCitationSource(citation.sourceSystem);
               return sourceSystem ? [{
                 sourceSystem,
@@ -147,11 +178,11 @@ export async function POST(request: Request, { params }: MessagesRouteContext) {
             }),
           };
         })()
-      : result.kind === "COMMAND"
+      : result!.kind === "COMMAND"
       ? (() => {
           const projection = projectAgentCommandResult(
-            result.output,
-            result.output.responseType + "-" + crypto.randomUUID(),
+            result!.output,
+            result!.output.responseType + "-" + crypto.randomUUID(),
           );
           return {
             answer: projection.answer,
@@ -161,15 +192,15 @@ export async function POST(request: Request, { params }: MessagesRouteContext) {
                 projectId: learningProjectId,
                 caseId: null,
                 modelVersion: "deterministic-runtime-v1",
-                ruleVersions: result.output.responseType === "ANALYSIS"
-                  ? [result.output.analysis.technicalTrace.semanticRegistryVersion]
+                ruleVersions: result!.output.responseType === "ANALYSIS"
+                  ? [result!.output.analysis.technicalTrace.semanticRegistryVersion]
                   : [],
-                evidenceVersion: result.output.responseType === "ANALYSIS"
-                  ? result.output.analysis.technicalTrace.evidenceGraphId
+                evidenceVersion: result!.output.responseType === "ANALYSIS"
+                  ? result!.output.analysis.technicalTrace.evidenceGraphId
                   : null,
               },
             } as unknown as Record<string, unknown>,
-            citations: result.output.citations.map((citation) => ({
+            citations: result!.output.citations.map((citation) => ({
               sourceSystem: citation.sourceSystem,
               entityId: citation.entityId,
               versionOrSnapshot: citation.sourceSnapshot,
@@ -178,9 +209,9 @@ export async function POST(request: Request, { params }: MessagesRouteContext) {
           };
         })()
       : {
-          answer: result.output.answer,
+          answer: result!.output.answer,
           structuredOutput: {
-            ...result.output,
+            ...result!.output,
             learningProvenance: {
               projectId: learningProjectId,
               caseId: null,
@@ -189,7 +220,7 @@ export async function POST(request: Request, { params }: MessagesRouteContext) {
               evidenceVersion: null,
             },
           } as unknown as Record<string, unknown>,
-          citations: result.output.citations,
+          citations: result!.output.citations,
         };
     const assistantMessage = await repository.appendAgentMessage(subjectId, {
       threadId,

@@ -240,12 +240,13 @@ export function serializeAgentMessage(
   const decision = assistant
     ? toPublicAgentDecision(bundle.message.content, bundle.message.structuredOutput)
     : null;
+  const attachmentOutput = toPublicAttachmentOutput(bundle.message.structuredOutput, assistant);
   return {
     id: bundle.message.id,
     threadId: bundle.message.threadId,
     role: bundle.message.role,
     content: commandResult?.answer ?? decision?.answer ?? bundle.message.content,
-    structuredOutput: commandResult ?? (decision
+    structuredOutput: commandResult ?? attachmentOutput ?? (decision
       ? {
           ...(decision.confidence === undefined ? {} : { confidence: decision.confidence }),
           ...(decision.requiresHumanReview === undefined
@@ -261,6 +262,89 @@ export function serializeAgentMessage(
       clauseId: citation.clauseId,
     })),
   };
+}
+
+function toPublicAttachmentOutput(value: unknown, assistant: boolean): Record<string, unknown> | null {
+  const root = asRecord(value);
+  if (!root) return null;
+  if (!assistant && root.schemaVersion === "agent-attachment-refs-v1" && Array.isArray(root.attachments)) {
+    return {
+      schemaVersion: "agent-attachment-refs-v1",
+      attachments: root.attachments.slice(0, 4).map((item) => {
+        const record = asRecord(item);
+        return { purpose: safeAttachmentPurpose(record?.purpose) };
+      }),
+    };
+  }
+  if (!assistant || root.schemaVersion !== "agent-attachment-import-v1") return null;
+  const raw = asRecord(root.attachmentImport);
+  if (!raw) return null;
+  const status = ["PREVIEW", "REVIEW_REQUIRED", "PUBLISHED"].includes(String(raw.status))
+    ? String(raw.status)
+    : "REVIEW_REQUIRED";
+  const previewRows = Array.isArray(raw.previewRows)
+    ? raw.previewRows.slice(0, 20).flatMap((item) => {
+        const row = asRecord(item);
+        return row && typeof row.code === "string" && typeof row.name === "string"
+          ? [{
+              code: row.code.slice(0, 160),
+              name: row.name.slice(0, 500),
+              quantity: finiteNumber(row.quantity),
+              unit: typeof row.unit === "string" ? row.unit.slice(0, 30) : "",
+            }]
+          : [];
+      })
+    : [];
+  const published = asRecord(raw.published);
+  const safeHref = typeof published?.href === "string" && /^\/specifications\/[A-Za-z0-9._%/-]+$/u.test(published.href)
+    ? published.href
+    : null;
+  return {
+    schemaVersion: "agent-attachment-import-v1",
+    attachmentImport: {
+      status,
+      fileName: typeof raw.fileName === "string" ? raw.fileName.slice(0, 200) : "Вложение",
+      totalRows: finiteNumber(raw.totalRows),
+      validRows: finiteNumber(raw.validRows),
+      invalidRows: finiteNumber(raw.invalidRows),
+      warnings: safeStringArray(raw.warnings),
+      errors: safeStringArray(raw.errors),
+      previewRows,
+      targetMode: raw.targetMode === "NEW" || raw.targetMode === "NEW_VERSION" ? raw.targetMode : null,
+      targetLabel: typeof raw.targetLabel === "string" ? raw.targetLabel.slice(0, 500) : null,
+      ...(safeHref
+        ? {
+            published: {
+              href: safeHref,
+              versionNumber: finiteNumber(published?.versionNumber),
+              positionCount: finiteNumber(published?.positionCount),
+            },
+          }
+        : {}),
+    },
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function safeAttachmentPurpose(value: unknown): string {
+  return ["SPECIFICATION", "SAP_IMPORT", "REFERENCE", "AUTO"].includes(String(value))
+    ? String(value)
+    : "AUTO";
+}
+
+function safeStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string").slice(0, 20).map((item) => item.slice(0, 500))
+    : [];
+}
+
+function finiteNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 export function isUserVisibleAgentMessage(bundle: MessageBundle): boolean {
@@ -287,10 +371,4 @@ function summarizeResults(
     customerResponsibility: records.filter((record) => record.responsibility === "CUSTOMER").length,
     contractorResponsibility: records.filter((record) => record.responsibility === "CONTRACTOR").length,
   };
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
 }

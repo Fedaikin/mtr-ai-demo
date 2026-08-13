@@ -2,12 +2,15 @@ import { getRepository } from "@/adapters/persistence/repository";
 import { validateSpecificationImport } from "@/application/specification-import";
 import { ApiError, created, toErrorResponse } from "@/lib/api";
 import { assertSameOrigin } from "@/lib/csrf";
-import { requireDemoRole } from "@/lib/session";
+import { requirePermission } from "@/lib/session";
 
 export async function POST(request: Request) {
   try {
     assertSameOrigin(request);
-    const { user, authorization } = await requireDemoRole("USER");
+    const [{ user, authorization }] = await Promise.all([
+      requirePermission("specification.upload"),
+      requirePermission("specification.publish"),
+    ]);
     const body = await request.json() as Record<string, unknown>;
     const fileId = text(body.fileId, 200);
     const mode = body.mode === "NEW_VERSION" ? "NEW_VERSION" : body.mode === "NEW" ? "NEW" : null;

@@ -53,6 +53,8 @@ describe("user agent chat surface", () => {
     expect(html).not.toContain("internal-operation-id");
     expect(html).not.toContain("Технический результат");
     expect(html).not.toContain("Вызовы инструментов");
+    expect(html).toContain("Прикрепить");
+    expect(html).toContain("agent-attachment-input");
   });
 
   it("renders a saved analytical command as the same rich public card", () => {
@@ -107,5 +109,43 @@ describe("user agent chat surface", () => {
     expect(text).toContain("Сравнение вариантов");
     expect(text).toContain("Проект закупки");
     expect(text).toContain("Передать вариант специалисту");
+  });
+
+  it("renders attachment validation preview and a safe published link", () => {
+    const html = renderToStaticMarkup(
+      <AgentChat
+        displayName="Пользователь"
+        initialThreads={[]}
+        initialThreadId="thread-import"
+        initialMessages={[{
+          id: "message-import",
+          threadId: "thread-import",
+          role: "assistant",
+          content: "Опубликована новая версия.",
+          structuredOutput: {
+            schemaVersion: "agent-attachment-import-v1",
+            attachmentImport: {
+              status: "PUBLISHED",
+              fileName: "specification.xlsx",
+              totalRows: 2,
+              validRows: 2,
+              invalidRows: 0,
+              warnings: [],
+              errors: [],
+              previewRows: [{ code: "SAFE-001", name: "Труба", quantity: 2, unit: "EA" }],
+              targetLabel: "новая версия «Спецификация»",
+              published: { href: "/specifications/spec-1", versionNumber: 2, positionCount: 2 },
+            },
+          },
+          createdAt: "2026-08-13T10:00:00.000Z",
+          citations: [],
+        }]}
+      />,
+    );
+
+    expect(html).toContain("specification.xlsx");
+    expect(html).toContain("SAFE-001");
+    expect(html).toContain("Открыть версию 2");
+    expect(html).toContain("href=\"/specifications/spec-1\"");
   });
 });

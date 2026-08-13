@@ -517,6 +517,7 @@ export interface PublishSpecificationImportInput {
   specificationId?: string;
   positions: SpecificationImportPositionInput[];
   validationSummary: Record<string, unknown>;
+  instructionHash?: string;
 }
 
 export interface AnalysisReviewSeed {
@@ -738,12 +739,34 @@ export class MtrRepository {
 
     return this.db.transaction(async (transaction) => {
       const tx = transaction as unknown as Database;
+      await tx.execute(sql`
+        select id from ${uploadedFiles}
+        where ${uploadedFiles.userId} = ${userId}
+          and ${uploadedFiles.id} = ${input.fileId}
+        for update
+      `);
       const [file] = await tx.select().from(uploadedFiles).where(and(
         eq(uploadedFiles.userId, userId),
         eq(uploadedFiles.id, input.fileId),
       )).limit(1);
       if (!file) throw new Error("Загруженный файл не найден.");
       if (file.parseStatus !== "PARSED") throw new Error("Файл требует ручной проверки и не может быть опубликован.");
+
+      const [existingVersion] = await tx.select().from(specificationVersions).where(and(
+        eq(specificationVersions.userId, userId),
+        eq(specificationVersions.sourceFileId, file.id),
+      )).limit(1);
+      if (existingVersion) {
+        const [existingSpecification] = await tx.select().from(specifications).where(and(
+          eq(specifications.userId, userId),
+          eq(specifications.id, existingVersion.specificationId),
+        )).limit(1);
+        if (!existingSpecification) throw new Error("Опубликованная спецификация недоступна.");
+        return {
+          specification: toSpecification(existingSpecification),
+          version: toSpecificationVersion(existingVersion),
+        };
+      }
 
       const now = new Date().toISOString();
       const projectId = input.projectId?.trim() || "demo-project-001";
@@ -853,7 +876,14 @@ export class MtrRepository {
         entityType: "specification",
         entityId: specificationId,
         outcome: "SUCCESS",
-        details: { fileId: file.id, fileName: file.originalName, versionId, versionNumber, positionCount: input.positions.length },
+        details: {
+          fileId: file.id,
+          fileName: file.originalName,
+          versionId,
+          versionNumber,
+          positionCount: input.positions.length,
+          ...(input.instructionHash ? { instructionHash: input.instructionHash } : {}),
+        },
         retentionUntil: oneCalendarYearAfter(now),
       });
 

@@ -168,6 +168,18 @@ describe("MtrAgentOrchestrator trust boundary", () => {
       }),
     ).toThrow();
   });
+
+  it("принимает attachment без команды и не принимает identity внутри attachment", () => {
+    expect(agentChatInputSchema.parse({
+      message: "",
+      threadId: "thread-1",
+      attachments: [{ uploadId: "upload-1", purpose: "SPECIFICATION" }],
+    })).toMatchObject({ attachments: [{ uploadId: "upload-1", purpose: "SPECIFICATION" }] });
+    expect(() => agentChatInputSchema.parse({
+      message: "Проверь файл",
+      attachments: [{ uploadId: "upload-1", purpose: "SPECIFICATION", userId: "forged" }],
+    })).toThrow();
+  });
 });
 
 function trustedContext(

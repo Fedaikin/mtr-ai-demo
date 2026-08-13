@@ -7,7 +7,6 @@ import {
   type TrustedRequestContext,
 } from "@/application/authorization-service";
 import {
-  agentInputSchema,
   type TrustedAgentRequest,
 } from "@/application/agent-service";
 import type { AgentCommandKey } from "@/domain/agent/commands";
@@ -49,10 +48,21 @@ export const agentContextSelectionSchema = z
   })
   .strict();
 
+export const agentAttachmentRefSchema = z.object({
+  uploadId: z.string().trim().min(1).max(200),
+  purpose: z.enum(["SPECIFICATION", "SAP_IMPORT", "REFERENCE", "AUTO"]),
+}).strict();
+
 /** Public chat body: selection is untrusted; identity and grants are deliberately absent. */
-export const agentChatInputSchema = agentInputSchema
-  .extend({ selection: agentContextSelectionSchema.optional() })
-  .strict();
+export const agentChatInputSchema = z.object({
+  message: z.string().trim().max(4_000).default(""),
+  threadId: z.string().trim().min(1).max(160).optional(),
+  selection: agentContextSelectionSchema.optional(),
+  attachments: z.array(agentAttachmentRefSchema).max(4).optional(),
+}).strict().refine(
+  (input) => input.message.length > 0 || (input.attachments?.length ?? 0) > 0,
+  { message: "Введите сообщение или приложите файл" },
+);
 
 export type AgentChatInput = z.output<typeof agentChatInputSchema>;
 

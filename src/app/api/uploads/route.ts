@@ -4,15 +4,18 @@ import { getRepository } from "@/adapters/persistence/repository";
 import { storeUploadedBytes } from "@/adapters/storage/upload-storage";
 import { parseUploadedFile, UploadParseError, validateUploadMime } from "@/application/file-parser";
 import { ApiError, created, toErrorResponse } from "@/lib/api";
-import { requireDemoRole } from "@/lib/session";
+import { requirePermission } from "@/lib/session";
 
 const MAX_SIZE_BYTES = 10 * 1024 * 1024;
 
 export async function POST(request: Request) {
   try {
-    const [{ user }, form] = await Promise.all([requireDemoRole("USER"), request.formData()]);
-    const file = form.get("file");
+    const form = await request.formData();
     const purpose = String(form.get("purpose") ?? "GENERAL").slice(0, 80);
+    const { user } = await requirePermission(
+      purpose.startsWith("SAP_") ? "stock.import" : "specification.upload",
+    );
+    const file = form.get("file");
     if (!(file instanceof File)) throw new ApiError(400, "FILE_REQUIRED", "Выберите файл для загрузки");
     if (file.size <= 0 || file.size > MAX_SIZE_BYTES) throw new ApiError(413, "FILE_SIZE_LIMIT", "Размер файла должен быть от 1 байта до 10 МБ");
     validateUploadMime(file.name, file.type);
