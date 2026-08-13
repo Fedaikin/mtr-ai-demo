@@ -10,7 +10,6 @@ import identityFixture from "@/adapters/mock/fixtures/identity.json";
 import normativeFixture from "@/adapters/mock/fixtures/normative.json";
 import sapFixture from "@/adapters/mock/fixtures/sap.json";
 import scenariosFixture from "@/adapters/mock/fixtures/scenarios.json";
-import { DEMO_USER_ID } from "@/domain/models";
 import {
   MTR_AGENT_ORCHESTRATOR_PROMPT,
   MTR_AGENT_ORCHESTRATOR_VERSION,
@@ -19,7 +18,9 @@ import {
   MTR_AGENT_ROLLBACK_VERSION,
   promptChecksum,
 } from "@/application/agent-orchestrator/system-prompt";
+import { DEMO_USER_ID } from "@/domain/models";
 
+import { ensureIndustrialCatalogue } from "./catalog-bootstrap";
 import { type Database, getDatabase, isRemoteDatabaseConfigured } from "./db";
 import { createReadinessCache } from "./readiness-cache";
 import {
@@ -58,6 +59,11 @@ import {
   uploadedFiles,
   users,
 } from "./schema";
+import {
+  deleteUniversalChatDatasetRows,
+  ensureUniversalChatDataset,
+  universalChatDatasetEnabled,
+} from "./universal-chat-bootstrap";
 
 export const EXPECTED_BASE_COUNTS = {
   users: 8,
@@ -133,7 +139,13 @@ export async function initializeDatabase(): Promise<DatabaseInitializationResult
     const counts = await seedDatabaseUncached(DEMO_USER_ID, db);
     return { seeded: true, counts };
   });
-  return { seeded: result.seeded, counts: { ...result.counts } };
+  let extendedSeeded = false;
+  if (universalChatDatasetEnabled()) {
+    const catalogue = await ensureIndustrialCatalogue(DEMO_USER_ID, db);
+    const universal = await ensureUniversalChatDataset(DEMO_USER_ID, db);
+    extendedSeeded = catalogue.seeded || universal.seeded;
+  }
+  return { seeded: result.seeded || extendedSeeded, counts: { ...result.counts } };
 }
 
 /**
@@ -178,6 +190,11 @@ async function seedDatabaseUncached(userId: string, db: Database): Promise<SeedC
     await deleteUserScopedRows(tx, userId, false);
     await insertFixtureRows(tx, userId);
   });
+
+  if (universalChatDatasetEnabled()) {
+    await ensureIndustrialCatalogue(userId, db);
+    await ensureUniversalChatDataset(userId, db);
+  }
 
   return assertSeedCounts(userId, db);
 }
@@ -736,6 +753,7 @@ export async function deleteUserScopedRows(
 ): Promise<void> {
   // Child-to-parent order keeps the reset portable with FK enforcement on.
   const demoTenantId = "demo-tenant-001";
+  await deleteUniversalChatDatasetRows(db, userId);
   await db.delete(agentLearningCandidates).where(eq(agentLearningCandidates.tenantId, demoTenantId));
   await db.delete(agentActionProposals).where(eq(agentActionProposals.tenantId, demoTenantId));
   await db.delete(agentTasks).where(eq(agentTasks.tenantId, demoTenantId));

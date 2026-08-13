@@ -16,6 +16,12 @@ import {
 } from "drizzle-orm/pg-core";
 
 import type { ScenarioRunStatus } from "@/domain/models";
+import type {
+  OperationalInboundSupply,
+  OperationalStockView,
+  ReliabilityProfile,
+  WeeklyMaterialMovement,
+} from "@/domain/agent/universal-chat/dataset";
 
 const mutableColumns = {
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
@@ -1481,6 +1487,382 @@ export const materialMovements = pgTable(
   ],
 );
 
+export const businessProjects = pgTable(
+  "business_projects",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    accessProjectId: text("access_project_id").notNull(),
+    code: text("code").notNull(),
+    name: text("name").notNull(),
+    aliases: jsonb("aliases").$type<string[]>().notNull().default([]),
+    externalProjectCodes: jsonb("external_project_codes").$type<string[]>().notNull().default([]),
+    status: text("status").notNull(),
+    phase: text("phase").notNull(),
+    needDate: timestamp("need_date", { withTimezone: true, mode: "string" }).notNull(),
+    datasetVersion: text("dataset_version").notNull(),
+    scenarioTimeZone: text("scenario_time_zone").notNull().default("Europe/Moscow"),
+    isSyntheticDemo: boolean("is_synthetic_demo").notNull().default(true),
+    ...mutableColumns,
+  },
+  (table) => [
+    unique("business_projects_scope_uq").on(table.tenantId, table.id),
+    uniqueIndex("business_projects_dataset_code_uq").on(
+      table.tenantId,
+      table.datasetVersion,
+      table.code,
+    ),
+    index("business_projects_access_status_idx").on(
+      table.tenantId,
+      table.accessProjectId,
+      table.status,
+    ),
+    index("business_projects_need_date_idx").on(table.tenantId, table.needDate),
+    check(
+      "business_projects_status_check",
+      sql`${table.status} in ('PLANNED','ACTIVE','ON_HOLD','COMPLETED')`,
+    ),
+    check(
+      "business_projects_phase_check",
+      sql`${table.phase} in ('DESIGN','PROCUREMENT','CONSTRUCTION','COMMISSIONING','OPERATIONS')`,
+    ),
+    check("business_projects_aliases_json_check", sql`jsonb_typeof(${table.aliases}) = 'array'`),
+    check(
+      "business_projects_external_codes_json_check",
+      sql`jsonb_typeof(${table.externalProjectCodes}) = 'array'`,
+    ),
+    check(
+      "business_projects_timezone_check",
+      sql`${table.scenarioTimeZone} = 'Europe/Moscow'`,
+    ),
+  ],
+);
+
+export const businessProjectDeadlines = pgTable(
+  "business_project_deadlines",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    businessProjectId: text("business_project_id").notNull(),
+    kind: text("kind").notNull(),
+    dueAt: timestamp("due_at", { withTimezone: true, mode: "string" }).notNull(),
+    daysFromScenarioToday: integer("days_from_scenario_today").notNull(),
+    status: text("status").notNull(),
+    datasetVersion: text("dataset_version").notNull(),
+    ...mutableColumns,
+  },
+  (table) => [
+    uniqueIndex("business_project_deadlines_kind_uq").on(
+      table.tenantId,
+      table.businessProjectId,
+      table.datasetVersion,
+      table.kind,
+    ),
+    index("business_project_deadlines_due_idx").on(table.tenantId, table.dueAt),
+    foreignKey({
+      columns: [table.tenantId, table.businessProjectId],
+      foreignColumns: [businessProjects.tenantId, businessProjects.id],
+      name: "business_project_deadlines_project_fk",
+    }),
+    check(
+      "business_project_deadlines_kind_check",
+      sql`${table.kind} in ('DESIGN_FREEZE','MATERIAL_NEED','START_UP')`,
+    ),
+    check(
+      "business_project_deadlines_status_check",
+      sql`${table.status} in ('UPCOMING','AT_RISK','MET')`,
+    ),
+  ],
+);
+
+export const businessProjectSpecifications = pgTable(
+  "business_project_specifications",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    accessProjectId: text("access_project_id").notNull(),
+    businessProjectId: text("business_project_id").notNull(),
+    ownerUserId: text("owner_user_id").notNull(),
+    specificationId: text("specification_id").notNull(),
+    currentVersionId: text("current_version_id").notNull(),
+    sourceProjectCode: text("source_project_code").notNull(),
+    purpose: text("purpose").notNull(),
+    name: text("name").notNull(),
+    datasetVersion: text("dataset_version").notNull(),
+    ...mutableColumns,
+  },
+  (table) => [
+    unique("business_project_specifications_scope_uq").on(table.tenantId, table.id),
+    uniqueIndex("business_project_specifications_dataset_spec_uq").on(
+      table.tenantId,
+      table.datasetVersion,
+      table.specificationId,
+    ),
+    index("business_project_specifications_project_idx").on(
+      table.tenantId,
+      table.businessProjectId,
+      table.purpose,
+    ),
+    foreignKey({
+      columns: [table.tenantId, table.businessProjectId],
+      foreignColumns: [businessProjects.tenantId, businessProjects.id],
+      name: "business_project_specifications_project_fk",
+    }),
+    check(
+      "business_project_specifications_purpose_check",
+      sql`${table.purpose} in ('CONSTRUCTION','MAINTENANCE','REPAIR','SPARES')`,
+    ),
+  ],
+);
+
+export const operationalMaterialViews = pgTable(
+  "operational_material_views",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    accessProjectId: text("access_project_id").notNull(),
+    ownerUserId: text("owner_user_id").notNull(),
+    catalogScopeId: text("catalog_scope_id").notNull(),
+    sourceScopeId: text("source_scope_id").notNull(),
+    catalogItemId: text("catalog_item_id").notNull(),
+    materialCode: text("material_code").notNull(),
+    sourceKind: text("source_kind").notNull(),
+    equipmentType: text("equipment_type").notNull(),
+    itemKind: text("item_kind").notNull(),
+    familyId: text("family_id"),
+    unit: text("unit").notNull(),
+    packSize: integer("pack_size").notNull(),
+    leadTimeDays: integer("lead_time_days").notNull(),
+    safetyStock: integer("safety_stock").notNull(),
+    stock: jsonb("stock").$type<OperationalStockView>().notNull(),
+    inboundSupplies: jsonb("inbound_supplies").$type<OperationalInboundSupply[]>().notNull(),
+    weeklyMovements: jsonb("weekly_movements").$type<WeeklyMaterialMovement[]>().notNull(),
+    reliability: jsonb("reliability").$type<ReliabilityProfile>().notNull(),
+    asOf: timestamp("as_of", { withTimezone: true, mode: "string" }).notNull(),
+    datasetVersion: text("dataset_version").notNull(),
+    isSyntheticDemo: boolean("is_synthetic_demo").notNull().default(true),
+    ...mutableColumns,
+  },
+  (table) => [
+    unique("operational_material_views_scope_uq").on(table.tenantId, table.id),
+    uniqueIndex("operational_material_views_dataset_material_uq").on(
+      table.tenantId,
+      table.datasetVersion,
+      table.materialCode,
+    ),
+    index("operational_material_views_catalog_idx").on(
+      table.tenantId,
+      table.catalogItemId,
+    ),
+    index("operational_material_views_type_idx").on(
+      table.tenantId,
+      table.equipmentType,
+      table.itemKind,
+    ),
+    foreignKey({
+      columns: [table.ownerUserId, table.catalogItemId],
+      foreignColumns: [catalogItems.userId, catalogItems.id],
+      name: "operational_material_views_catalog_item_fk",
+    }),
+    check(
+      "operational_material_views_source_kind_check",
+      sql`${table.sourceKind} in ('SAP_BASE','CATALOG_NORMALIZED')`,
+    ),
+    check(
+      "operational_material_views_item_kind_check",
+      sql`${table.itemKind} in ('COMPONENT','ASSEMBLY')`,
+    ),
+    check("operational_material_views_pack_size_check", sql`${table.packSize} > 0`),
+    check("operational_material_views_lead_time_check", sql`${table.leadTimeDays} > 0`),
+    check("operational_material_views_safety_stock_check", sql`${table.safetyStock} >= 0`),
+    check("operational_material_views_stock_json_check", sql`jsonb_typeof(${table.stock}) = 'object'`),
+    check(
+      "operational_material_views_inbound_json_check",
+      sql`jsonb_typeof(${table.inboundSupplies}) = 'array'`,
+    ),
+    check(
+      "operational_material_views_movements_json_check",
+      sql`jsonb_typeof(${table.weeklyMovements}) = 'array' and jsonb_array_length(${table.weeklyMovements}) = 52`,
+    ),
+    check(
+      "operational_material_views_reliability_json_check",
+      sql`jsonb_typeof(${table.reliability}) = 'object'`,
+    ),
+  ],
+);
+
+export const businessProjectPositions = pgTable(
+  "business_project_positions",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    accessProjectId: text("access_project_id").notNull(),
+    businessProjectId: text("business_project_id").notNull(),
+    ownerUserId: text("owner_user_id").notNull(),
+    specificationLinkId: text("specification_link_id").notNull(),
+    positionId: text("position_id").notNull(),
+    catalogItemId: text("catalog_item_id").notNull(),
+    operationalMaterialViewId: text("operational_material_view_id").notNull(),
+    mappingKind: text("mapping_kind").notNull(),
+    projectAssociationConfidencePercent: integer("project_association_confidence_percent").notNull(),
+    equipmentType: text("equipment_type").notNull(),
+    sourceRequiredQuantity: numeric("source_required_quantity", { precision: 18, scale: 3 }).notNull(),
+    sourceUnit: text("source_unit").notNull(),
+    requiredQuantity: numeric("required_quantity", { precision: 18, scale: 3 }).notNull(),
+    unit: text("unit").notNull(),
+    datasetVersion: text("dataset_version").notNull(),
+    ...mutableColumns,
+  },
+  (table) => [
+    uniqueIndex("business_project_positions_dataset_position_uq").on(
+      table.tenantId,
+      table.datasetVersion,
+      table.positionId,
+    ),
+    index("business_project_positions_project_type_idx").on(
+      table.tenantId,
+      table.businessProjectId,
+      table.equipmentType,
+    ),
+    foreignKey({
+      columns: [table.tenantId, table.businessProjectId],
+      foreignColumns: [businessProjects.tenantId, businessProjects.id],
+      name: "business_project_positions_project_fk",
+    }),
+    foreignKey({
+      columns: [table.tenantId, table.specificationLinkId],
+      foreignColumns: [businessProjectSpecifications.tenantId, businessProjectSpecifications.id],
+      name: "business_project_positions_specification_fk",
+    }),
+    foreignKey({
+      columns: [table.tenantId, table.operationalMaterialViewId],
+      foreignColumns: [operationalMaterialViews.tenantId, operationalMaterialViews.id],
+      name: "business_project_positions_material_fk",
+    }),
+    check(
+      "business_project_positions_mapping_kind_check",
+      sql`${table.mappingKind} in ('DIRECT_CATALOG_CODE','NORMALIZED_LEGACY')`,
+    ),
+    check(
+      "business_project_positions_confidence_check",
+      sql`${table.projectAssociationConfidencePercent} between 0 and 100`,
+    ),
+    check("business_project_positions_source_quantity_check", sql`${table.sourceRequiredQuantity} > 0`),
+    check("business_project_positions_quantity_check", sql`${table.requiredQuantity} > 0`),
+  ],
+);
+
+export const specificationIntakeItems = pgTable(
+  "specification_intake_items",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    accessProjectId: text("access_project_id").notNull(),
+    businessProjectId: text("business_project_id").notNull(),
+    ownerUserId: text("owner_user_id").notNull(),
+    specificationLinkId: text("specification_link_id").notNull(),
+    specificationId: text("specification_id").notNull(),
+    versionId: text("version_id").notNull(),
+    fileId: text("file_id").notNull(),
+    receivedAt: timestamp("received_at", { withTimezone: true, mode: "string" }).notNull(),
+    validationStartedAt: timestamp("validation_started_at", { withTimezone: true, mode: "string" }),
+    validationFinishedAt: timestamp("validation_finished_at", { withTimezone: true, mode: "string" }),
+    queuedAt: timestamp("queued_at", { withTimezone: true, mode: "string" }),
+    processingStartedAt: timestamp("processing_started_at", { withTimezone: true, mode: "string" }),
+    processingFinishedAt: timestamp("processing_finished_at", { withTimezone: true, mode: "string" }),
+    status: text("status").notNull(),
+    currentStep: text("current_step").notNull(),
+    assignedActorId: text("assigned_actor_id"),
+    taskId: text("task_id"),
+    runId: text("run_id"),
+    eventIds: jsonb("event_ids").$type<string[]>().notNull().default([]),
+    safeErrorCategory: text("safe_error_category"),
+    slaDeadline: timestamp("sla_deadline", { withTimezone: true, mode: "string" }).notNull(),
+    intakeVersion: integer("intake_version").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    auditCorrelationId: text("audit_correlation_id").notNull(),
+    datasetVersion: text("dataset_version").notNull(),
+    ...mutableColumns,
+  },
+  (table) => [
+    uniqueIndex("specification_intake_items_idempotency_uq").on(
+      table.tenantId,
+      table.idempotencyKey,
+    ),
+    index("specification_intake_items_project_status_idx").on(
+      table.tenantId,
+      table.businessProjectId,
+      table.status,
+      table.receivedAt,
+    ),
+    foreignKey({
+      columns: [table.tenantId, table.businessProjectId],
+      foreignColumns: [businessProjects.tenantId, businessProjects.id],
+      name: "specification_intake_items_project_fk",
+    }),
+    foreignKey({
+      columns: [table.tenantId, table.specificationLinkId],
+      foreignColumns: [businessProjectSpecifications.tenantId, businessProjectSpecifications.id],
+      name: "specification_intake_items_specification_fk",
+    }),
+    check(
+      "specification_intake_items_status_check",
+      sql`${table.status} in ('RECEIVED','VALIDATING','QUEUED','PROCESSING','NEEDS_REVIEW','COMPLETED','FAILED','CANCELLED')`,
+    ),
+    check("specification_intake_items_version_check", sql`${table.intakeVersion} > 0`),
+    check(
+      "specification_intake_items_events_json_check",
+      sql`jsonb_typeof(${table.eventIds}) = 'array' and jsonb_array_length(${table.eventIds}) > 0`,
+    ),
+  ],
+);
+
+export const projectMaterialAllocations = pgTable(
+  "project_material_allocations",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    accessProjectId: text("access_project_id").notNull(),
+    businessProjectId: text("business_project_id").notNull(),
+    operationalMaterialViewId: text("operational_material_view_id").notNull(),
+    snapshotId: text("snapshot_id").notNull(),
+    materialCode: text("material_code").notNull(),
+    quantity: numeric("quantity", { precision: 18, scale: 3 }).notNull(),
+    unit: text("unit").notNull(),
+    allocationVersion: text("allocation_version").notNull(),
+    datasetVersion: text("dataset_version").notNull(),
+    ...mutableColumns,
+  },
+  (table) => [
+    uniqueIndex("project_material_allocations_snapshot_need_uq").on(
+      table.tenantId,
+      table.snapshotId,
+      table.businessProjectId,
+      table.materialCode,
+    ),
+    index("project_material_allocations_material_idx").on(
+      table.tenantId,
+      table.operationalMaterialViewId,
+      table.snapshotId,
+    ),
+    foreignKey({
+      columns: [table.tenantId, table.businessProjectId],
+      foreignColumns: [businessProjects.tenantId, businessProjects.id],
+      name: "project_material_allocations_project_fk",
+    }),
+    foreignKey({
+      columns: [table.tenantId, table.operationalMaterialViewId],
+      foreignColumns: [operationalMaterialViews.tenantId, operationalMaterialViews.id],
+      name: "project_material_allocations_material_fk",
+    }),
+    check("project_material_allocations_quantity_check", sql`${table.quantity} > 0`),
+    check(
+      "project_material_allocations_version_check",
+      sql`${table.allocationVersion} = 'project-allocation-v1'`,
+    ),
+  ],
+);
+
 export const promptVersions = pgTable(
   "prompt_versions",
   {
@@ -1583,6 +1965,13 @@ export const schema = {
   agentProactiveInsights,
   agentMetricEvents,
   materialMovements,
+  businessProjects,
+  businessProjectDeadlines,
+  businessProjectSpecifications,
+  operationalMaterialViews,
+  businessProjectPositions,
+  specificationIntakeItems,
+  projectMaterialAllocations,
   promptVersions,
   auditLogs,
   uploadedFiles,

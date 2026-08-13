@@ -18,15 +18,24 @@ describe.sequential("agent learning migration 0007", () => {
       "d1fd10b4f0e8da824b1462f838761ab035c96226a2ea92a9c85f87b3629fee32",
     );
     const journal = JSON.parse(await readFile("drizzle/meta/_journal.json", "utf8")) as {
-      entries: Array<{ idx: number; tag: string }>;
+      entries: Array<{
+        idx: number;
+        version: string;
+        when: number;
+        tag: string;
+        breakpoints: boolean;
+      }>;
     };
-    expect(journal.entries.at(-1)).toEqual({
+    expect(journal.entries.filter((entry) => entry.idx === 7)).toEqual([{
       idx: 7,
       version: "7",
       when: expect.any(Number),
       tag: "0007_mtr_agent_learning",
       breakpoints: true,
-    });
+    }]);
+    expect(journal.entries.findIndex((entry) => entry.idx === 7)).toBeLessThan(
+      journal.entries.findIndex((entry) => entry.idx === 8),
+    );
     expect(getTableName(agentLearningCandidates)).toBe("agent_learning_candidates");
     const migration = await readFile("drizzle/0007_mtr_agent_learning.sql", "utf8");
     expect(migration).toContain('CREATE TABLE "agent_learning_candidates"');
