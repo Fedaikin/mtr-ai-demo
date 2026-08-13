@@ -11,6 +11,7 @@ import {
   type TrustedAgentRequest,
 } from "@/application/agent-service";
 import type { AgentCommandKey } from "@/domain/agent/commands";
+import type { PublicAgentProactiveInsight } from "@/domain/agent/events";
 import {
   createAgentExecutionContext,
   type AgentContextSelection,
@@ -73,8 +74,10 @@ export type AgentCommandOrchestratorRequest = {
 
 export interface AgentEventOrchestratorRequest {
   readonly kind: "EVENT";
+  readonly eventId: string;
   readonly eventType: string;
   readonly entityId: string;
+  readonly stateVersion: string;
   readonly occurredAt: string;
   readonly selection?: AgentContextSelection;
   readonly correlationId?: string;
@@ -95,9 +98,15 @@ export type AgentCommandOrchestratorResult = Readonly<{
   output: AgentOrchestratorCommandResult;
 }>;
 
+export type AgentEventOrchestratorResult = Readonly<{
+  kind: "EVENT";
+  output: PublicAgentProactiveInsight;
+}>;
+
 export type MtrAgentOrchestratorResult =
   | AgentChatOrchestratorResult
-  | AgentCommandOrchestratorResult;
+  | AgentCommandOrchestratorResult
+  | AgentEventOrchestratorResult;
 
 export interface LegacyAgentCapability {
   respond(request: TrustedAgentRequest): Promise<GroundedAgentOutput>;
@@ -110,6 +119,13 @@ export interface AgentCommandCapability {
   ): Promise<AgentCommandResultMap[K]>;
 }
 
+export interface AgentEventCapability {
+  execute(
+    context: AgentExecutionContext,
+    request: AgentEventOrchestratorRequest,
+  ): Promise<PublicAgentProactiveInsight>;
+}
+
 /**
  * Single application seam for every MTR-agent entry channel.
  * All entry channels share this authorization/context boundary. EVENT remains
@@ -119,6 +135,7 @@ export class MtrAgentOrchestrator {
   constructor(
     private readonly legacyChat: LegacyAgentCapability,
     private readonly commands?: AgentCommandCapability,
+    private readonly events?: AgentEventCapability,
   ) {}
 
   async handle(
@@ -130,6 +147,10 @@ export class MtrAgentOrchestrator {
     authorization: TrustedRequestContext,
   ): Promise<AgentCommandOrchestratorResult>;
   async handle(
+    request: AgentEventOrchestratorRequest,
+    authorization: TrustedRequestContext,
+  ): Promise<AgentEventOrchestratorResult>;
+  async handle(
     request: MtrAgentOrchestratorRequest,
     authorization: TrustedRequestContext,
   ): Promise<MtrAgentOrchestratorResult>;
@@ -137,14 +158,16 @@ export class MtrAgentOrchestrator {
     request: MtrAgentOrchestratorRequest,
     authorization: TrustedRequestContext,
   ): Promise<MtrAgentOrchestratorResult> {
-    if (request.kind === "EVENT") {
-      throw new AgentOrchestratorChannelUnavailableError("EVENT");
-    }
-
     const executionContext = createAgentExecutionContext(authorization, {
       selection: request.selection,
       correlationId: request.correlationId,
     });
+
+    if (request.kind === "EVENT") {
+      if (!this.events) throw new AgentOrchestratorChannelUnavailableError("EVENT");
+      const output = await this.events.execute(executionContext, request);
+      return Object.freeze({ kind: "EVENT", output });
+    }
 
     if (request.kind === "COMMAND") {
       if (!this.commands) {

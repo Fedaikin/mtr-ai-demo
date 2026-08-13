@@ -90,8 +90,10 @@ describe("MtrAgentOrchestrator trust boundary", () => {
     },
     {
       kind: "EVENT" as const,
+      eventId: "event-1",
       eventType: "SPECIFICATION_PUBLISHED",
       entityId: "specification-1",
+      stateVersion: "v1",
       occurredAt: "2026-08-13T00:00:00.000Z",
       selection: { projectId: "project-1" },
     },

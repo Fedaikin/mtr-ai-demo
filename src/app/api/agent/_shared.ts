@@ -16,6 +16,7 @@ import {
   agentChatInputSchema,
   MtrAgentOrchestrator,
 } from "@/application/agent-orchestrator/orchestrator";
+import type { AgentEventCapability } from "@/application/agent-orchestrator/orchestrator";
 import { createAgentService, type AgentService } from "@/application/agent-service";
 import type { PositionAnalysisResult, ReportSummary } from "@/domain/models";
 
@@ -88,10 +89,14 @@ export function createAgentRuntime(repository: MtrRepository): AgentService {
   });
 }
 
-export function createMtrAgentOrchestrator(repository: MtrRepository): MtrAgentOrchestrator {
+export function createMtrAgentOrchestrator(
+  repository: MtrRepository,
+  events?: AgentEventCapability,
+): MtrAgentOrchestrator {
   return new MtrAgentOrchestrator(
     createAgentRuntime(repository),
     createAgentCommandRegistry(createAgentOrchestratorPersistencePorts(repository)),
+    events,
   );
 }
 
