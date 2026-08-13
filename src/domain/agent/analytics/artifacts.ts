@@ -131,3 +131,59 @@ export interface VerificationResult {
   readonly errors: readonly string[];
   readonly warnings: readonly string[];
 }
+
+export interface CoverageResult {
+  readonly requiredQuantity: number;
+  readonly unit: string;
+  readonly physicalQuantity: number;
+  readonly reservedQuantity: number;
+  readonly quarantinedQuantity: number;
+  readonly availableQuantity: number;
+  readonly confirmedInboundQuantity: number;
+  readonly directCoverageQuantity: number;
+  readonly analogueCoverageQuantity: number;
+  readonly residualDeficitQuantity: number;
+  readonly coverageHorizonDays: number | null;
+  readonly allocations: readonly {
+    readonly materialCode: string;
+    readonly quantity: number;
+    readonly source: "DIRECT" | "ANALOGUE";
+  }[];
+  readonly evidenceNodeIds: readonly string[];
+  readonly serviceVersion: "coverage-engine-1.0.0";
+}
+
+export interface TrendAnomalyResult {
+  readonly status: "COMPLETE" | "UNAVAILABLE";
+  readonly direction: "UP" | "DOWN" | "STABLE" | "UNKNOWN";
+  readonly baselineMedian: number | null;
+  readonly currentValue: number | null;
+  readonly relativeChange: number | null;
+  readonly anomaly: "SPIKE" | "DROP" | "NONE" | "UNKNOWN";
+  readonly robustZScore: number | null;
+  readonly missingWeekCount: number;
+  readonly explanationRu: string;
+  readonly evidenceNodeIds: readonly string[];
+  readonly serviceVersion: "trend-anomaly-engine-1.0.0";
+}
+
+export interface AnalyticalRecommendation {
+  readonly objective: string;
+  readonly optionId: string;
+  readonly rationaleFindingIds: readonly string[];
+  readonly expectedEffect: readonly {
+    readonly metric: string;
+    readonly from: number;
+    readonly to: number;
+    readonly unit: string;
+  }[];
+  readonly assumptions: readonly string[];
+  readonly constraints: readonly string[];
+  readonly residualRisks: readonly string[];
+  readonly confidence: number;
+  readonly requiresHumanReview: true;
+  readonly nextAction: string;
+  readonly autonomyLevel: "A2";
+  readonly scenarioRunId: string;
+  readonly verifierPassed: true;
+}
