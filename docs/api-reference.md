@@ -1,6 +1,6 @@
 # Справочник HTTP API прототипа МТР
 
-Справочник описывает текущие Next.js Route Handlers из `src/app/api/**/route.ts`: 34 файла и 41 операцию «HTTP-метод + путь». Псевдонимы `:id`, `:runId`, `:positionId` и `:materialCode` ниже означают URL-encoded path parameters.
+Справочник описывает текущие Next.js Route Handlers из `src/app/api/**/route.ts`: 53 файла и 64 операции «HTTP-метод + путь». Псевдонимы `:id`, `:runId`, `:positionId` и `:materialCode` ниже означают URL-encoded path parameters.
 
 Для первого прохода используйте [демонстрацию за 7–10 минут](demo-guide.md). Команды диагностики, reset и ручного импорта приведены в [operations.md](operations.md).
 
@@ -12,18 +12,18 @@
 http://localhost:3000
 ```
 
-Все пользовательские и административные маршруты требуют persistent HttpOnly-сессию. В demo-контуре предусмотрен один пользователь:
+Все пользовательские и административные маршруты требуют persistent HttpOnly-сессию. Demo-контур содержит восемь синтетических субъектов: семь интерактивных персон и одну сервисную учётную запись. Пример безопасной проекции активной персоны:
 
 ```json
 {
   "id": "demo-user-001",
   "displayName": "Демо-пользователь 1",
-  "roles": ["USER", "ADMIN"],
+  "roles": ["USER"],
   "locale": "ru-RU"
 }
 ```
 
-Вход выполняется на `/login`; БД хранит только scrypt-хеш пароля, а cookie содержит opaque token, SHA-256-хеш которого сохранён в `auth_sessions`. Значения `userId`, `user_id`, query parameters и HTTP headers не заменяют trusted session. Строгие Zod-схемы отклоняют неизвестные поля; остальные обработчики их не используют. Поскольку фиксированный пользователь имеет роль `ADMIN`, Preview дополнительно закрыт Vercel Deployment Protection.
+Вход выполняется на `/login`; реквизиты выдаются приватно и не отображаются в UI/документации. БД хранит только scrypt-хеш пароля, а cookie содержит opaque token, SHA-256-хеш которого сохранён в `auth_sessions`. Сервер строит `TrustedRequestContext` из действующей session, memberships, assignments и scopes. Значения identity/permissions из body, query или headers не заменяют trusted context. Preview дополнительно закрывается Deployment Protection.
 
 ## Общие соглашения
 
@@ -91,6 +91,17 @@ http://localhost:3000
 | `POST` | `/api/agent/threads` | USER | Создать диалог |
 | `GET` | `/api/agent/threads/:id/messages` | USER | История принадлежащего user диалога |
 | `POST` | `/api/agent/threads/:id/messages` | USER | Сохранить вопрос, вызвать агента, сохранить ответ |
+| `POST` | `/api/agent/commands/:commandKey` | `agent.chat` | Выполнить `SUMMARY`, `RISKS`, `STOCKS`, `KPI` или `MY_TASKS` через единый runtime |
+| `GET`, `POST` | `/api/agent/cases` | `agent.chat` | Список личных кейсов или создание scoped кейса |
+| `GET`, `DELETE` | `/api/agent/cases/:id` | `agent.chat` | Получить повторно авторизованный кейс или закрыть его |
+| `GET` | `/api/agent/digest` | `agent.chat` | Недельная сводка текущей и предыдущей календарной недели |
+| `GET` | `/api/agent/insights` | `agent.chat` | Активные proactive-сигналы доступного проекта |
+| `GET`, `POST` | `/api/agent/actions` | `agent.chat` + permission действия | Список личных предложений или создать proposal |
+| `GET` | `/api/agent/actions/:id` | `agent.chat` | Получить доступное предложение без закрытых параметров |
+| `POST` | `/api/agent/actions/:id/confirm` | permission действия | Повторно авторизовать и идемпотентно выполнить proposal |
+| `POST` | `/api/agent/actions/:id/cancel` | владелец | Отменить ещё не выполненное предложение |
+| `POST` | `/api/agent/events` | service secret | Идемпотентно принять и обработать platform event |
+| `POST` | `/api/agent/events/process` | service secret | Обработать следующий сохранённый event проекта |
 | `POST` | `/api/uploads` | USER | Загрузить и разобрать файл |
 | `POST` | `/api/manual-imports/specification` | USER | Валидировать upload как draft спецификации |
 | `POST` | `/api/manual-imports/sap` | USER | Валидировать upload как SAP snapshot |
@@ -231,7 +242,7 @@ http://localhost:3000
 Body строго ограничен полями `login` и `password`:
 
 ```json
-{ "login": "demo", "password": "Demo2026!" }
+{ "login": "demo", "password": "<приватно выданный пароль>" }
 ```
 
 Успех `200` возвращает безопасную проекцию пользователя и `expiresAt`, а также устанавливает cookie `mtr_session`: `HttpOnly`, `SameSite=Lax`, `Path=/`, срок 12 часов; `Secure` обязателен на Vercel. В БД сохраняется только SHA-256-хеш случайного 256-битного token. Ошибочные реквизиты дают `401 INVALID_CREDENTIALS`, cross-origin browser request — `403 INVALID_ORIGIN`.
@@ -260,7 +271,7 @@ curl --fail-with-body -sS 'http://localhost:3000/api/health?check=live'
 { "status": "ok", "check": "liveness", "service": "mtr-ai-demo" }
 ```
 
-Readiness открывает БД без применения DDL, одним точным немутирующим запросом проверяет ровно 1/24/30/30:
+Readiness открывает БД без применения DDL, одним точным немутирующим запросом проверяет ровно 8/24/30/30:
 
 ```json
 {
@@ -271,7 +282,7 @@ Readiness открывает БД без применения DDL, одним т
   "seed": {
     "status": "ok",
     "counts": {
-      "users": 1,
+      "users": 8,
       "canonicalPositions": 24,
       "sapMaterials": 30,
       "sapBalances": 30
@@ -372,6 +383,27 @@ curl --fail-with-body -sS \
   -H 'content-type: application/json' \
   --data "{\"threadId\":\"${THREAD_ID}\",\"message\":\"Какой остаток материала SAP-DEMO-0001?\"}"
 ```
+
+### Orchestrator commands, cases, digest, insights и actions
+
+Новые endpoints fail-closed: без `MTR_AGENT_ORCHESTRATOR_ENABLED=true` возвращается `404`, при `MTR_AGENT_KILL_SWITCH=true` новое выполнение возвращает `503`. Actions и events дополнительно требуют собственные feature flags. Все ответы имеют `Cache-Control: private, no-store` там, где возвращают пользовательское состояние.
+
+Команда использует строгий body `{ context, filters? }`; identity, роли, permissions, authorization version и scopes в schema отсутствуют. `context` может содержать только выбранные `projectId`, `specificationId`, `positionId`, `runId` и период. Filters зависят от ключа команды и реально применяются до retrieval. Пример:
+
+```bash
+curl --fail-with-body -sS -b "$MTR_COOKIE_JAR" \
+  -X POST "$MTR_BASE_URL/api/agent/commands/STOCKS" \
+  -H 'content-type: application/json' \
+  --data '{"context":{"projectId":"demo-project-001"},"filters":{"materialCode":"SAP-DEMO-0001","warehouseIds":["WH-DEMO-01"]}}'
+```
+
+Успех возвращает `{ "result": PublicAgentCommandResult }`: русскую safe projection, correlation ID, confidence, `requiresHumanReview`, citations и missing-data summary без tool names, raw JSON и закрытых фильтров. Каждая команда сохраняет bounded plan из трёх шагов и correlated audit.
+
+`GET /api/agent/cases` возвращает только кейсы владельца в активном проекте. `GET /api/agent/cases/:id` повторно проверяет resource и каждую citation; отозванный или чужой объект даёт `404` без existence leak. `GET /api/agent/digest?timezone=Europe/Moscow` строит две полные календарные недели из persisted tasks, metrics и events. `GET /api/agent/insights` возвращает только активные сигналы разрешённого проекта.
+
+Actions работают по схеме `proposal → явное confirm → повторная авторизация → идемпотентное выполнение → audit`. `POST /api/agent/actions` принимает `caseId`, allowlisted `actionType`, resource descriptor текущего проекта, безопасные summary/consequences, scalar parameters и `requestKey`. Подтверждение с изменившимся `authorizationVersion`, permission, resource status или scope отклоняется; чат сам не принимает экспертное решение.
+
+Event ingress не использует browser session. Требуются `MTR_AGENT_EVENTS_ENABLED=true` и точное значение `x-mtr-event-secret`, совпадающее с `MTR_AGENT_EVENT_INGRESS_SECRET` длиной не менее 32 символов. Payload ограничен scalar/короткими string-array значениями, сохраняется после redaction, а `(sourceSystem, sourceEventId)` и idempotency key не позволяют создать повторный insight.
 
 ## Scenario API
 
@@ -928,5 +960,5 @@ Query:
 - [Демонстрация за 7–10 минут](demo-guide.md)
 - [Эксплуатационные инструкции](operations.md)
 - [Поведение МТР-аналитика](agent-behavior.md)
-- [Архитектура и доверительные границы](../../docs/architecture.md)
-- [Матрица требований](../../docs/requirements-traceability.md)
+- [Трассируемость и доверительные границы МТР-агента](mtr-agent-orchestrator-traceability.md)
+- [Scoped RBAC](RBAC.md)

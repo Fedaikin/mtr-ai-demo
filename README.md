@@ -8,14 +8,14 @@
 
 | Возможность | Реализация |
 |---|---|
-| Пользователь | Вход под единственной синтетической учётной записью `Демо-пользователь 1`; persistent HttpOnly-сессия, роли `USER` и `ADMIN` |
+| Доступ | Восемь синтетических субъектов, scoped RBAC, persistent HttpOnly-сессия и переключение демонстрационных ролей без публикации пароля |
 | Appius PLM | 3 спецификации, ровно 24 позиции в актуальных версиях, просмотр истории; сценарий новой версии идемпотентно создаёт и переключает immutable `v4` |
 | SAP S/4HANA | Ровно 30 материалов и 30 связанных остатков, OData-подобный HTTP facade |
 | Анализ | Категории `EXACT`, `LIKELY`, `REVIEW`, `NO_MATCH`; ответственность и количественное покрытие аналогами |
 | Сценарии | Серверный bounded runner после create/retry/manual import; UI только опрашивает состояние; работают cancel, совместимый `advance` и фактический snapshot файла (`sourceKind: UPLOADED_FILE`) |
 | Ручной импорт | Appius принимает CSV/XLS/XLSX, размеченный текст и позиционные TXT/DOCX/text-PDF ровно из четырёх полей `код / наименование / количество / единица`; смесь допустимых и отклонённых строк блокируется как `REVIEW_REQUIRED`; известный demo-image даёт фиксированный OCR, остальные изображения и scan-PDF требуют проверки. SAP fallback поддерживает только CSV/XLS/XLSX |
 | Отчёты | Интерактивный отчёт, версионное решение эксперта и экспорт JSON, XLSX, PDF |
-| AI-агент | Persisted-диалоги, citations, защита от prompt injection, гибридный нормативный поиск; пользователю виден только итог, а технические вызовы — только ADMIN в журнале агента |
+| МТР-агент | Единый runtime `CHAT / COMMAND / EVENT`, пять быстрых команд, bounded планы, кейсы и evidence, недельная сводка, proactive-сигналы и подтверждаемые действия; технические данные остаются в защищённом журнале |
 | Администрирование | Исполняемые состояния Appius, SAP, RAG и LLM, сценарии, промпты, словари, логи агента, аудит, demo-reset |
 | Хранилище | PGlite локально; PostgreSQL при заданном `DATABASE_URL`; Blob для загрузок на Vercel |
 
@@ -26,12 +26,13 @@
 ```bash
 pnpm install --frozen-lockfile
 test -e .env.local || cp .env.example .env.local
+# Получите приватный scrypt-хеш у владельца контура и задайте DEMO_PASSWORD_HASH.
 node --env-file=.env.local --import tsx scripts/migrate.ts
 node --env-file=.env.local --import tsx scripts/seed.ts
 pnpm dev
 ```
 
-Откройте [http://localhost:3000](http://localhost:3000) и войдите с демонстрационными реквизитами, показанными на `/login`: логин `demo`, пароль `Demo2026!`. Команда `db:seed` предназначена для первого запуска или осознанного восстановления: она заменяет предметные строки доверенного demo-пользователя каноническим набором 24/30, но не раскрывает и не хранит пароль в открытом виде.
+Откройте [http://localhost:3000](http://localhost:3000) и войдите с приватно выданными демонстрационными реквизитами. Экран `/login`, README и клиентский bundle не показывают логин, пароль или хеш. `DEMO_PASSWORD_HASH` обязателен и задаётся через secret manager. Команда `db:seed` предназначена для первого запуска или осознанного восстановления канонического набора.
 
 Первый сквозной результат можно получить по [демонстрационному сценарию за 7–10 минут](docs/demo-guide.md).
 
@@ -46,15 +47,9 @@ pnpm dev
 | Развернуть Local, Vercel или on-premise pilot | [Развёртывание](docs/deployment.md) | How-to / reference |
 | Вызвать HTTP API и проверить схему запроса | [Справочник HTTP API](docs/api-reference.md) | Reference |
 | Понять правила grounded-агента | [Поведение МТР-аналитика](docs/agent-behavior.md) | Reference / explanation |
-| Понять границы модулей, доверия и persistence | [Архитектура](../docs/architecture.md) | Explanation |
-| Сопоставить реализацию с требованиями | [Матрица трассируемости](../docs/requirements-traceability.md) | Reference |
-| Проверить независимый аудит требований ТЗ | [Аудит соответствия ТЗ](../docs/tz-compliance-audit.md) | Reference / evidence |
-| Проверить финальный прототипный release gate | [Прототипный финиш](../docs/acceptance/prototype-finish-report.md) | Evidence |
-| Проверить поведение grounded AI-агента | [Аудит AI-агента](../docs/ai-agent-compliance.md) | Reference / evidence |
-| Сравнить latency до и после изменений | [Отчёт о производительности](../docs/performance-report.md) | Evidence |
-| Просмотреть визуальную и функциональную QA | [Итоговый QA-отчёт](../docs/qa-report.md) | Evidence |
-| Проверить термины и поля | [Словарь данных](../docs/data-dictionary.md) | Reference |
-| Узнать причины технических решений | [Реестр решений](../docs/decisions.md) | Explanation |
+| Понять границы runtime, persistence и rollout | [Трассируемость МТР-агента](docs/mtr-agent-orchestrator-traceability.md) | Reference / explanation |
+| Проверить модель ролей, scopes и permissions | [Scoped RBAC](docs/RBAC.md) | Reference |
+| Увидеть исходные ограничения перед интеграцией | [Baseline МТР-агента](docs/mtr-agent-orchestrator-baseline.md) | Historical evidence |
 
 Все новые документы доступны непосредственно из этого README и ссылаются друг на друга.
 
@@ -62,16 +57,17 @@ pnpm dev
 
 | Путь | Назначение |
 |---|---|
-| `/login` | Вход единственного синтетического пользователя |
+| `/login` | Вход синтетической RBAC-персоны; реквизиты на экране не публикуются |
 | `/` | Обзор данных, последнего запуска и интеграций |
 | `/specifications` | Актуальные спецификации Appius и их позиции |
 | `/runs` | Сохранённые серверные запуски |
-| `/agent` | Диалоги с «МТР-аналитиком» |
+| `/mtr-analysis` | МТР-анализ и единое рабочее пространство агента: chat, команды, кейсы, сводка, сигналы и подтверждаемые действия |
+| Глобальный виджет | Контекстный «МТР-агент» в правом нижнем углу; очищается при смене роли |
 | `/admin/scenarios` | Запуск пяти демонстрационных сценариев |
 | `/admin/integrations` | Управляемые состояния Appius, SAP, RAG и LLM |
 | `/admin/prompts` | Версии системного промпта |
 | `/admin/dictionaries` | Словари нормализации |
-| `/admin/agent-logs` | Метрики и редактированные технические операции агента |
+| `/admin/agent-logs` | Метрики legacy-инструментов и persisted-состояния оркестратора без личных сообщений и raw payload |
 | `/admin/audit` | Фильтруемый журнал и восстановление demo-набора |
 
 Readiness и контроль canonical seed доступны по `/api/health`; probe только читает точные counts и не выполняет migration/seed. Полный контракт приведён в [API reference](docs/api-reference.md#health-api).
@@ -115,7 +111,13 @@ Readiness и контроль canonical seed доступны по `/api/health`
 | `LLM_PROVIDER` | `mock` | `mock` для текущего прототипа | Декларативный маркер; runtime текущей версии явно создаёт deterministic mock-provider |
 | `LLM_API_KEY` | Пустая | Не нужна для `mock` | Зарезервирована под внешний provider |
 | `APP_MODE` | `demo` | `demo` только в защищённом прототипном контуре | Разрешает API demo-reset |
-| `DEMO_USER_ID` | `demo-user-001` | `demo-user-001` | Документирует единственный fixture user; доверенная session задана сервером |
+| `DEMO_USER_ID` | `demo-user-001` | `demo-user-001` | Канонический владелец предметных fixtures; доверенная session и scopes задаются сервером |
+| `DEMO_PASSWORD_HASH` | Обязателен | Обязателен через secret manager | Общий scrypt-хеш для интерактивных demo-персон; plaintext и реальный хеш в Git/UI запрещены |
+| `MTR_AGENT_ORCHESTRATOR_ENABLED` | `false` | Явно включить после миграции `0006` | Единый runtime, команды, кейсы, digest и insights |
+| `MTR_AGENT_ACTIONS_ENABLED` | `false` | Включать отдельно | Proposal/confirm/cancel для разрешённых L2-действий |
+| `MTR_AGENT_EVENTS_ENABLED` | `false` | Включать отдельно | Service-to-service event ingress и proactive insights |
+| `MTR_AGENT_KILL_SWITCH` | `false` | Операционный флаг | Немедленно останавливает новое выполнение оркестратора |
+| `MTR_AGENT_EVENT_INGRESS_SECRET` | Не нужен без events | Secret ≥32 символов | Защищает event ingress; не передаётся в браузер |
 
 ## Структура
 
@@ -134,16 +136,17 @@ evals/                       golden cases МТР-аналитика
 docs/                        документация прототипа
 ```
 
-Подробная схема слоёв, состояния runner и доверительные границы приведены в [архитектуре](../docs/architecture.md). Приёмочные связи находятся в [матрице требований](../docs/requirements-traceability.md).
+Границы runtime, persistence и приёмочные связи приведены в [трассируемости МТР-агента](docs/mtr-agent-orchestrator-traceability.md), а политика доступа — в [Scoped RBAC](docs/RBAC.md).
 
 ## Контрольные инварианты
 
-- все fixtures и persistent-сессии принадлежат только `demo-user-001` (`Демо-пользователь 1`);
+- предметные fixtures принадлежат каноническому demo-контуру; доступ ограничивается проектом, source/catalog scope и warehouse claims;
 - Appius содержит ровно 24 актуальные позиции;
 - SAP содержит ровно 30 материалов и 30 остатков;
 - fixture manifests `identity-base-v1`, `appius-base-v1`, `sap-base-v1`, `normative-base-v1` используют schema `1.0.0`; `scenarios-base-v2` использует schema `1.1.0` и содержит пять сценариев;
 - полный сценарий формирует golden-распределение 8 `EXACT`, 8 `LIKELY`, 5 `REVIEW`, 3 `NO_MATCH`;
-- агент получает предметные факты только через server-side tools;
+- агент получает предметные факты только через server-side capabilities с `TrustedRequestContext`;
+- сохранённые citations повторно авторизуются при чтении; L2-действия требуют отдельного подтверждения;
 - внешний `userId` не выбирает контекст данных;
 - только два известных hash-bound demo PNG fixtures получают фиксированный синтетический OCR; любое другое JPEG/JPG/PNG/TIFF требует ручной проверки;
 - real contact/PII и реальные корпоративные правила запрещены.

@@ -1,5 +1,16 @@
 # Traceability МТР-агента-оркестратора
 
+## Статус реализации на ветке
+
+| Группа | Статус | Runtime evidence |
+|---|---|---|
+| G-01…G-19 | `РЕАЛИЗОВАНО ЛОКАЛЬНО` | Единый runtime, canonical context, scoped ports, durable `0006`, commands/cases/evidence/plans/tasks/actions/events/metrics, public projection, citation reauth и persisted observability покрыты unit/integration/E2E regressions |
+| G-20 | `ЧАСТИЧНО` | Полный текущий eval `34/34`; целевой отдельный manifest ≥100 случаев не создан и не заявляется выполненным |
+| G-21 | `ЧАСТИЧНО` | Новый desktop/mobile workspace E2E зелёный; целевая матрица ≥27 orchestrator-сценариев не набрана |
+| G-22 | `ЛОКАЛЬНО PASS / PREVIEW BLOCKED` | `pnpm check`: 112 файлов/472 теста, privacy 407, eval 34/34, build/PDF assets PASS; push, PR и exact-SHA Preview невозможны без remote/upstream/Vercel credentials |
+
+Production не изменён. Статусы ниже сохраняют исходную gap-карту и не переписывают baseline задним числом.
+
 ## 22 подтверждённых разрыва
 
 | ID | Требование | Текущий код / доказательство | Нужное исправление | Первый regression gate |

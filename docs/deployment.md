@@ -1,8 +1,8 @@
 # Развёртывание прототипа МТР
 
 Документ описывает три поддерживаемых контура: локальный PGlite, Vercel и
-single-host on-premise на Docker Compose. Это демонстрационный прототип с одним
-синтетическим пользователем `Демо-пользователь 1`. Docker Compose не является промышленной аттестацией и не заменяет
+single-host on-premise на Docker Compose. Это демонстрационный прототип с несколькими
+синтетическими RBAC-персонами. Docker Compose не является промышленной аттестацией и не заменяет
 корпоративные SSO, backup/PITR, SIEM, secret store, антивирус, mTLS и регламент UAT.
 
 ## 1. Матрица окружений
@@ -28,8 +28,14 @@ Preview и Production не должны использовать общие `DAT
 | `LLM_PROVIDER` | `mock` | `mock` | `mock` | детерминированный провайдер без внешнего LLM |
 | `APP_MODE` | `demo` | `demo` | `demo` или `production` | reset доступен только в `demo` |
 | `SESSION_COOKIE_SECURE` | необязательна | включается автоматически по `VERCEL` | `true` за TLS reverse proxy | принудительный `Secure` для HttpOnly session cookie |
+| `DEMO_PASSWORD_HASH` | secret, обязателен | secret, обязателен | secret, обязателен | scrypt-хеш общего demo-пароля; plaintext и реальный хеш не публикуются |
+| `MTR_AGENT_ORCHESTRATOR_ENABLED` | `false` | explicit | explicit | единый runtime агента после миграции `0006` |
+| `MTR_AGENT_ACTIONS_ENABLED` | `false` | explicit | explicit | подтверждаемые действия агента |
+| `MTR_AGENT_EVENTS_ENABLED` | `false` | explicit | explicit | event ingress и proactive insights |
+| `MTR_AGENT_KILL_SWITCH` | `false` | operational | operational | аварийно запрещает новое выполнение |
+| `MTR_AGENT_EVENT_INGRESS_SECRET` | optional | secret | secret | минимум 32 символа, только для event ingress |
 
-Demo-реквизиты `demo` / `Demo2026!` являются только синтетическим входом прототипа; БД хранит scrypt-хеш пароля и SHA-256-хеш opaque session token. Секреты задаются через локальный `.env.local`, Vercel Environment Variables или
+Demo-реквизиты выдаются владельцу контура приватно и не отображаются на `/login`; БД хранит scrypt-хеш пароля и SHA-256-хеш opaque session token. Секреты задаются через локальный `.env.local`, Vercel Environment Variables или
 корпоративный secret store. Их нельзя помещать в image layers, Git, build arguments,
 логи и команды, сохраняемые shell history. Не задавайте `LLM_API_KEY` для mock-режима.
 
@@ -38,7 +44,7 @@ Demo-реквизиты `demo` / `Demo2026!` являются только си�
 - `GET /api/health?check=live` проверяет, что Node.js/Next.js процесс отвечает, и не
   обращается к БД.
 - `GET /api/health?check=ready` проверяет доступ к БД и канонический seed:
-  `users=1`, `Appius=24`, `SAP materials=30`, `SAP balances=30`.
+  `users=8`, `Appius=24`, `SAP materials=30`, `SAP balances=30`.
 - Readiness возвращает HTTP `503`, если БД недоступна или контрольные количества не
   совпали. Ответ не содержит connection string, токены или текст внутренней ошибки.
 - Состояния моков Appius/SAP/RAG/LLM не смешиваются с инфраструктурной readiness;
@@ -66,7 +72,7 @@ pnpm db:seed
 pnpm dev
 ```
 
-Первый `db:seed` создаёт ровно 1/24/30/30 и пять сценариев. Четыре fixture manifests
+Первый `db:seed` создаёт ровно 8/24/30/30 и пять сценариев. Четыре fixture manifests
 (`identity-base-v1`, `appius-base-v1`, `sap-base-v1`, `normative-base-v1`) используют
 schema `1.0.0`; сценарный manifest `scenarios-base-v2` использует schema `1.1.0`.
 Повторный `db:seed` атомарно заменяет все данные Демо-пользователя, включая runs и
@@ -100,8 +106,7 @@ Noto Sans WOFF в свежем NFT trace PDF-export route; вне Vercel он д
 без этих runtime-файлов не считается успешным deploy artifact.
 
 Включите Deployment Protection как минимум для Preview. Прототип предоставляет
-одному authenticated demo-user роли USER и ADMIN, поэтому публичный незакрытый URL даёт
-доступ к административным mock-операциям.
+нескольким scoped demo-персонам, но публичный незакрытый URL всё равно раскрывает синтетический контур и поверхность входа.
 
 ### 5.2 Раздельные данные
 
@@ -115,6 +120,8 @@ Noto Sans WOFF в свежем NFT trace PDF-export route; вне Vercel он д
    `DATABASE_URL` и `BLOB_READ_WRITE_TOKEN`.
 5. Для обеих сред задайте `LLM_PROVIDER=mock` и `APP_MODE=demo`. Production prototype
    с рабочим reset должен оставаться защищённым Deployment Protection.
+6. Задайте `DEMO_PASSWORD_HASH` как encrypted environment variable. Не добавляйте plaintext или реальный hash в Git.
+7. Первый rollout оркестратора выполняйте после migration `0006`: сначала `MTR_AGENT_ORCHESTRATOR_ENABLED=true`, затем независимо actions/events. Для event ingress нужен отдельный `MTR_AGENT_EVENT_INGRESS_SECRET` ≥32 символов. Kill switch оставьте `false`, но подготовьте операционную процедуру его включения.
 
 Изменённые environment variables действуют только для новых deployments; после
 ротации credentials выполните redeploy.
@@ -149,7 +156,9 @@ vercel env run -e "$MTR_TARGET" -- pnpm db:seed
 `db:seed` выполняется один раз для новой пустой demo-базы. На последующих релизах
 выполняйте только `db:migrate`: seed удаляет runtime-историю Демо-пользователя.
 Сверьте напечатанный non-secret target с ресурсом среды. Миграция должна завершиться
-до переключения production traffic; после seed readiness обязана показать 1/24/30/30.
+до переключения production traffic; после seed readiness обязана показать 8/24/30/30.
+
+Migration `0006_mtr_agent_orchestrator` только добавляет durable cases, evidence, plans, tasks, action proposals, event inbox, proactive insights и metric events; `0004_product_iteration` и `0005_scoped_rbac` не изменяются. Код можно развернуть с выключенными flags, применить migration controlled job, проверить readiness и только затем включить основной runtime. Rollback уровня приложения: выключить основной flag или включить kill switch; additive таблицы остаются совместимыми и не требуют down-migration.
 
 ### 5.4 Deploy gate
 
@@ -175,7 +184,7 @@ vercel curl '/api/health?check=live' --deployment '<deployment-url>'
 vercel curl '/api/health?check=ready' --deployment '<deployment-url>'
 ```
 
-Дополнительно проверьте redirect анонимного `/` на `/login`, вход/выход, server-driven завершение run без вызова `/advance`, отсутствие tool names в user API и наличие тех же операций в `/admin/agent-logs`. Для remediation iteration 2 обязательны три обычных Preview-run с доступными интеграциями и `p95` от `createdAt` до `completedAt` не более 15 секунд. Локальное сокращение PGlite-запросов runner с 98 до 56 является regression evidence, но не заменяет удалённый SLA. Production допускается только при HTTP 200 readiness, контрольных 1/24/30/30, рабочем PDF-export и пройденном Preview SLA.
+Дополнительно проверьте redirect анонимного `/` на `/login`, вход/выход, server-driven завершение run без вызова `/advance`, отсутствие tool names в user API и наличие тех же операций в `/admin/agent-logs`. Для оркестратора проверьте `SUMMARY`, scoped `STOCKS`, смену роли с очисткой widget, reauthorized case/citation, proposal без автоматического side effect, confirm/replay и event idempotency. Production допускается только после exact-SHA Preview, HTTP 200 readiness, рабочем PDF-export, SLA run ≤15 секунд и отсутствия P0/P1. Эта feature-ветка Production не изменяет.
 
 ## 6. On-premise Docker Compose
 

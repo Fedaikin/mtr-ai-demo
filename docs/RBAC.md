@@ -12,6 +12,6 @@
 
 ## Демонстрационные учётные записи
 
-Логины: `demo`, `viewer`, `analyst`, `expert`, `admin`, `auditor`. Пароль берётся из `DEMO_PASSWORD_HASH`; в локальной fixture-среде используется пароль, описанный в основном README. `integration-service` — сервисная учётная запись без UI-входа.
+Логины: `demo`, `viewer`, `analyst`, `expert`, `director`, `admin`, `auditor`. Общий пароль проверяется только по обязательному `DEMO_PASSWORD_HASH` из secret manager и нигде в публичных документах/UI не показывается. `integration-service` — сервисная учётная запись без UI-входа.
 
 Любое изменение статуса, членства или роли увеличивает `authorization_version` и отзывает активные сессии. Сервер повторно строит контекст авторизации при каждом запросе. Управление доступом: `/admin/users`, `/admin/roles`, `/projects/demo-project-001/members`; экспертная очередь: `/reviews`.

@@ -1,6 +1,6 @@
 # Ревью `codex/feat-mtr-agent-orchestrator`
 
-Статус: `В РАБОТЕ`
+Статус: `ЛОКАЛЬНО ГОТОВО / PREVIEW BLOCKED`
 
 ## База
 
@@ -9,7 +9,7 @@
 - Ветка: `codex/feat-mtr-agent-orchestrator`.
 - Product app: корень репозитория, Next.js App Router.
 - Зарезервированные миграции: `0004_product_iteration`, `0005_scoped_rbac`.
-- Следующая миграция агента: `0006` или следующий реально свободный номер.
+- Миграция агента: additive `0006_mtr_agent_orchestrator`; `0004` и `0005` не изменены.
 
 ## Preflight
 
@@ -41,6 +41,20 @@ HTTP принимает только сообщение и selection hints. Iden
 4. Saved citations сериализуются без повторной авторизации.
 5. Typed Drizzle schema не отражает часть уже применённых `project_id` из `0005`.
 6. Durable case/evidence/plan/action/event lifecycle отсутствует.
+
+Все шесть baseline findings закрыты на feature-ветке: route передаёт canonical context, chat/commands/events входят в один runtime, scoped ports фильтруют до retrieval, citations повторно авторизуются, typed schema отражает scoped columns, а `0006` сохраняет полный lifecycle.
+
+## Итоговый локальный gate
+
+- `pnpm check`: PASS;
+- ESLint и TypeScript: PASS;
+- Vitest: 112 файлов / 472 теста PASS;
+- privacy scan: 407 файлов PASS;
+- agent eval: 34/34 PASS;
+- production build и 2 PDF runtime assets: PASS;
+- отдельный desktop/mobile E2E рабочего пространства: PASS, без horizontal overflow.
+
+Открытые acceptance-долги: отдельный orchestrator eval manifest ≥100, матрица ≥27 orchestrator E2E, clean-checkout повтор и exact-SHA Preview. Они не маскируются локальными unit-тестами.
 
 ## Чек-лист
 

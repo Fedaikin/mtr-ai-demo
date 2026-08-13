@@ -2,41 +2,38 @@
 
 ## Назначение
 
-«МТР-аналитик» отвечает на вопросы о демонстрационных спецификациях Appius, складских данных SAP, ответственности, аналогах, запусках сценариев и отчётах. Настройка выполнена через system prompt, инструменты, few-shot-примеры и eval-набор; fine-tuning не используется.
+«МТР-агент» отвечает на вопросы о демонстрационных спецификациях Appius, складских данных SAP, ответственности, аналогах, запусках сценариев и отчётах. Версия prompt `3.0.0` задаёт единый оркестратор `CHAT / COMMAND / EVENT`; rollback prompt `1.0.0` сохраняется неактивным. Fine-tuning не используется.
 
-Агент не является источником оперативных фактов. Факты получает `AgentService` через типизированные порты, а LLM-провайдер только превращает подтверждённые результаты в структурированный ответ.
+Агент не является источником оперативных фактов. `MtrAgentOrchestrator.handle(input, TrustedRequestContext)` выбирает capability, применяет canonical RBAC до retrieval и сохраняет bounded plan/audit. Legacy `AgentService` остаётся только chat-capability и rollback-путём; typed/natural commands используют один registry и production-shaped persistence ports.
 
 ## Инварианты
 
-1. `userId` берётся только из доверенной серверной сессии.
-2. Тело HTTP-запроса валидируется `agentInputSchema`, в котором поля `userId` нет.
-3. `user_id` в сообщении пользователя удаляется до маршрутизации и не попадает в аргументы инструментов.
-4. Перед фактическим ответом вызывается соответствующий источник.
-5. Сервис принимает только ответы инструментов, прошедшие Zod-валидацию.
-6. Citations создаёт `AgentService` из фактических результатов портов; LLM не может добавить неподтверждённую ссылку.
+1. Identity, permissions, active project, role assignments, source/catalog scopes, warehouse claims и `authorizationVersion` берутся только из доверенной серверной сессии или service identity.
+2. HTTP-схемы не принимают `userId`, permissions или role; selection является только hint и повторно проверяется.
+3. `user_id` в сообщении пользователя удаляется до маршрутизации и не попадает в аргументы capabilities.
+4. Перед фактическим ответом выполняется project/source/catalog/warehouse pre-filtered retrieval.
+5. Capability принимает только типизированные результаты портов с completeness/freshness.
+6. Citations создаются из фактических результатов и повторно авторизуются при каждом чтении; отозванный источник удаляется из публичной проекции.
 7. Допустимость аналога определяется найденным правилом Normative и доменной функцией `buildAnalogueCoverage`, а не LLM.
-8. Вызов и безопасная сводка результата каждого инструмента записываются через `AuditPort`.
-9. Отказ аудита не раскрывается пользователю и не открывает доступ к данным.
-10. Ошибка источника или LLM не заменяется предположением.
+8. Команда сохраняет received/completed/failed audit, durable case и bounded plan; критическое действие без обязательного аудита не коммитится.
+9. L2 action выполняется только после явного confirm, повторной авторизации и проверки idempotency.
+10. Partial/unknown/error не заменяются уверенным отрицательным или положительным выводом.
 
 ## Поток запроса
 
 ```mermaid
 flowchart LR
-  U["Сообщение пользователя"] --> V["Zod: input без userId"]
-  S["Доверенная server session"] -->|"trusted userId"| A["AgentService"]
-  V --> A
-  A --> G{"Проверка injection / user_id"}
-  G -->|"атака"| B["Безопасный отказ"]
-  G -->|"предметный запрос"| R["Определение intent"]
-  R --> T["Вызовы Appius / SAP / гибридный Normative / Scenario / Report"]
-  T --> Z["Zod-валидация результатов"]
-  Z --> D["Доменный расчёт при необходимости"]
-  D --> L["LLMProvider"]
-  L --> C["Фильтрация citations и финальный контракт"]
-  A --> AU["AuditPort"]
-  T --> AU
-  L --> AU
+  I["CHAT / COMMAND / EVENT"] --> V["Строгая схема без identity/RBAC"]
+  S["Canonical session или service identity"] --> C["TrustedRequestContext"]
+  V --> O["MtrAgentOrchestrator"]
+  C --> O
+  O --> P["Permission + project/source/catalog/warehouse policy"]
+  P --> R["Capability registry"]
+  R --> T["Scoped ports: Appius / SAP / Normative / Runs / Tasks / Metrics"]
+  T --> E["Evidence, completeness, freshness"]
+  E --> B["Bounded plan + durable audit"]
+  B --> U["Русская safe projection"]
+  U --> X["Citation reauthorization on read"]
 ```
 
 ## Серверный контракт
@@ -44,22 +41,11 @@ flowchart LR
 Рекомендуемый вызов отделяет недоверенное тело от доверенной identity:
 
 ```ts
-const input = agentInputSchema.parse(await request.json());
-const userId = session.user.id;
-const result = await agentService.respond(input, userId);
+const input = publicAgentRequestSchema.parse(await request.json());
+const result = await orchestrator.handle(input, session.authorization);
 ```
 
-Для серверного кода также доступен эквивалентный overload:
-
-```ts
-const result = await agentService.respond({
-  userId: session.user.id,
-  message: input.message,
-  threadId: input.threadId,
-});
-```
-
-Внешний Route Handler не должен копировать `userId` из JSON в trusted request.
+Внешний Route Handler не копирует `userId`, role, scopes или grants из JSON в trusted request. Chat-capability получает legacy-compatible поля только из `TrustedRequestContext` внутри server composition.
 
 Фабрики:
 
@@ -134,7 +120,7 @@ const result = await agentService.respond({
 
 Это внутренний контракт application-слоя. Перед HTTP-ответом `toPublicAgentDecision` создаёт отдельную проекцию: пользователь получает только итоговый `content`, citations, `confidence` и `requiresHumanReview`. Facts, recommendations, tool names, arguments, raw JSON, prompt/model metadata и технические ошибки в user chat/API не сериализуются. Если итоговый текст сам содержит имя внутреннего инструмента, JSON или признаки internal reasoning, он заменяется безопасным сообщением с обязательной экспертной проверкой.
 
-ADMIN видит фактические операции отдельно на `/admin/agent-logs`: correlation, system/tool, редактированные args/result, duration, attempts, prompt/model metadata, citations и безопасный error code. Таким образом, наблюдаемость не расширяет публичную поверхность диалога.
+Пользователь с `agent.logs.read` видит фактические операции отдельно на `/admin/agent-logs`: correlation, system/tool, редактированные args/result, duration, attempts, prompt/model metadata, citations и безопасный error code. Там же рассчитываются persisted-метрики команд, планов, действий, insights и event failures без чтения личного текста, payload или raw tool output. Таким образом, наблюдаемость не расширяет публичную поверхность диалога.
 
 Если был фактический intent, но подтверждённых citations нет, сервис принудительно выставляет `confidence = 0` и `requiresHumanReview = true`.
 
