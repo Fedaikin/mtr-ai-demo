@@ -5,7 +5,11 @@ import type {
   MtrRepository,
 } from "@/adapters/persistence/repository";
 import type { GroundedAgentOutput } from "@/domain/models";
-import type { GroundedAgentInput, LLMProvider } from "@/ports";
+import type {
+  GroundedAgentInput,
+  LlmProviderRequestOptions,
+  LLMProvider,
+} from "@/ports";
 
 type LlmStateRepository = Pick<MtrRepository, "getIntegrationState">;
 
@@ -27,9 +31,12 @@ export class IntegrationAwareLlmProvider implements LLMProvider {
     private readonly provider: LLMProvider,
   ) {}
 
-  async respond(input: GroundedAgentInput): Promise<GroundedAgentOutput> {
+  async respond(
+    input: GroundedAgentInput,
+    options: LlmProviderRequestOptions = {},
+  ): Promise<GroundedAgentOutput> {
     const state = await this.requireState(input.userId);
-    if (state.state === "SLOW") await controlledDelay(state.delayMs);
+    if (state.state === "SLOW") await controlledDelay(state.delayMs, options.signal);
     if (state.state !== "AVAILABLE" && state.state !== "SLOW") {
       throw new LlmIntegrationError(
         state.state === "RATE_LIMITED" ? 429 : 503,
@@ -37,7 +44,7 @@ export class IntegrationAwareLlmProvider implements LLMProvider {
         state.safeMessage ?? safeStateMessage(state.state),
       );
     }
-    return this.provider.respond(input);
+    return this.provider.respond(input, options);
   }
 
   private async requireState(userId: string): Promise<IntegrationStateRecord> {
@@ -53,9 +60,18 @@ export class IntegrationAwareLlmProvider implements LLMProvider {
   }
 }
 
-async function controlledDelay(delayMs: number): Promise<void> {
+async function controlledDelay(delayMs: number, signal?: AbortSignal): Promise<void> {
   const safeDelay = Math.max(0, Math.min(10_000, Math.trunc(delayMs)));
-  if (safeDelay > 0) await new Promise<void>((resolve) => setTimeout(resolve, safeDelay));
+  if (signal?.aborted) throw new LlmIntegrationError(499, "LLM_CANCELLED", "Формирование ответа отменено.");
+  if (safeDelay > 0) {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(resolve, safeDelay);
+      signal?.addEventListener("abort", () => {
+        clearTimeout(timer);
+        reject(new LlmIntegrationError(499, "LLM_CANCELLED", "Формирование ответа отменено."));
+      }, { once: true });
+    });
+  }
 }
 
 function safeStateMessage(state: string): string {

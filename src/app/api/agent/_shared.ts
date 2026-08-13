@@ -15,6 +15,7 @@ import { toPublicAgentDecision } from "@/application/agent-presentation";
 import { AuditedAgentCommandCapability } from "@/application/agent-orchestrator/audited-command-capability";
 import { createAgentCommandRegistry } from "@/application/agent-orchestrator/command-registry";
 import { readAgentFeaturePolicy } from "@/application/agent-orchestrator/feature-policy";
+import { createOfflineProviderConformance } from "@/application/agent-orchestrator/provider-conformance";
 import { restorePublicAgentCommandResult } from "@/application/agent-orchestrator/public-projection";
 import {
   agentChatInputSchema,
@@ -79,7 +80,9 @@ export function createAgentRuntime(repository: MtrRepository): AgentService {
         return null;
       },
     },
-    llm: new IntegrationAwareLlmProvider(repository, createMockLLMProvider()),
+    llm: createOfflineProviderConformance(
+      new IntegrationAwareLlmProvider(repository, createMockLLMProvider()),
+    ),
     dictionaries: {
       listActive: (userId: string) =>
         repository.listDictionaries(userId, "MTR_SEARCH_SYNONYMS"),
