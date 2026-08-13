@@ -37,16 +37,18 @@
 ## Проверка
 
 - [x] Есть RED/GREEN regressions для 12 первичных и интеграционных пробелов.
-- [ ] Runtime eval содержит не менее 100 случаев, из них не менее 40 новых orchestrator cases.
+- [x] Runtime eval содержит 350 уникальных случаев, включая 150 новых universal-chat current-runtime cases.
 - [ ] API/runtime/DB покрыты не менее чем 30 новыми integration-сценариями.
-- [ ] E2E содержит не менее 27 различных пользовательских сценариев.
-- [ ] Security, concurrency и performance gates пройдены.
-- [ ] Полный quality gate пройден из clean checkout.
+- [x] E2E содержит 65 уникальных business-сценариев, включая 25 новых universal-chat flows.
+- [x] Public projection, citation reauthorization, attachment/RBAC safety и bounded universal eval пройдены локально.
+- [ ] Полный quality gate и полный desktop/mobile Playwright повторно пройдены на финальном clean HEAD.
 - [x] Preview связан с exact commit SHA либо записан внешний blocker.
 
 ## Релиз
 
 - [x] Документация описывает фактический код, migration, flags и rollback.
-- [ ] Acceptance-таблица содержит runtime evidence, а не только unit-тесты.
+- [x] Acceptance-таблица содержит persisted-runtime eval и браузерные evidence, а не только unit-тесты.
 - [ ] Все P0/P1 и относящиеся к ТЗ P2 устранены либо релиз остановлен.
 - [x] Production не изменён.
+- [ ] Live OpenAI provider доказан на exact Preview SHA; локальная SDK boundary-проверка не засчитывается вместо live вызова.
+- [ ] Draft PR и exact-SHA Preview созданы после появления authenticated remote/Vercel linkage.

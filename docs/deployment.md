@@ -25,7 +25,10 @@ Preview и Production не должны использовать общие `DAT
 | `DATABASE_URL` | необязательна | обязательна | обязательна | PostgreSQL connection string; для Vercel использовать pooled URL |
 | `PGLITE_DATA_DIR` | `.data/pglite` | не задавать | не задавать при PostgreSQL | локальная PGlite |
 | `BLOB_READ_WRITE_TOKEN` | необязательна | обязательна | не задавать для single-host volume | Vercel Blob uploads |
-| `LLM_PROVIDER` | `mock` | `mock` | `mock` | детерминированный провайдер без внешнего LLM |
+| `LLM_PROVIDER` | `mock` | `mock` | `mock` | legacy provider marker |
+| `OPENAI_API_KEY` | пусто | Preview secret | secret | официальный Responses provider, только server-side |
+| `OPENAI_MODEL` | пусто | exact model ID | exact model ID | закреплённая модель universal live runtime |
+| `MTR_AGENT_LIVE_LLM_ENABLED` | `false` | explicit | explicit | live planner/composer; deterministic fallback сохраняется |
 | `MTR_AGENT_LLM_ENABLED` | `true` | `true` | `true` | provider-level stop; только `false` запрещает новый вызов |
 | `APP_MODE` | `demo` | `demo` | `demo` или `production` | reset доступен только в `demo` |
 | `SESSION_COOKIE_SECURE` | необязательна | включается автоматически по `VERCEL` | `true` за TLS reverse proxy | принудительный `Secure` для HttpOnly session cookie |
@@ -33,12 +36,13 @@ Preview и Production не должны использовать общие `DAT
 | `MTR_AGENT_ORCHESTRATOR_ENABLED` | `false` | explicit | explicit | единый runtime агента после миграции `0006` |
 | `MTR_AGENT_ACTIONS_ENABLED` | `false` | explicit | explicit | подтверждаемые действия агента |
 | `MTR_AGENT_EVENTS_ENABLED` | `false` | explicit | explicit | event ingress и proactive insights |
+| `MTR_AGENT_UNIVERSAL_CHAT_ENABLED` | `false` | explicit | explicit | project-aware universal chat, attachments и privileged proposals |
 | `MTR_AGENT_KILL_SWITCH` | `false` | operational | operational | аварийно запрещает новое выполнение |
 | `MTR_AGENT_EVENT_INGRESS_SECRET` | optional | secret | secret | минимум 32 символа, только для event ingress |
 
 Demo-реквизиты выдаются владельцу контура приватно и не отображаются на `/login`; БД хранит scrypt-хеш пароля и SHA-256-хеш opaque session token. Секреты задаются через локальный `.env.local`, Vercel Environment Variables или
 корпоративный secret store. Их нельзя помещать в image layers, Git, build arguments,
-логи и команды, сохраняемые shell history. Не задавайте `LLM_API_KEY` для mock-режима.
+логи и команды, сохраняемые shell history. Не задавайте `LLM_API_KEY` для mock-режима; новый live path читает только `OPENAI_API_KEY`.
 
 ## 3. Health checks
 
@@ -73,7 +77,7 @@ pnpm db:seed
 pnpm dev
 ```
 
-Первый `db:seed` создаёт ровно 8/24/30/30 и пять сценариев. Четыре fixture manifests
+Первый `db:seed` создаёт 8 субъектов, 83 current-спецификации / 3 584 current-позиции, 30 SAP-материалов / 30 balances и пять сценариев. Четыре fixture manifests
 (`identity-base-v1`, `appius-base-v1`, `sap-base-v1`, `normative-base-v1`) используют
 schema `1.0.0`; сценарный manifest `scenarios-base-v2` использует schema `1.1.0`.
 Повторный `db:seed` атомарно заменяет все данные Демо-пользователя, включая runs и
@@ -119,10 +123,10 @@ Noto Sans WOFF в свежем NFT trace PDF-export route; вне Vercel он д
 3. Создайте отдельные Blob stores для Preview и Production.
 4. В Project Settings → Environment Variables назначьте каждой среде собственные
    `DATABASE_URL` и `BLOB_READ_WRITE_TOKEN`.
-5. Для обеих сред задайте `LLM_PROVIDER=mock` и `APP_MODE=demo`. Production prototype
+5. Для обеих сред задайте `LLM_PROVIDER=mock` и `APP_MODE=demo`. Для universal Preview сначала оставьте `MTR_AGENT_LIVE_LLM_ENABLED=false`, затем отдельно добавьте Preview-only `OPENAI_API_KEY` и exact `OPENAI_MODEL`. Production prototype
    с рабочим reset должен оставаться защищённым Deployment Protection.
 6. Задайте `DEMO_PASSWORD_HASH` как encrypted environment variable. Не добавляйте plaintext или реальный hash в Git.
-7. Первый rollout оркестратора выполняйте после migrations `0006` и `0007`: сначала `MTR_AGENT_ORCHESTRATOR_ENABLED=true`, затем независимо actions/events. Для event ingress нужен отдельный `MTR_AGENT_EVENT_INGRESS_SECRET` ≥32 символов. Kill switch оставьте `false`, `MTR_AGENT_LLM_ENABLED=true`, но подготовьте независимые операционные процедуры отключения orchestrator execution и только provider call.
+7. Первый rollout оркестратора выполняйте после migrations `0006`–`0009`: сначала `MTR_AGENT_ORCHESTRATOR_ENABLED=true`, затем `MTR_AGENT_UNIVERSAL_CHAT_ENABLED=true`, после smoke независимо actions/events и в последнюю очередь live LLM. Для event ingress нужен отдельный `MTR_AGENT_EVENT_INGRESS_SECRET` ≥32 символов. Kill switch оставьте `false`, но подготовьте независимые процедуры отключения actions, universal runtime, live provider и всего orchestrator execution.
 
 Изменённые environment variables действуют только для новых deployments; после
 ротации credentials выполните redeploy.
@@ -157,9 +161,9 @@ vercel env run -e "$MTR_TARGET" -- pnpm db:seed
 `db:seed` выполняется один раз для новой пустой demo-базы. На последующих релизах
 выполняйте только `db:migrate`: seed удаляет runtime-историю Демо-пользователя.
 Сверьте напечатанный non-secret target с ресурсом среды. Миграция должна завершиться
-до переключения production traffic; после seed readiness обязана показать 8/24/30/30.
+до переключения production traffic; после seed readiness обязана показать 8/3 584/30/30.
 
-Migration `0006_mtr_agent_orchestrator` только добавляет durable cases, evidence, plans, tasks, action proposals, event inbox, proactive insights и metric events. Следующая additive migration `0007_mtr_agent_learning` добавляет проектно- и owner-scoped карантин обратной связи с проверяемым жизненным циклом; она не включает автоматическое обучение и не меняет runtime-ответы. `0004_product_iteration`, `0005_scoped_rbac` и `0006` не изменяются. Код можно развернуть с выключенными flags, применить migrations controlled job, проверить readiness и только затем включить основной runtime. Rollback уровня приложения: выключить основной flag или включить kill switch; additive таблицы остаются совместимыми и не требуют down-migration.
+Migration `0006_mtr_agent_orchestrator` добавляет durable cases/evidence/plans/tasks/actions/events/metrics; `0007_mtr_agent_learning` — owner-scoped карантин feedback. `0008_universal_chat` добавляет business projects, operational crosswalk, intake/deadline/stock/movement/inbound/reliability и attachment data. `0009_chat_rbac_actions` добавляет метаданные privileged chat actions. Все migration additive; `0000`–`0007` не переписываются. Код можно развернуть с выключенными flags, применить migrations controlled job, проверить readiness и только затем включать возможности по одной. Rollback уровня приложения не требует down-migration.
 
 ### 5.4 Deploy gate
 
@@ -177,6 +181,7 @@ pnpm eval:agent:provider
 pnpm eval:agent:security
 pnpm eval:agent:scale
 pnpm eval:agent:multi-turn
+pnpm eval:agent:universal
 pnpm build
 pnpm benchmark
 pnpm test:e2e
@@ -191,7 +196,7 @@ vercel curl '/api/health?check=live' --deployment '<deployment-url>'
 vercel curl '/api/health?check=ready' --deployment '<deployment-url>'
 ```
 
-Дополнительно проверьте redirect анонимного `/` на `/login`, вход/выход, server-driven завершение run без вызова `/advance`, отсутствие tool names в user API и наличие тех же операций в `/admin/agent-logs`. Для оркестратора проверьте `SUMMARY`, scoped `STOCKS`, смену роли с очисткой widget, reauthorized case/citation, proposal без автоматического side effect, confirm/replay и event idempotency. Production допускается только после exact-SHA Preview, HTTP 200 readiness, рабочем PDF-export, SLA run ≤15 секунд и отсутствия P0/P1. Эта feature-ветка Production не изменяет.
+Дополнительно проверьте redirect анонимного `/` на `/login`, вход/выход, server-driven завершение run без вызова `/advance`, отсутствие tool names в user API и наличие тех же операций в `/admin/agent-logs`. Для universal runtime проверьте именованный проект, unknown material, project balance/reorder, compatibility отдельно от reliability, reload structured answer, attachment preview/publish/replay, role switch, proposal без side effect и confirm/replay. Live provider gate требует trace с exact model/prompt на том же deployment SHA и полезный fallback при outage. Production допускается только после exact-SHA Preview и отсутствия P0/P1. Эта feature-ветка Production не изменяет.
 
 Admin audit LLM-вызова должен содержать provider/model/version, `trainingAllowed=false`, `retentionAllowed=false` и `reasoningPersistence=NONE`, но не prompt или raw response. Отдельно проверьте `MTR_AGENT_LLM_ENABLED=false`: delegate не вызывается, а пользователь получает безопасный fallback с сохранёнными citations.
 
@@ -270,10 +275,13 @@ volume не считается multi-node object storage.
 
 ### Vercel
 
-1. Убедитесь, что причина в приложении, а не в БД/credentials.
-2. Выполните `vercel rollback` или `vercel rollback <known-good-deployment-url>`.
-3. Проверьте `vercel rollback status`, liveness и readiness.
-4. После исправления используйте `vercel promote <fixed-deployment-url>`, чтобы вернуть
+1. Если отказ ограничен live provider, установите `MTR_AGENT_LIVE_LLM_ENABLED=false`: deterministic universal runtime останется доступен.
+2. Если отказ связан с mutation, отключите `MTR_AGENT_ACTIONS_ENABLED`, сохранив read-only чат.
+3. Для полного rollback universal path отключите `MTR_AGENT_UNIVERSAL_CHAT_ENABLED` или включите `MTR_AGENT_KILL_SWITCH=true`.
+4. Убедитесь, что причина в приложении, а не в БД/credentials.
+5. Выполните `vercel rollback` или `vercel rollback <known-good-deployment-url>`.
+6. Проверьте `vercel rollback status`, liveness и readiness.
+7. После исправления используйте `vercel promote <fixed-deployment-url>`, чтобы вернуть
    автоматическое назначение production domain.
 
 Vercel rollback переключает application deployment, но не откатывает PostgreSQL,

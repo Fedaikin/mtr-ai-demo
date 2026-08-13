@@ -15,7 +15,7 @@
 | Сценарии | Серверный bounded runner после create/retry/manual import; UI только опрашивает состояние; работают cancel, совместимый `advance` и фактический snapshot файла (`sourceKind: UPLOADED_FILE`) |
 | Ручной импорт | Appius принимает CSV/XLS/XLSX, размеченный текст и позиционные TXT/DOCX/text-PDF ровно из четырёх полей `код / наименование / количество / единица`; смесь допустимых и отклонённых строк блокируется как `REVIEW_REQUIRED`; известный demo-image даёт фиксированный OCR, остальные изображения и scan-PDF требуют проверки. SAP fallback поддерживает только CSV/XLS/XLSX |
 | Отчёты | Интерактивный отчёт, версионное решение эксперта и экспорт JSON, XLSX, PDF |
-| МТР-агент | Единый runtime `CHAT / COMMAND / EVENT`, шесть команд, включая проверяемый анализ позиции с forecast/backtest и scenario comparison; bounded планы, повторно авторизуемая история выводов и evidence, недельная сводка, proactive-сигналы, подтверждаемые действия и owner-only feedback в карантин без online learning |
+| МТР-агент | Единый universal chat по названиям проектов и кодам материалов, runtime `CHAT / COMMAND / EVENT`, project balance/reorder, compatibility/reliability, вложения со specification preview/publish и подтверждаемые RBAC-действия; сохранённые ответы и citations повторно авторизуются |
 | Администрирование | Исполняемые состояния Appius, SAP, RAG и LLM, сценарии, промпты, словари, логи агента, аудит, demo-reset |
 | Хранилище | PGlite локально; PostgreSQL при заданном `DATABASE_URL`; Blob для загрузок на Vercel |
 
@@ -47,6 +47,12 @@ pnpm dev
 | Развернуть Local, Vercel или on-premise pilot | [Развёртывание](docs/deployment.md) | How-to / reference |
 | Вызвать HTTP API и проверить схему запроса | [Справочник HTTP API](docs/api-reference.md) | Reference |
 | Понять правила grounded-агента | [Поведение МТР-аналитика](docs/agent-behavior.md) | Reference / explanation |
+| Задавать проектные вопросы в едином чате | [Универсальный МТР-агент](docs/mtr-agent-universal-chat.md) | Tutorial / explanation |
+| Проверить проекты, остатки и формулы дозаказа | [Модель бизнес-проектов](docs/mtr-project-data-model.md) | Reference / explanation |
+| Разобрать проценты совместимости и надёжность | [Модель совместимости](docs/mtr-compatibility-model.md) | Reference / explanation |
+| Настроить live OpenAI и deterministic fallback | [LLM provider](docs/mtr-agent-llm-provider.md) | How-to / reference |
+| Импортировать спецификацию через чат | [Вложения и импорт](docs/mtr-agent-attachments-import.md) | How-to |
+| Проверить подтверждаемые административные действия | [RBAC-действия из чата](docs/mtr-agent-rbac-actions.md) | Reference / explanation |
 | Проверить формулы, качество данных, forecast и команду `ANALYSIS` | [Семантический слой аналитики МТР](docs/mtr-analytics-semantic-layer.md) | Reference / explanation / how-to |
 | Понять границы runtime, persistence и rollout | [Трассируемость МТР-агента](docs/mtr-agent-orchestrator-traceability.md) | Reference / explanation |
 | Проверить модель ролей, scopes и permissions | [Scoped RBAC](docs/RBAC.md) | Reference |
@@ -95,8 +101,9 @@ Readiness и контроль canonical seed доступны по `/api/health`
 | `pnpm eval:agent:security` | Выполнить 32 проверки permission, scope, injection, citation/case/action reauthorization |
 | `pnpm eval:agent:scale` | Выполнить 20 портфельных ANALYSIS-кейсов двумя параллельными батчами по 10 |
 | `pnpm eval:agent:multi-turn` | Выполнить 27 трёхходовых sensitivity/feedback диалогов |
+| `pnpm eval:agent:universal` | Выполнить 150 production-shaped universal-chat cases на persisted PGlite dataset |
 | `pnpm perf:smoke` | Измерить готовность API и загрузку основных экранов; поддерживает локальный или Preview base URL |
-| `pnpm check` | `lint` → `typecheck` → `test` → `privacy:scan` → все eval-наборы (в сумме 200 кейсов) → `build` |
+| `pnpm check` | `lint` → `typecheck` → `test` → `privacy:scan` → все eval-наборы (в сумме 350 кейсов) → `build` |
 | `pnpm db:migrate` | Применить checked-in Drizzle migrations |
 | `pnpm db:seed` | Заменить demo-scoped данные каноническим seed |
 | `pnpm db:reset` | Атомарно восстановить demo-scoped данные; remote reset защищён флагом |
@@ -115,8 +122,11 @@ Readiness и контроль canonical seed доступны по `/api/health`
 | `DATABASE_URL` | Необязательна | Обязательна для durable persistence | PostgreSQL connection string; пустое значение включает PGlite |
 | `PGLITE_DATA_DIR` | `.data/pglite` в шаблоне | Не используется | Каталог локальной PGlite; `memory://` используется в тестах |
 | `BLOB_READ_WRITE_TOKEN` | Необязательна | Обязательна для загрузок на Vercel | Private Vercel Blob storage |
-| `LLM_PROVIDER` | `mock` | `mock` для текущего прототипа | Декларативный маркер; runtime текущей версии явно создаёт deterministic mock-provider |
-| `LLM_API_KEY` | Пустая | Не нужна для `mock` | Зарезервирована под внешний provider |
+| `LLM_PROVIDER` | `mock` | Legacy-контур | Декларативный маркер предыдущего runtime; universal live path использует отдельные OpenAI-переменные |
+| `LLM_API_KEY` | Пустая | Не нужна | Legacy-переменная; не используется новым OpenAI Responses provider |
+| `OPENAI_API_KEY` | Пустая | Preview-only server secret | Ключ официального OpenAI Responses provider; в Git/client/logs запрещён |
+| `OPENAI_MODEL` | Пустая | Exact model ID | Закрепляется после доступного model-list/benchmark в Preview |
+| `MTR_AGENT_LIVE_LLM_ENABLED` | `false` | Включать после настройки key/model | Primary live planner/composer; при отказе действует deterministic fallback |
 | `MTR_AGENT_LLM_ENABLED` | `true` | Операционный флаг | Только явное `false` останавливает provider call; подтверждённые tool-citations сохраняются в безопасном fallback |
 | `APP_MODE` | `demo` | `demo` только в защищённом прототипном контуре | Разрешает API demo-reset |
 | `DEMO_USER_ID` | `demo-user-001` | `demo-user-001` | Канонический владелец предметных fixtures; доверенная session и scopes задаются сервером |
@@ -124,6 +134,7 @@ Readiness и контроль canonical seed доступны по `/api/health`
 | `MTR_AGENT_ORCHESTRATOR_ENABLED` | `false` | Явно включить после миграции `0006` | Единый runtime, команды, кейсы, digest и insights |
 | `MTR_AGENT_ACTIONS_ENABLED` | `false` | Включать отдельно | Proposal/confirm/cancel для разрешённых L2-действий |
 | `MTR_AGENT_EVENTS_ENABLED` | `false` | Включать отдельно | Service-to-service event ingress и proactive insights |
+| `MTR_AGENT_UNIVERSAL_CHAT_ENABLED` | `false` | Включать после migrations `0008`/`0009` | Проектные запросы, вложения, public structured answers и privileged chat proposals |
 | `MTR_AGENT_KILL_SWITCH` | `false` | Операционный флаг | Немедленно останавливает новое выполнение оркестратора |
 | `MTR_AGENT_EVENT_INGRESS_SECRET` | Не нужен без events | Secret ≥32 символов | Защищает event ingress; не передаётся в браузер |
 
@@ -154,6 +165,8 @@ docs/                        документация прототипа
 - fixture manifests `identity-base-v1`, `appius-base-v1`, `sap-base-v1`, `normative-base-v1` используют schema `1.0.0`; `scenarios-base-v2` использует schema `1.1.0` и содержит пять сценариев;
 - полный сценарий формирует golden-распределение 8 `EXACT`, 8 `LIKELY`, 5 `REVIEW`, 3 `NO_MATCH`;
 - агент получает предметные факты только через server-side capabilities с `TrustedRequestContext`;
+- access scope и business project являются разными сущностями; все 83 current-спецификации и 3 584 позиции доступны project-aware query path;
+- project balance использует `project-material-balance-v1`, compatibility — `technical-compatibility-v1`, reliability — отдельный `reliability-comparison-v1`;
 - каждый LLM-вызов проходит provider-neutral boundary: redaction, token/cost/rate budgets, timeout/cancel, kill switch и строгую проверку ответа; обучение, retention и сохранение reasoning запрещены;
 - сохранённые citations повторно авторизуются при чтении; L2-действия требуют отдельного подтверждения;
 - отзыв на ответ создаёт идемпотентный `LearningCandidate` в карантине; он не меняет runtime без human approval, regression case, validation checksum и отдельной активации;

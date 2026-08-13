@@ -91,7 +91,7 @@ curl --fail-with-body -sS -b "$MTR_COOKIE_JAR" \
 curl --fail-with-body -sS "$MTR_BASE_URL/api/health?check=ready"
 ```
 
-Первый ответ должен содержать `total: 3`; второй - `d.__count: "30"`; readiness должен вернуть `status: "ok"` и контрольные счётчики 8/24/30/30.
+Первый ответ должен содержать `total: 83`; второй - `d.__count: "30"`; readiness должен вернуть `status: "ok"` и контрольные счётчики 8/3 584/30/30.
 
 ## Как выбрать локальное хранилище
 
@@ -192,7 +192,7 @@ ALLOW_REMOTE_RESET=true node --env-file=.env.local --import tsx scripts/reset.ts
 pnpm check
 ```
 
-Фактическая последовательность: ESLint, Next route type generation + TypeScript, все Vitest-тесты, privacy scan, 34 legacy eval-кейса, 50 production-shaped analytical eval-кейсов, 17 learning lifecycle eval-кейсов, 20 provider-boundary eval-кейсов, 32 security-boundary eval-кейса, 20 scale eval-кейсов, 27 multi-turn eval-кейсов и production build.
+Фактическая последовательность: ESLint, Next route type generation + TypeScript, все Vitest-тесты, privacy scan, 34 legacy eval-кейса, 50 analytical, 17 learning, 20 provider-boundary, 32 security, 20 scale, 27 multi-turn и 150 universal-chat current-runtime eval-кейсов, затем production build. Итого 350 eval.
 
 ### Полный release gate
 
@@ -209,6 +209,7 @@ pnpm eval:agent:provider
 pnpm eval:agent:security
 pnpm eval:agent:scale
 pnpm eval:agent:multi-turn
+pnpm eval:agent:universal
 pnpm build
 pnpm test:e2e
 ```
@@ -430,7 +431,7 @@ curl --fail-with-body -sS \
 
 Ожидаются citations `SAP`, уверенность и признак экспертной проверки. Публичный ответ намеренно не содержит `toolCalls`, аргументы или технический JSON; фактический `sap.getMaterialStock` доступен ADMIN на `/admin/agent-logs`. Поле `userId` отсутствует во входной схеме. Если добавить его в JSON, строгая схема вернёт `400 VALIDATION_ERROR`; идентификатор из текста сообщения также не меняет доверенную server session.
 
-### Как включить и проверить оркестратор 3.0.0
+### Как включить и проверить универсальный оркестратор 4.1.0
 
 После применения migrations `0006_mtr_agent_orchestrator` и `0007_mtr_agent_learning` включайте возможности независимо:
 
@@ -438,11 +439,15 @@ curl --fail-with-body -sS \
 MTR_AGENT_ORCHESTRATOR_ENABLED=true
 MTR_AGENT_ACTIONS_ENABLED=true
 MTR_AGENT_EVENTS_ENABLED=false
+MTR_AGENT_UNIVERSAL_CHAT_ENABLED=true
+MTR_AGENT_LIVE_LLM_ENABLED=false
 MTR_AGENT_KILL_SWITCH=false
 MTR_AGENT_LLM_ENABLED=true
 ```
 
 Основной флаг включает единый `CHAT / COMMAND` runtime, кейсы, bounded plans, недельную сводку и чтение insights. Actions требуют второго флага. Event ingress оставляйте выключенным, пока не настроен отдельный service secret. Любой новый флаг по умолчанию `false`; `MTR_AGENT_KILL_SWITCH=true` имеет приоритет и останавливает новое выполнение без удаления уже сохранённых данных.
+
+Universal-флаг включает project/material routing, project balance/reorder, compatibility/reliability, structured public answers, attachment import и privileged chat proposals. Для локальной проверки live-флаг оставляйте `false`: используется детерминированный grounded runtime. Для live Preview дополнительно задайте server-only `OPENAI_API_KEY` и exact `OPENAI_MODEL`; failure автоматически возвращает тот же полезный deterministic результат с ограничениями.
 
 `MTR_AGENT_LLM_ENABLED` — отдельный provider-level stop. Значение отсутствует или равно `true` для текущего offline-контура; только точное `false` запрещает новый provider call. Уже полученные citations инструментов не теряются: пользователь получает безопасный fallback с `confidence: 0` и `requiresHumanReview: true`. После изменения environment нужен новый deployment/process restart.
 
@@ -476,16 +481,26 @@ curl --fail-with-body -sS -b "$MTR_COOKIE_JAR" \
 - Build Command: `pnpm build`;
 - `DATABASE_URL`: отдельная durable PostgreSQL БД;
 - `BLOB_READ_WRITE_TOKEN`: private Blob storage для uploads;
-- `LLM_PROVIDER=mock`;
+- `LLM_PROVIDER=mock` для legacy-контура;
+- `OPENAI_API_KEY` и `OPENAI_MODEL` только в Preview secret manager, если включён live universal provider;
+- `MTR_AGENT_LIVE_LLM_ENABLED=false` до завершения exact-model benchmark и live acceptance;
 - `MTR_AGENT_LLM_ENABLED=true` (для аварийной остановки provider call задайте `false` и перезапустите deployment);
 - `APP_MODE=demo` только для защищённого demo-контура;
 - `DEMO_USER_ID=demo-user-001`.
 - `DEMO_PASSWORD_HASH`: приватный scrypt-хеш через secret manager;
 - orchestrator flags из предыдущего раздела; при первом rollout начать с основного runtime, затем отдельно actions/events.
 
+### Rollback universal chat
+
+1. Отключите `MTR_AGENT_LIVE_LLM_ENABLED`, если проблема только в provider. Deterministic universal runtime продолжит отвечать.
+2. Отключите `MTR_AGENT_ACTIONS_ENABLED`, если нужно остановить новые state changes, сохранив read-only чат.
+3. Отключите `MTR_AGENT_UNIVERSAL_CHAT_ENABLED`, чтобы вернуть previous-stage CHAT/COMMAND runtime.
+4. Общий `MTR_AGENT_KILL_SWITCH=true` запрещает новое выполнение orchestrator.
+5. Migrations `0008`/`0009` additive. Rollback приложения не удаляет их таблицы; destructive down/reset автоматически не выполняется.
+
 Перед запуском новой сборки примените `pnpm db:migrate` к целевой БД отдельной controlled job. Локальная PGlite и `.data/uploads` не являются durable storage на Vercel. Production и Preview не должны разделять БД, Blob namespace или credentials.
 
-Не выполняйте `vercel env run -e production` при существующем `.env.local`: локальные значения могут получить приоритет и направить job в Preview database. Используйте fail-safe block из [руководства по развёртыванию](deployment.md#migrations-и-первичный-seed), сверяйте non-secret `NEON_PROJECT_ID`, а после job проверяйте readiness 8/24/30/30.
+Не выполняйте `vercel env run -e production` при существующем `.env.local`: локальные значения могут получить приоритет и направить job в Preview database. Используйте fail-safe block из [руководства по развёртыванию](deployment.md#migrations-и-первичный-seed), сверяйте non-secret `NEON_PROJECT_ID`, а после job проверяйте readiness 8/3 584/30/30.
 
 ## Устранение неполадок
 
@@ -516,3 +531,8 @@ curl --fail-with-body -sS -b "$MTR_COOKIE_JAR" \
 - [Поведение AI-агента](agent-behavior.md)
 - [Развёртывание и persistence](deployment.md)
 - [Трассируемость МТР-агента](mtr-agent-orchestrator-traceability.md)
+- [Универсальный чат](mtr-agent-universal-chat.md)
+- [Модель бизнес-проектов](mtr-project-data-model.md)
+- [LLM provider и fallback](mtr-agent-llm-provider.md)
+- [Вложения и импорт](mtr-agent-attachments-import.md)
+- [RBAC-действия](mtr-agent-rbac-actions.md)

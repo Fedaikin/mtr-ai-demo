@@ -194,27 +194,37 @@ http://localhost:3000
 
 ```json
 {
-  "sourceSystem": "APPIUS|SAP|NORMATIVE|SCENARIO|REPORT",
+  "sourceSystem": "APPIUS|SAP|CATALOG|NORMATIVE|SCENARIO|REPORT",
   "entityId": "точный ID источника",
   "versionOrSnapshot": "версия или timestamp",
   "clauseId": "пункт правила либо null"
 }
 ```
 
-Публичная проекция assistant message намеренно содержит только итоговый текст, citations и метаданные решения:
+Legacy/command assistant сохраняет компактную публичную проекцию. Universal assistant использует allowlist-схему `universal-agent-answer-public-v1`:
 
 ```json
 {
   "content": "Ответ на русском",
   "structuredOutput": {
-    "confidence": 1,
-    "requiresHumanReview": false
+    "schemaVersion": "universal-agent-answer-public-v1",
+    "output": {
+      "facts": [],
+      "tables": [],
+      "risks": [],
+      "compatibility": [],
+      "recommendations": [],
+      "actions": [],
+      "limitations": [],
+      "confidence": 1,
+      "requiresHumanReview": false
+    }
   },
   "citations": []
 }
 ```
 
-Внутренний `GroundedAgentOutput` дополнительно содержит facts, recommendations и фактические tool calls, но эта структура не сериализуется в пользовательский HTTP-контракт. Операции доступны только ADMIN в `/admin/agent-logs`; citations сохраняются отдельными rows и возвращаются в `message.citations`.
+Public universal output сохраняет проверяемые таблицы и выводы после reload, но удаляет `resolvedContext`, source copies, runtime/provider/model trace, tool calls, внутренние scores/IDs и raw JSON. Операции доступны только ADMIN в `/admin/agent-logs`; citations сохраняются отдельными rows, повторно авторизуются на каждом GET и возвращаются в `message.citations`.
 
 ### Report summary
 
@@ -272,7 +282,7 @@ curl --fail-with-body -sS 'http://localhost:3000/api/health?check=live'
 { "status": "ok", "check": "liveness", "service": "mtr-ai-demo" }
 ```
 
-Readiness открывает БД без применения DDL, одним точным немутирующим запросом проверяет ровно 8/24/30/30:
+Readiness открывает БД без применения DDL, одним точным немутирующим запросом проверяет ровно 8/3 584/30/30:
 
 ```json
 {
@@ -351,6 +361,8 @@ Path `id`: после trim `1..200`. Сначала проверяется пр�
 |---|---|---|
 | `message` | string | После trim `1..4000` |
 | `threadId` | string | `1..160`, обязателен в HTTP route и должен точно совпадать с `:id` |
+| `selection` | object? | Только project/specification/position/run IDs и период; сервер повторно проверяет scope |
+| `attachments` | array? | До 4 ссылок `{ uploadId, purpose }`; purpose: `SPECIFICATION`, `SAP_IMPORT`, `REFERENCE`, `AUTO` |
 
 Ответ `201`:
 
@@ -368,7 +380,7 @@ Path `id`: после trim `1..200`. Сначала проверяется пр�
 }
 ```
 
-Несовпадение path/body: `400 AGENT_THREAD_MISMATCH`. Сервис получает identity только вторым trusted аргументом. Prompt injection возвращает сохранённый безопасный ответ без раскрытия prompt; поле `userId` в body возвращает `400 VALIDATION_ERROR`.
+`message` может быть пустым только при наличии вложения. Несовпадение path/body: `400 AGENT_THREAD_MISMATCH`. Сервис получает identity только вторым trusted аргументом. Prompt injection возвращает сохранённый безопасный ответ без раскрытия prompt; поле `userId` в body возвращает `400 VALIDATION_ERROR`.
 
 Проверенный пример:
 
@@ -460,6 +472,28 @@ curl --fail-with-body -sS -b "$MTR_COOKIE_JAR" \
 Actions работают по схеме `proposal → явное confirm → повторная авторизация → идемпотентное выполнение → audit`. `POST /api/agent/actions` принимает `caseId`, allowlisted `actionType`, resource descriptor текущего проекта, безопасные summary/consequences, scalar parameters и `requestKey`. Подтверждение с изменившимся `authorizationVersion`, permission, resource status или scope отклоняется; чат сам не принимает экспертное решение.
 
 Event ingress не использует browser session. Требуются `MTR_AGENT_EVENTS_ENABLED=true` и точное значение `x-mtr-event-secret`, совпадающее с `MTR_AGENT_EVENT_INGRESS_SECRET` длиной не менее 32 символов. Payload ограничен scalar/короткими string-array значениями, сохраняется после redaction, а `(sourceSystem, sourceEventId)` и idempotency key не позволяют создать повторный insight.
+
+### Universal chat, вложения и privileged actions
+
+При `MTR_AGENT_UNIVERSAL_CHAT_ENABLED=true` тот же `POST /api/agent/threads/:id/messages` маршрутизирует естественный запрос в project-aware runtime. Он разрешает бизнес-проект по названию или коду, но access scope и permissions всегда берёт из `session.authorization`. Основные read capabilities покрывают проекты, спецификации, intake/deadlines, материалы, balances/movements/inbound/reservations, BOM/substitutes, project allocation/reorder, compatibility и reliability.
+
+Universal response сохраняется как private `universal-agent-answer-v1`, а serializer возвращает `universal-agent-answer-public-v1`. Публичные массивы bounded: compatibility до 20, clarification candidates до 8, preview rows до 20. Неизвестный material/project, пустой или неполный scope возвращает clarification/missing-data с `requiresHumanReview`, а не утверждение об отсутствии риска.
+
+Для вложений сначала вызовите `/api/uploads`, затем передайте ссылку:
+
+```json
+{
+  "threadId": "thread-...",
+  "message": "",
+  "attachments": [
+    { "uploadId": "upload-...", "purpose": "SPECIFICATION" }
+  ]
+}
+```
+
+Без явного глагола публикации ответ имеет `attachmentImport.status: PREVIEW` либо `REVIEW_REQUIRED`. Явная команда с однозначным target и permissions `specification.upload` + `specification.publish` возвращает `PUBLISHED` и `{ specificationId, versionId, versionNumber, positionCount, href }`. Повтор file/instruction/target идемпотентен.
+
+Privileged natural-language request возвращает schema `agent-privileged-action-v1` и proposal card. Изменение выполняется только отдельным `POST /api/agent/actions/:id/confirm`; cancel использует `/cancel`. Confirm повторно проверяет owner, permission, project, current `authorizationVersion`, TTL, SoD, self/last-admin/last-manager и idempotency. Подробные контракты: [вложения](mtr-agent-attachments-import.md) и [RBAC-действия](mtr-agent-rbac-actions.md).
 
 ## Scenario API
 
@@ -757,7 +791,7 @@ Validation endpoint сохраняет audit/provenance и возвращает 
 ```json
 {
   "specifications": [],
-  "total": 3,
+  "total": 83,
   "integrationState": {},
   "source": "APPIUS_MOCK",
   "isSyntheticDemo": true
@@ -910,7 +944,7 @@ curl --fail-with-body -sS \
 | `safeMessage` | string или null | После trim максимум 240 |
 
 Allowed states: Appius как выше; SAP как выше; RAG/LLM: `AVAILABLE`, `UNAVAILABLE`, `SLOW`, `RATE_LIMITED`, `MALFORMED_RESPONSE`.
-Состояния всех четырёх систем исполняются runtime. RAG `AVAILABLE` выполняет гибридный нормативный поиск, `SLOW` добавляет контролируемую задержку, а остальные состояния дают точные коды `RAG_UNAVAILABLE`, `RAG_RATE_LIMITED` или `RAG_MALFORMED_RESPONSE` и безопасно останавливают соответствующий сценарный шаг/инструмент. LLM `AVAILABLE` и `SLOW` вызывают offline mock-provider; `LLM_UNAVAILABLE`, `LLM_RATE_LIMITED` и `LLM_MALFORMED_RESPONSE` дают безопасный ответ с `confidence: 0` и `requiresHumanReview: true`, сохраняя citations уже выполненных инструментов. Внешний LLM и API key не требуются.
+Состояния всех четырёх систем исполняются runtime. RAG `AVAILABLE` выполняет гибридный нормативный поиск, `SLOW` добавляет контролируемую задержку, а остальные состояния дают точные коды `RAG_UNAVAILABLE`, `RAG_RATE_LIMITED` или `RAG_MALFORMED_RESPONSE`. Legacy-контур LLM сохраняет offline provider. Universal chat при отдельном `MTR_AGENT_LIVE_LLM_ENABLED=true` использует официальный OpenAI Responses provider только при наличии server-side `OPENAI_API_KEY` и `OPENAI_MODEL`; любой provider/state/schema/timeout failure переключается на полезный deterministic answer с уже подтверждёнными facts/citations и явными limitations.
 
 Ответ: `{ integration, isSyntheticDemo: true }`.
 
@@ -1016,6 +1050,12 @@ Query:
 - [Демонстрация за 7–10 минут](demo-guide.md)
 - [Эксплуатационные инструкции](operations.md)
 - [Поведение МТР-аналитика](agent-behavior.md)
+- [Универсальный чат](mtr-agent-universal-chat.md)
+- [Модель бизнес-проектов и остатков](mtr-project-data-model.md)
+- [Совместимость и надёжность](mtr-compatibility-model.md)
+- [OpenAI provider и fallback](mtr-agent-llm-provider.md)
+- [Вложения и импорт](mtr-agent-attachments-import.md)
+- [RBAC-действия из чата](mtr-agent-rbac-actions.md)
 - [Семантический слой аналитики МТР](mtr-analytics-semantic-layer.md)
 - [Трассируемость и доверительные границы МТР-агента](mtr-agent-orchestrator-traceability.md)
 - [Scoped RBAC](RBAC.md)
