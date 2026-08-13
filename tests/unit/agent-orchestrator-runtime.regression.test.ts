@@ -21,9 +21,11 @@ const output: GroundedAgentOutput = {
 
 describe("MtrAgentOrchestrator trust boundary", () => {
   const legacyRespond = vi.fn(async () => output);
+  const executeCommand = vi.fn();
 
   beforeEach(() => {
     legacyRespond.mockClear();
+    executeCommand.mockReset();
   });
 
   it("передаёт legacy capability только серверный subject после canonical validation", async () => {
@@ -79,6 +81,43 @@ describe("MtrAgentOrchestrator trust boundary", () => {
         trustedContext(new Set()),
       ),
     ).rejects.toMatchObject({ permission: "agent.chat" });
+    expect(legacyRespond).not.toHaveBeenCalled();
+  });
+
+  it("направляет естественный typed intent в ту же command capability, минуя legacy runtime", async () => {
+    const commandOutput = {
+      responseType: "STOCKS" as const,
+      title: "Остатки",
+      summary: "Найдена одна позиция.",
+      items: [],
+      citations: [],
+      missingData: [],
+      confidence: 0.8,
+      requiresHumanReview: false,
+      negativeEvidence: "NOT_EMPTY" as const,
+      generatedAt: "2026-08-13T10:00:00.000Z",
+    };
+    executeCommand.mockResolvedValue(commandOutput);
+    const orchestrator = new MtrAgentOrchestrator(
+      { respond: legacyRespond },
+      { execute: executeCommand },
+    );
+
+    await expect(orchestrator.handle({
+      kind: "CHAT",
+      message: "Покажи остатки SAP-DEMO-0001 на WH-DEMO-NORTH",
+      selection: { projectId: "project-1" },
+      correlationId: "natural-command-1",
+    }, trustedContext(new Set(["agent.chat", "stock.search"]))))
+      .resolves.toEqual({ kind: "COMMAND", output: commandOutput });
+    expect(executeCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ correlationId: "natural-command-1" }),
+      {
+        commandKey: "STOCKS",
+        context: { projectId: "project-1" },
+        filters: { materialCode: "SAP-DEMO-0001", warehouseIds: ["WH-DEMO-NORTH"] },
+      },
+    );
     expect(legacyRespond).not.toHaveBeenCalled();
   });
 

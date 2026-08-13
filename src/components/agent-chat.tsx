@@ -614,6 +614,13 @@ function sourceLabel(sourceSystem: string): string {
     NORMATIVE: "Демонстрационное правило",
     SCENARIO: "Запуск сценария",
     REPORT: "Отчёт",
+    RAG: "Нормативная база",
+    LLM: "Языковая модель",
+    PROCESS_ENGINE: "Процесс анализа",
+    TELEMETRY: "Технические измерения",
+    METRIC_REGISTRY: "Реестр метрик",
+    TASK_STORE: "Сервис задач",
+    RISK_ENGINE: "Сервис рисков",
   };
   return labels[sourceSystem] ?? sourceSystem;
 }

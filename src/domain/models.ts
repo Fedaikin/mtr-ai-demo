@@ -319,7 +319,20 @@ export interface ReportSummary {
 }
 
 export interface GroundedCitation {
-  sourceSystem: "APPIUS" | "SAP" | "CATALOG" | "NORMATIVE" | "SCENARIO" | "REPORT";
+  sourceSystem:
+    | "APPIUS"
+    | "SAP"
+    | "CATALOG"
+    | "NORMATIVE"
+    | "SCENARIO"
+    | "REPORT"
+    | "RAG"
+    | "LLM"
+    | "PROCESS_ENGINE"
+    | "TELEMETRY"
+    | "METRIC_REGISTRY"
+    | "TASK_STORE"
+    | "RISK_ENGINE";
   entityId: string;
   versionOrSnapshot: string;
   clauseId: string | null;

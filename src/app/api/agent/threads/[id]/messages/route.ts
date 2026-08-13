@@ -1,5 +1,6 @@
 import { getRepository } from "@/adapters/persistence/repository";
 import { AuthorizationError } from "@/application/authorization-service";
+import { projectAgentCommandResult } from "@/application/agent-orchestrator/public-projection";
 import { AgentContextError } from "@/domain/agent/context";
 import { ApiError, created, ok, parseJson, toErrorResponse } from "@/lib/api";
 import { requirePermission } from "@/lib/session";
@@ -91,14 +92,35 @@ export async function POST(request: Request, { params }: MessagesRouteContext) {
       correlationId: `agent-${crypto.randomUUID()}`,
       promptVersion: activePrompt?.promptVersion ?? "mtr-agent-system-v1",
     }, session.authorization);
-    const output = result.output;
+    const assistant = result.kind === "COMMAND"
+      ? (() => {
+          const projection = projectAgentCommandResult(
+            result.output,
+            result.output.responseType + "-" + crypto.randomUUID(),
+          );
+          return {
+            answer: projection.answer,
+            structuredOutput: projection as unknown as Record<string, unknown>,
+            citations: result.output.citations.map((citation) => ({
+              sourceSystem: citation.sourceSystem,
+              entityId: citation.entityId,
+              versionOrSnapshot: citation.sourceSnapshot,
+              clauseId: citation.clauseId ?? null,
+            })),
+          };
+        })()
+      : {
+          answer: result.output.answer,
+          structuredOutput: result.output as unknown as Record<string, unknown>,
+          citations: result.output.citations,
+        };
     const assistantMessage = await repository.appendAgentMessage(subjectId, {
       threadId,
       role: "assistant",
-      content: output.answer,
-      structuredOutput: output as unknown as Record<string, unknown>,
+      content: assistant.answer,
+      structuredOutput: assistant.structuredOutput,
       promptVersion: activePrompt?.promptVersion ?? "mtr-agent-system-v1",
-      citations: output.citations,
+      citations: assistant.citations,
     });
 
     return created({

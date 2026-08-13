@@ -11,7 +11,9 @@ import { createCatalogRepositoryPort } from "@/adapters/persistence/catalog-port
 import { createAgentOrchestratorPersistencePorts } from "@/adapters/persistence/agent-orchestrator-ports";
 import type { MtrRepository } from "@/adapters/persistence/repository";
 import { toPublicAgentDecision } from "@/application/agent-presentation";
+import { AuditedAgentCommandCapability } from "@/application/agent-orchestrator/audited-command-capability";
 import { createAgentCommandRegistry } from "@/application/agent-orchestrator/command-registry";
+import { readAgentFeaturePolicy } from "@/application/agent-orchestrator/feature-policy";
 import {
   agentChatInputSchema,
   MtrAgentOrchestrator,
@@ -93,9 +95,16 @@ export function createMtrAgentOrchestrator(
   repository: MtrRepository,
   events?: AgentEventCapability,
 ): MtrAgentOrchestrator {
+  const policy = readAgentFeaturePolicy();
+  const commandCapability = policy.orchestratorEnabled && policy.executionAllowed
+    ? new AuditedAgentCommandCapability(
+        createAgentCommandRegistry(createAgentOrchestratorPersistencePorts(repository)),
+        repository,
+      )
+    : undefined;
   return new MtrAgentOrchestrator(
     createAgentRuntime(repository),
-    createAgentCommandRegistry(createAgentOrchestratorPersistencePorts(repository)),
+    commandCapability,
     events,
   );
 }

@@ -7,7 +7,9 @@ import {
 import { resetDemoDatabase } from "@/adapters/persistence/bootstrap";
 import { getRepository, type MtrRepository } from "@/adapters/persistence/repository";
 import type { TrustedRequestContext } from "@/application/authorization-service";
+import { AuditedAgentCommandCapability } from "@/application/agent-orchestrator/audited-command-capability";
 import { createAgentCommandRegistry } from "@/application/agent-orchestrator/command-registry";
+import { MtrAgentOrchestrator } from "@/application/agent-orchestrator/orchestrator";
 import { createAgentExecutionContext } from "@/domain/agent/context";
 import { DEMO_USER_ID } from "@/domain/models";
 
@@ -139,6 +141,35 @@ describe.sequential("production-shaped persistence ports МТР-агента", (
         expect.objectContaining({ sourceKind: "PROCESS_EVENT" }),
         expect.objectContaining({ sourceKind: "MATERIAL_MOVEMENT" }),
         expect.objectContaining({ sourceKind: "DEFINITION" }),
+      ]),
+    );
+  });
+
+  it("выполняет естественный запрос через тот же registry и durable audit", async () => {
+    const legacyRespond = vi.fn();
+    const capability = new AuditedAgentCommandCapability(
+      createAgentCommandRegistry(createAgentOrchestratorPersistencePorts(repository)),
+      repository,
+    );
+    const orchestrator = new MtrAgentOrchestrator({ respond: legacyRespond }, capability);
+
+    const result = await orchestrator.handle({
+      kind: "CHAT",
+      message: `Покажи остатки ${materialCode} на ${warehouseId}`,
+      selection: { projectId: "demo-project-001", specificationId },
+      correlationId: "natural-command-integration-1",
+    }, trustedContext(warehouseId));
+
+    expect(result).toMatchObject({
+      kind: "COMMAND",
+      output: { responseType: "STOCKS", items: [expect.objectContaining({ materialCode, warehouseId })] },
+    });
+    expect(legacyRespond).not.toHaveBeenCalled();
+    const audit = await repository.listAuditLogs(DEMO_USER_ID, { limit: 100 });
+    expect(audit.filter((entry) => entry.requestId === "natural-command-integration-1")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ action: "agent.command.received", outcome: "SUCCESS" }),
+        expect.objectContaining({ action: "agent.command.completed", outcome: "SUCCESS" }),
       ]),
     );
   });

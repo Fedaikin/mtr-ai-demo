@@ -101,6 +101,59 @@ describe("agent messages route canonical context handoff", () => {
     expect(response.status).toBe(400);
     expect(mocks.handle).not.toHaveBeenCalled();
   });
+
+  it("сохраняет естественную typed command как безопасный ответ того же диалога", async () => {
+    mocks.handle.mockResolvedValue({
+      kind: "COMMAND",
+      output: {
+        responseType: "KPI",
+        title: "KPI и SLA",
+        summary: "Доступны четыре подтверждённых показателя.",
+        metrics: [],
+        citations: [{
+          sourceKind: "PROCESS_EVENT",
+          sourceSystem: "PROCESS_ENGINE",
+          entityId: "event-1",
+          sourceSnapshot: "process-v1",
+          observedAt: "2026-08-13T00:00:00.000Z",
+        }],
+        missingData: [],
+        confidence: 0.9,
+        requiresHumanReview: false,
+        negativeEvidence: "NOT_EMPTY",
+        generatedAt: "2026-08-13T10:00:00.000Z",
+      },
+    });
+
+    const response = await POST(
+      jsonRequest({
+        message: "Покажи KPI и SLA",
+        threadId: "thread-1",
+        selection: { projectId: "project-1" },
+      }),
+      routeContext("thread-1"),
+    );
+
+    expect(response.status).toBe(201);
+    expect(mocks.appendAgentMessage).toHaveBeenLastCalledWith(
+      "subject-1",
+      expect.objectContaining({
+        role: "assistant",
+        content: "Доступны четыре подтверждённых показателя.",
+        structuredOutput: expect.objectContaining({
+          schemaVersion: "mtr-agent-command-public-v1",
+          responseLabel: "KPI и SLA",
+          technicalContentRemoved: false,
+        }),
+        citations: [{
+          sourceSystem: "PROCESS_ENGINE",
+          entityId: "event-1",
+          versionOrSnapshot: "process-v1",
+          clauseId: null,
+        }],
+      }),
+    );
+  });
 });
 
 function trustedContext(): TrustedRequestContext {

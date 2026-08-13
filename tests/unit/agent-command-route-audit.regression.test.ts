@@ -32,7 +32,7 @@ vi.mock("@/app/api/agent/_shared", () => ({
 
 import { POST } from "@/app/api/agent/commands/[commandKey]/route";
 
-describe("command route audit and feature gate", () => {
+describe("command route projection and feature gate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.policy = {
@@ -59,7 +59,7 @@ describe("command route audit and feature gate", () => {
     });
   });
 
-  it("пишет received/completed с одним correlation и без raw filter values", async () => {
+  it("передаёт typed request в общий orchestrator и возвращает public projection", async () => {
     const response = await POST(
       jsonRequest({
         context: { projectId: "project-1" },
@@ -94,31 +94,10 @@ describe("command route audit and feature gate", () => {
       expect.objectContaining({ subjectId: "subject-1", authorizationVersion: 7 }),
     );
 
-    expect(mocks.writeAudit).toHaveBeenCalledTimes(2);
-    const received = mocks.writeAudit.mock.calls[0]?.[1];
-    const completed = mocks.writeAudit.mock.calls[1]?.[1];
-    expect(received).toMatchObject({
-      action: "agent.command.received",
-      entityType: "agent_command",
-      entityId: "STOCKS",
-      outcome: "SUCCESS",
-      details: {
-        commandKey: "STOCKS",
-        projectId: "project-1",
-        authorizationVersion: 7,
-        filters: { filterKeys: ["query", "warehouseIds"], hasQuery: true, warehouseCount: 2 },
-      },
-    });
-    expect(completed).toMatchObject({
-      action: "agent.command.completed",
-      outcome: "SUCCESS",
-      details: { confidence: 0.7, requiresHumanReview: true },
-    });
-    expect(received.requestId).toBe(completed.requestId);
-    expect(JSON.stringify(mocks.writeAudit.mock.calls)).not.toContain("закрытое название детали");
+    expect(mocks.writeAudit).not.toHaveBeenCalled();
   });
 
-  it("пишет failure с безопасным кодом, но не сохраняет raw error/result", async () => {
+  it("возвращает безопасную ошибку capability без route-level side effects", async () => {
     mocks.handle.mockRejectedValue(Object.assign(new Error("закрытая причина"), { code: "SOURCE_DOWN" }));
     vi.spyOn(console, "error").mockImplementation(() => undefined);
 
@@ -128,26 +107,19 @@ describe("command route audit and feature gate", () => {
     );
 
     expect(response.status).toBe(500);
-    expect(mocks.writeAudit).toHaveBeenCalledTimes(2);
-    expect(mocks.writeAudit.mock.calls[1]?.[1]).toMatchObject({
-      action: "agent.command.failed",
-      outcome: "FAILURE",
-      details: { errorCode: "SOURCE_DOWN" },
-    });
-    expect(JSON.stringify(mocks.writeAudit.mock.calls)).not.toContain("закрытая причина");
+    expect(mocks.writeAudit).not.toHaveBeenCalled();
   });
 
-  it("не выполняет команду, если обязательный received audit не записан", async () => {
-    mocks.writeAudit.mockRejectedValueOnce(new Error("audit unavailable"));
-    vi.spyOn(console, "error").mockImplementation(() => undefined);
+  it("не дублирует аудит, который принадлежит общей command capability", async () => {
 
     const response = await POST(
       jsonRequest({ context: { projectId: "project-1" } }),
       routeContext("SUMMARY"),
     );
 
-    expect(response.status).toBe(500);
-    expect(mocks.handle).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(mocks.handle).toHaveBeenCalledOnce();
+    expect(mocks.writeAudit).not.toHaveBeenCalled();
   });
 
   it("возвращает 404 при выключенном orchestrator flag", async () => {

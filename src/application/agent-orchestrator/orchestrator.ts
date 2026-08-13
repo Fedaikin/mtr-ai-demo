@@ -23,6 +23,7 @@ import type {
   AgentCommandResultMap,
   AgentOrchestratorCommandResult,
 } from "@/ports/agent-orchestrator";
+import { routeNaturalAgentCommand } from "@/application/agent-orchestrator/natural-command-router";
 
 const periodSchema = z
   .object({
@@ -88,15 +89,15 @@ export type MtrAgentOrchestratorRequest =
   | AgentCommandOrchestratorRequest
   | AgentEventOrchestratorRequest;
 
-export type AgentChatOrchestratorResult = Readonly<{
-  kind: "CHAT";
-  output: GroundedAgentOutput;
-}>;
-
 export type AgentCommandOrchestratorResult = Readonly<{
   kind: "COMMAND";
   output: AgentOrchestratorCommandResult;
 }>;
+
+export type AgentChatOrchestratorResult = Readonly<{
+  kind: "CHAT";
+  output: GroundedAgentOutput;
+}> | AgentCommandOrchestratorResult;
 
 export type AgentEventOrchestratorResult = Readonly<{
   kind: "EVENT";
@@ -178,6 +179,20 @@ export class MtrAgentOrchestrator {
     }
 
     requirePermission(authorization, "agent.chat");
+
+    const naturalCommand = this.commands
+      ? routeNaturalAgentCommand(request.message, request.selection)
+      : null;
+    if (naturalCommand) {
+      const output = await executeCommand(this.commands!, executionContext, {
+        kind: "COMMAND",
+        commandKey: naturalCommand.commandKey,
+        selection: naturalCommand.selection,
+        ...(naturalCommand.filters === undefined ? {} : { filters: naturalCommand.filters }),
+        correlationId: request.correlationId,
+      } as AgentCommandOrchestratorRequest);
+      return Object.freeze({ kind: "COMMAND", output });
+    }
 
     const output = await this.legacyChat.respond({
       message: request.message,
