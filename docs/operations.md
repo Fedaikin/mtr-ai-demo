@@ -203,6 +203,8 @@ pnpm test:unit
 pnpm test:integration
 pnpm privacy:scan
 pnpm eval:agent
+pnpm eval:agent:analytical
+pnpm eval:agent:learning
 pnpm build
 pnpm test:e2e
 ```

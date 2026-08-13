@@ -170,6 +170,8 @@ pnpm typecheck
 pnpm test
 pnpm privacy:scan
 pnpm eval:agent
+pnpm eval:agent:analytical
+pnpm eval:agent:learning
 pnpm build
 pnpm benchmark
 pnpm test:e2e

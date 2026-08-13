@@ -39,6 +39,6 @@ Base: `70543c6c34d6778695a07a5400006742ed5e3a21`
 - [x] G2 engines реализованы и unit/integration green; полный target curriculum ещё не достигнут.
 - [x] G3 unified `ANALYSIS` runtime/verifier/public UX и safe rich message history реализованы; durable evidence lineage и model-source citation adapter ещё открыты.
 - [ ] G4 частично: recommendation, A3 proposal/confirm и curated feedback lifecycle реализованы; полная analytical history, outcome learning и proactive acceptance ещё открыты.
-- [ ] ≥200 eval, ≥40 E2E, held-out/adversarial/backtesting/scale; сейчас 34 legacy + 20 отдельных current-runtime analytical eval.
+- [ ] ≥200 eval, ≥40 E2E, held-out/adversarial/backtesting/scale; сейчас 34 legacy + 20 current-runtime analytical + 17 versioned learning lifecycle eval.
 - [ ] Clean full gate, strict acceptance и scoped fix-loop.
 - [ ] Draft PR и Preview exact SHA; Production не затронут.

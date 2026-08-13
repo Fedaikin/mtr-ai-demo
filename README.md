@@ -90,6 +90,7 @@ Readiness и контроль canonical seed доступны по `/api/health`
 | `pnpm privacy:scan` | Проверить исходники и документы на контактные данные и запрещённые маркеры |
 | `pnpm eval:agent` | Выполнить 34 deterministic golden-case проверки МТР-аналитика |
 | `pnpm eval:agent:analytical` | Выполнить отдельный production-shaped набор analytical command/chat oracle-проверок |
+| `pnpm eval:agent:learning` | Выполнить versioned feedback/curation/rollback и trust-boundary eval |
 | `pnpm perf:smoke` | Измерить готовность API и загрузку основных экранов; поддерживает локальный или Preview base URL |
 | `pnpm check` | `lint` → `typecheck` → `test` → `privacy:scan` → оба agent eval-набора → `build` |
 | `pnpm db:migrate` | Применить checked-in Drizzle migrations |
