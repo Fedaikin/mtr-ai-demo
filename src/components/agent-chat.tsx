@@ -3,6 +3,10 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, KeyboardEvent, useEffect, useRef, useState, useTransition } from "react";
+import { AgentCommandResult } from "@/components/agent-command-result";
+import type { PublicAgentCommandResult } from "@/application/agent-orchestrator/public-projection";
+import type { AgentCommandKey } from "@/domain/agent/commands";
+import type { AgentContextSelection } from "@/domain/agent/context";
 
 export interface AgentThreadView {
   id: string;
@@ -35,6 +39,7 @@ interface AgentChatProps {
   initialThreads: AgentThreadView[];
   initialThreadId: string | null;
   initialMessages: AgentMessageView[];
+  context?: AgentContextSelection;
 }
 
 interface StructuredAgentOutput {
@@ -49,6 +54,14 @@ const SUGGESTIONS = [
   "Подбери составной аналог для позиции position-022.",
 ] as const;
 
+const QUICK_COMMANDS: readonly { key: AgentCommandKey; label: string }[] = [
+  { key: "SUMMARY", label: "Оперативная сводка" },
+  { key: "MY_TASKS", label: "Мои задачи" },
+  { key: "RISKS", label: "Риски" },
+  { key: "STOCKS", label: "Остатки" },
+  { key: "KPI", label: "KPI и SLA" },
+];
+
 const DATE_TIME_FORMAT = new Intl.DateTimeFormat("ru-RU", {
   day: "2-digit",
   month: "short",
@@ -62,6 +75,7 @@ export function AgentChat({
   initialThreads,
   initialThreadId,
   initialMessages,
+  context = {},
 }: AgentChatProps) {
   const router = useRouter();
   const [threads, setThreads] = useState(initialThreads);
@@ -70,6 +84,7 @@ export function AgentChat({
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [commandResult, setCommandResult] = useState<PublicAgentCommandResult | null>(null);
   const [isPending, startTransition] = useTransition();
   const activeThreadRef = useRef(activeThreadId);
   const requestSequenceRef = useRef(0);
@@ -176,7 +191,7 @@ export function AgentChat({
           {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ message: question, threadId }),
+            body: JSON.stringify({ message: question, threadId, selection: context }),
           },
         );
         const payload = await readApiResponse<{ items: AgentMessageView[] }>(response);
@@ -207,6 +222,25 @@ export function AgentChat({
         if (threadId && activeThreadRef.current === threadId) {
           await reloadMessages(threadId);
         }
+      }
+    });
+  }
+
+  function runQuickCommand(commandKey: AgentCommandKey) {
+    if (isPending) return;
+    startTransition(async () => {
+      setError(null);
+      setCommandResult(null);
+      try {
+        const response = await fetch(`/api/agent/commands/${commandKey}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ context }),
+        });
+        const payload = await readApiResponse<{ result: PublicAgentCommandResult }>(response);
+        setCommandResult(payload.result);
+      } catch (caught) {
+        setError(errorMessage(caught));
       }
     });
   }
@@ -298,7 +332,18 @@ export function AgentChat({
           </span>
         </div>
 
+        <div className="shrink-0 border-b border-slate-100 bg-white px-4 py-2 sm:px-5" aria-label="Быстрые команды МТР-агента">
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {QUICK_COMMANDS.map((command) => (
+              <button key={command.key} type="button" disabled={isPending} onClick={() => runQuickCommand(command.key)} className="focus-ring shrink-0 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-teal-300 hover:bg-teal-50 hover:text-teal-900 disabled:opacity-50">
+                {command.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="min-h-0 flex-1 overflow-y-auto bg-[#fbfcfc] px-4 py-5 sm:px-6" aria-live="polite">
+          {commandResult ? <div className="mb-5"><AgentCommandResult result={commandResult} /></div> : null}
           {loadingMessages ? <LoadingMessage /> : null}
           {!loadingMessages && messages.length === 0 ? (
             <EmptyConversation onSelect={(suggestion) => void sendMessage(suggestion)} pending={isPending} />
