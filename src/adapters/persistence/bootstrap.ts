@@ -16,6 +16,8 @@ import {
   MTR_AGENT_PROMPT_NAME,
   MTR_AGENT_ROLLBACK_PROMPT,
   MTR_AGENT_ROLLBACK_VERSION,
+  MTR_AGENT_UNIVERSAL_PROMPT,
+  MTR_AGENT_UNIVERSAL_VERSION,
   promptChecksum,
 } from "@/application/agent-orchestrator/system-prompt";
 import { DEMO_USER_ID } from "@/domain/models";
@@ -78,7 +80,7 @@ export const EXPECTED_BASE_COUNTS = {
   analogueRules: 3,
   integrations: 4,
   scenarios: 5,
-  prompts: 2,
+  prompts: 3,
   dictionaries: 7,
 } as const;
 
@@ -608,8 +610,18 @@ async function insertFixtureRows(db: Database, userId: string): Promise<void> {
       name: MTR_AGENT_PROMPT_NAME,
       promptVersion: MTR_AGENT_ORCHESTRATOR_VERSION,
       content: MTR_AGENT_ORCHESTRATOR_PROMPT,
-      active: true,
+      active: false,
       checksum: promptChecksum(MTR_AGENT_ORCHESTRATOR_PROMPT),
+      createdBy: userId,
+    },
+    {
+      id: "prompt-mtr-agent-004",
+      userId,
+      name: MTR_AGENT_PROMPT_NAME,
+      promptVersion: MTR_AGENT_UNIVERSAL_VERSION,
+      content: MTR_AGENT_UNIVERSAL_PROMPT,
+      active: true,
+      checksum: promptChecksum(MTR_AGENT_UNIVERSAL_PROMPT),
       createdBy: userId,
     },
   ]);

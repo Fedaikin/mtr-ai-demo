@@ -129,7 +129,9 @@ export async function POST(request: Request, { params }: MessagesRouteContext) {
               learningProvenance: {
                 projectId: learningProjectId,
                 caseId: null,
-                modelVersion: "deterministic-universal-runtime-v1",
+                modelVersion: clarification
+                  ? "deterministic-universal-runtime-v1"
+                  : result.output.runtime?.model ?? "deterministic-universal-runtime-v1",
                 ruleVersions: ["project-material-balance-v1", "technical-compatibility-v1", "reliability-comparison-v1"],
                 evidenceVersion: "universal-chat-v1@1.0.0-DEMO",
               },

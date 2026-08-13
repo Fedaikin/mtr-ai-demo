@@ -114,6 +114,12 @@ export interface UniversalAgentAnswer {
   readonly requiresHumanReview: boolean;
   readonly generatedAt: string;
   readonly mode: UniversalAnswerMode;
+  readonly runtime?: Readonly<{
+    provider: "OPENAI";
+    model: string;
+    providerVersion: string;
+    promptVersion: string;
+  }>;
 }
 
 export interface UniversalClarification {

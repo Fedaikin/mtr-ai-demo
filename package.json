@@ -31,6 +31,7 @@
     "eval:agent:security": "node --conditions=react-server --import tsx scripts/eval-agent-security.ts",
     "eval:agent:scale": "node --conditions=react-server --import tsx scripts/eval-agent-scale.ts",
     "eval:agent:multi-turn": "node --conditions=react-server --import tsx scripts/eval-agent-multi-turn.ts",
+    "openai:models": "node --conditions=react-server --import tsx scripts/list-openai-chat-models.ts",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm privacy:scan && pnpm eval:agent && pnpm eval:agent:analytical && pnpm eval:agent:learning && pnpm eval:agent:provider && pnpm eval:agent:security && pnpm eval:agent:scale && pnpm eval:agent:multi-turn && pnpm build"
   },
   "dependencies": {
@@ -45,6 +46,7 @@
     "lucide-react": "^1.31.0",
     "mammoth": "^1.12.1",
     "next": "16.3.0",
+    "openai": "^7.4.0",
     "pdf-lib": "^1.17.1",
     "postgres": "^3.4.9",
     "react": "19.2.8",

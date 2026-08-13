@@ -5,6 +5,8 @@ import {
   MTR_AGENT_ORCHESTRATOR_VERSION,
   MTR_AGENT_ROLLBACK_PROMPT,
   MTR_AGENT_ROLLBACK_VERSION,
+  MTR_AGENT_UNIVERSAL_PROMPT,
+  MTR_AGENT_UNIVERSAL_VERSION,
   promptChecksum,
 } from "@/application/agent-orchestrator/system-prompt";
 
@@ -14,6 +16,14 @@ describe("system prompt оркестратора", () => {
     expect(MTR_AGENT_ROLLBACK_VERSION).toBe("1.0.0");
     expect(MTR_AGENT_ORCHESTRATOR_PROMPT).not.toBe(MTR_AGENT_ROLLBACK_PROMPT);
     expect(promptChecksum(MTR_AGENT_ORCHESTRATOR_PROMPT)).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("версионирует universal v4 после появления реальных capabilities", () => {
+    expect(MTR_AGENT_UNIVERSAL_VERSION).toBe("4.0.0");
+    expect(MTR_AGENT_UNIVERSAL_PROMPT).toContain("Универсальный разговорный контур");
+    expect(MTR_AGENT_UNIVERSAL_PROMPT).toContain("четырёх planning rounds");
+    expect(MTR_AGENT_UNIVERSAL_PROMPT).toContain("Не обучайся автоматически");
+    expect(promptChecksum(MTR_AGENT_UNIVERSAL_PROMPT)).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it.each([

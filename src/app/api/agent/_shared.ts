@@ -21,6 +21,12 @@ import { createOfflineProviderConformance } from "@/application/agent-orchestrat
 import { restorePublicAgentCommandResult } from "@/application/agent-orchestrator/public-projection";
 import { createUniversalReadCapabilityRegistry } from "@/application/agent-orchestrator/universal-chat/read-capabilities";
 import { UniversalChatService } from "@/application/agent-orchestrator/universal-chat/universal-chat-service";
+import { LiveUniversalChatService } from "@/application/agent-orchestrator/universal-chat/live-universal-chat-service";
+import {
+  OpenAIResponsesPlanner,
+  readOpenAIResponsesPlannerConfig,
+} from "@/application/agent-orchestrator/universal-chat/live-planner";
+import { MTR_AGENT_UNIVERSAL_PROMPT } from "@/application/agent-orchestrator/system-prompt";
 import {
   agentChatInputSchema,
   MtrAgentOrchestrator,
@@ -116,33 +122,7 @@ export function createMtrAgentOrchestrator(
       )
     : undefined;
   const universalService = policy.universalChatEnabled
-      ? new UniversalChatService(
-        createUniversalReadCapabilityRegistry(
-          createUniversalAgentReadPort(),
-          undefined,
-          {
-            write: async (context, event) => {
-              await repository.writeAudit(context.trusted.subjectId, {
-                actorDisplayName: context.trusted.displayName,
-                action: event.outcome === "SUCCESS"
-                  ? "agent.universal.capability.completed"
-                  : "agent.universal.capability.failed",
-                entityType: "AGENT_CAPABILITY",
-                entityId: event.capabilityKey,
-                outcome: event.outcome,
-                details: {
-                  capabilityKey: event.capabilityKey,
-                  projectId: context.trusted.activeProjectId,
-                  authorizationVersion: context.trusted.authorizationVersion,
-                  durationMs: event.durationMs,
-                  ...(event.safeErrorCode ? { safeErrorCode: event.safeErrorCode } : {}),
-                },
-                requestId: context.correlationId,
-              });
-            },
-          },
-        ),
-      )
+    ? createUniversalService(repository, policy.liveLlmEnabled === true)
     : undefined;
   return new MtrAgentOrchestrator(
     createAgentRuntime(repository),
@@ -161,6 +141,72 @@ export function createMtrAgentOrchestrator(
           }, context),
         }
       : undefined,
+  );
+}
+
+function createUniversalService(
+  repository: MtrRepository,
+  liveLlmEnabled: boolean,
+) {
+  const registry = createUniversalReadCapabilityRegistry(
+    createUniversalAgentReadPort(),
+    undefined,
+    {
+      write: async (context, event) => {
+        await repository.writeAudit(context.trusted.subjectId, {
+          actorDisplayName: context.trusted.displayName,
+          action: event.outcome === "SUCCESS"
+            ? "agent.universal.capability.completed"
+            : "agent.universal.capability.failed",
+          entityType: "AGENT_CAPABILITY",
+          entityId: event.capabilityKey,
+          outcome: event.outcome,
+          details: {
+            capabilityKey: event.capabilityKey,
+            projectId: context.trusted.activeProjectId,
+            authorizationVersion: context.trusted.authorizationVersion,
+            durationMs: event.durationMs,
+            ...(event.safeErrorCode ? { safeErrorCode: event.safeErrorCode } : {}),
+          },
+          requestId: context.correlationId,
+        });
+      },
+    },
+  );
+  const deterministic = new UniversalChatService(registry);
+  const config = liveLlmEnabled ? readOpenAIResponsesPlannerConfig() : null;
+  if (!config) return deterministic;
+  return new LiveUniversalChatService(
+    new OpenAIResponsesPlanner(config),
+    registry,
+    deterministic,
+    MTR_AGENT_UNIVERSAL_PROMPT,
+    {
+      write: async (context, event) => {
+        await repository.writeAudit(context.trusted.subjectId, {
+          actorDisplayName: context.trusted.displayName,
+          action: event.outcome === "SUCCESS"
+            ? "agent.universal.live.completed"
+            : "agent.universal.live.fallback",
+          entityType: "AGENT_LLM_RESPONSE",
+          entityId: context.correlationId,
+          outcome: event.outcome === "SUCCESS" ? "SUCCESS" : "ERROR",
+          details: {
+            provider: event.trace?.provider ?? "OPENAI",
+            model: event.trace?.model ?? config.model,
+            providerVersion: event.trace?.providerVersion ?? config.providerVersion,
+            promptVersion: event.trace?.promptVersion ?? config.promptVersion,
+            authorizationVersion: context.trusted.authorizationVersion,
+            durationMs: event.trace?.durationMs ?? null,
+            inputTokens: event.trace?.inputTokens ?? null,
+            outputTokens: event.trace?.outputTokens ?? null,
+            totalTokens: event.trace?.totalTokens ?? null,
+            ...(event.safeErrorCode ? { safeErrorCode: event.safeErrorCode } : {}),
+          },
+          requestId: context.correlationId,
+        });
+      },
+    },
   );
 }
 

@@ -41,4 +41,31 @@ describe("feature policy МТР-агента", () => {
       executionAllowed: true,
     });
   });
+
+  it("включает live LLM только вместе с orchestrator и отключает kill switch", () => {
+    expect(readAgentFeaturePolicy({
+      MTR_AGENT_ORCHESTRATOR_ENABLED: "true",
+      MTR_AGENT_UNIVERSAL_CHAT_ENABLED: "true",
+      MTR_AGENT_LIVE_LLM_ENABLED: "true",
+      MTR_AGENT_KILL_SWITCH: "false",
+    })).toEqual({
+      orchestratorEnabled: true,
+      actionsEnabled: false,
+      eventsEnabled: false,
+      universalChatEnabled: true,
+      liveLlmEnabled: true,
+      executionAllowed: true,
+    });
+
+    expect(readAgentFeaturePolicy({
+      MTR_AGENT_ORCHESTRATOR_ENABLED: "true",
+      MTR_AGENT_UNIVERSAL_CHAT_ENABLED: "true",
+      MTR_AGENT_LIVE_LLM_ENABLED: "true",
+      MTR_AGENT_KILL_SWITCH: "true",
+    })).toMatchObject({
+      universalChatEnabled: false,
+      liveLlmEnabled: false,
+      executionAllowed: false,
+    });
+  });
 });
