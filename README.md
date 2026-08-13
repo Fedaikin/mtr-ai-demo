@@ -15,7 +15,7 @@
 | Сценарии | Серверный bounded runner после create/retry/manual import; UI только опрашивает состояние; работают cancel, совместимый `advance` и фактический snapshot файла (`sourceKind: UPLOADED_FILE`) |
 | Ручной импорт | Appius принимает CSV/XLS/XLSX, размеченный текст и позиционные TXT/DOCX/text-PDF ровно из четырёх полей `код / наименование / количество / единица`; смесь допустимых и отклонённых строк блокируется как `REVIEW_REQUIRED`; известный demo-image даёт фиксированный OCR, остальные изображения и scan-PDF требуют проверки. SAP fallback поддерживает только CSV/XLS/XLSX |
 | Отчёты | Интерактивный отчёт, версионное решение эксперта и экспорт JSON, XLSX, PDF |
-| МТР-агент | Единый runtime `CHAT / COMMAND / EVENT`, шесть команд, включая проверяемый анализ позиции с forecast/backtest и scenario comparison; bounded планы, кейсы, evidence, недельная сводка, proactive-сигналы и подтверждаемые действия |
+| МТР-агент | Единый runtime `CHAT / COMMAND / EVENT`, шесть команд, включая проверяемый анализ позиции с forecast/backtest и scenario comparison; bounded планы, кейсы, evidence, недельная сводка, proactive-сигналы, подтверждаемые действия и owner-only feedback в карантин без online learning |
 | Администрирование | Исполняемые состояния Appius, SAP, RAG и LLM, сценарии, промпты, словари, логи агента, аудит, demo-reset |
 | Хранилище | PGlite локально; PostgreSQL при заданном `DATABASE_URL`; Blob для загрузок на Vercel |
 
@@ -149,6 +149,7 @@ docs/                        документация прототипа
 - полный сценарий формирует golden-распределение 8 `EXACT`, 8 `LIKELY`, 5 `REVIEW`, 3 `NO_MATCH`;
 - агент получает предметные факты только через server-side capabilities с `TrustedRequestContext`;
 - сохранённые citations повторно авторизуются при чтении; L2-действия требуют отдельного подтверждения;
+- отзыв на ответ создаёт идемпотентный `LearningCandidate` в карантине; он не меняет runtime без human approval, regression case, validation checksum и отдельной активации;
 - внешний `userId` не выбирает контекст данных;
 - только два известных hash-bound demo PNG fixtures получают фиксированный синтетический OCR; любое другое JPEG/JPG/PNG/TIFF требует ручной проверки;
 - real contact/PII и реальные корпоративные правила запрещены.

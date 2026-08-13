@@ -426,7 +426,7 @@ curl --fail-with-body -sS \
 
 ### Как включить и проверить оркестратор 3.0.0
 
-После применения migration `0006_mtr_agent_orchestrator` включайте возможности независимо:
+После применения migrations `0006_mtr_agent_orchestrator` и `0007_mtr_agent_learning` включайте возможности независимо:
 
 ```dotenv
 MTR_AGENT_ORCHESTRATOR_ENABLED=true
@@ -436,6 +436,13 @@ MTR_AGENT_KILL_SWITCH=false
 ```
 
 Основной флаг включает единый `CHAT / COMMAND` runtime, кейсы, bounded plans, недельную сводку и чтение insights. Actions требуют второго флага. Event ingress оставляйте выключенным, пока не настроен отдельный service secret. Любой новый флаг по умолчанию `false`; `MTR_AGENT_KILL_SWITCH=true` имеет приоритет и останавливает новое выполнение без удаления уже сохранённых данных.
+
+`0007` не требует отдельного feature flag: endpoint обратной связи доступен только
+владельцу сохранённого ответа с `agent.chat`, а запись всегда создаётся в
+`QUARANTINED`. Одобрение, продвижение, отклонение и отзыв выполняются отдельным
+curation-сервисом с повторной проверкой `review.decide` / `prompt.activate`,
+контрольной суммой regression-кейса и durable audit. Ни отправка отзыва, ни его
+одобрение сами по себе не изменяют поведение runtime.
 
 Проверьте typed-команду через ту же session:
 

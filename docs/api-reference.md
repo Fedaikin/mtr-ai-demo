@@ -1,6 +1,6 @@
 # Справочник HTTP API прототипа МТР
 
-Справочник описывает текущие Next.js Route Handlers из `src/app/api/**/route.ts`: 53 файла и 64 операции «HTTP-метод + путь». Псевдонимы `:id`, `:runId`, `:positionId` и `:materialCode` ниже означают URL-encoded path parameters.
+Справочник описывает текущие Next.js Route Handlers из `src/app/api/**/route.ts`: 54 файла и 65 операций «HTTP-метод + путь». Псевдонимы `:id`, `:runId`, `:positionId` и `:materialCode` ниже означают URL-encoded path parameters.
 
 Для первого прохода используйте [демонстрацию за 7–10 минут](demo-guide.md). Команды диагностики, reset и ручного импорта приведены в [operations.md](operations.md).
 
@@ -91,6 +91,7 @@ http://localhost:3000
 | `POST` | `/api/agent/threads` | USER | Создать диалог |
 | `GET` | `/api/agent/threads/:id/messages` | USER | История принадлежащего user диалога |
 | `POST` | `/api/agent/threads/:id/messages` | USER | Сохранить вопрос, вызвать агента, сохранить ответ |
+| `POST` | `/api/agent/messages/:id/feedback` | `agent.chat`, владелец ответа | Идемпотентно сохранить тип отзыва как quarantined learning candidate |
 | `POST` | `/api/agent/commands/:commandKey` | `agent.chat` + permissions команды | Выполнить `SUMMARY`, `RISKS`, `STOCKS`, `KPI`, `MY_TASKS` или `ANALYSIS` через единый runtime |
 | `GET`, `POST` | `/api/agent/cases` | `agent.chat` | Список личных кейсов или создание scoped кейса |
 | `GET`, `DELETE` | `/api/agent/cases/:id` | `agent.chat` | Получить повторно авторизованный кейс или закрыть его |
@@ -383,6 +384,36 @@ curl --fail-with-body -sS \
   -H 'content-type: application/json' \
   --data "{\"threadId\":\"${THREAD_ID}\",\"message\":\"Какой остаток материала SAP-DEMO-0001?\"}"
 ```
+
+### `POST /api/agent/messages/:id/feedback`
+
+Path `id` — идентификатор сохранённого assistant message текущего пользователя. Чужой, пользовательский или отсутствующий message возвращает `404 AGENT_FEEDBACK_ACCESS_DENIED` без раскрытия существования.
+
+Строгий body:
+
+```json
+{
+  "feedbackKind": "INCORRECT_FORECAST",
+  "summary": "Прогноз не учитывает ожидаемую поставку."
+}
+```
+
+`feedbackKind` принимает `USEFUL`, `INCORRECT_FACT`, `INCORRECT_CAUSE`, `MISSING_FACTOR`, `INCORRECT_FORECAST`, `UNSUITABLE_RECOMMENDATION`, `MISSING_SOURCE`, `MISUNDERSTOOD_QUESTION` или `UNSAFE_ACTION`. `summary` необязателен, `1..500`, проходит redaction и не используется runtime как инструкция.
+
+Ответ `201`:
+
+```json
+{
+  "feedback": {
+    "candidateId": "learning-...",
+    "feedbackKind": "INCORRECT_FORECAST",
+    "status": "QUARANTINED",
+    "message": "Отзыв сохранён для проверки специалистом и не изменяет работу агента автоматически."
+  }
+}
+```
+
+Повтор владельца для того же assistant message возвращает тот же кандидат и не создаёт второй audit. Promotion не выполняется этим endpoint: отдельный curator lifecycle требует human approval, applicability, regression case, validation checksum и разрешение активации.
 
 ### Orchestrator commands, cases, digest, insights и actions
 

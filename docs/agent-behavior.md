@@ -18,6 +18,8 @@
 8. Команда сохраняет received/completed/failed audit, durable case и bounded plan; критическое действие без обязательного аудита не коммитится.
 9. L2 action выполняется только после явного confirm, повторной авторизации и проверки idempotency.
 10. Partial/unknown/error не заменяются уверенным отрицательным или положительным выводом.
+11. Отзыв доступен только владельцу assistant message и создаёт идемпотентный `LearningCandidate` со статусом `QUARANTINED`.
+12. Feedback не меняет online behavior: approval требует `review.decide`, promotion/revoke — отдельного `prompt.activate`, а promotion невозможен без applicability, regression case и validation checksum.
 
 ## Поток запроса
 
@@ -187,6 +189,14 @@ const result = await orchestrator.handle(input, session.authorization);
 - `agent.response.completed`.
 
 Repository-фильтры `/admin/agent-logs` применяются в параметризованном user-scoped SQL до pagination. Общие метрики request/success/failure, p50/p95, retry и review считаются по полному user-scoped набору независимо от страницы, а журнал показывает bounded page до 100 отфильтрованных операций и честные значения «найдено/показано»; старые correlations не теряются за лимитом последних событий.
+
+## Feedback и курируемое обучение
+
+Под каждым сохранённым ответом владелец может выбрать один из девяти закрытых типов отзыва: полезно, неверный факт/причина/прогноз, пропущенный фактор, неподходящая рекомендация, отсутствующий источник, неверно понятый вопрос или небезопасное действие. `POST /api/agent/messages/:id/feedback` не принимает identity, permission или project из body и возвращает только безопасную квитанцию карантина.
+
+Запись `agent_learning_candidates` связывает отзыв с assistant message, проектом, владельцем, prompt/model/rule/evidence versions и audit. Повторный отзыв на тот же ответ не создаёт второй кандидат. Свободный комментарий проходит redaction и не становится prompt, rule или knowledge автоматически.
+
+Lifecycle закрыт состояниями `QUARANTINED → APPROVED → PROMOTED → REVOKED` либо `REJECTED`. Approval требует applicability, отдельный regression case и SHA-256 checksum validation; promotion и rollback проходят отдельную авторизацию и атомарный audit. Личные чаты не становятся общей памятью, а promoted-кандидат сам по себе не изменяет веса модели или operational state.
 
 ## Prompt injection и privacy
 

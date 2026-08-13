@@ -121,7 +121,7 @@ Noto Sans WOFF в свежем NFT trace PDF-export route; вне Vercel он д
 5. Для обеих сред задайте `LLM_PROVIDER=mock` и `APP_MODE=demo`. Production prototype
    с рабочим reset должен оставаться защищённым Deployment Protection.
 6. Задайте `DEMO_PASSWORD_HASH` как encrypted environment variable. Не добавляйте plaintext или реальный hash в Git.
-7. Первый rollout оркестратора выполняйте после migration `0006`: сначала `MTR_AGENT_ORCHESTRATOR_ENABLED=true`, затем независимо actions/events. Для event ingress нужен отдельный `MTR_AGENT_EVENT_INGRESS_SECRET` ≥32 символов. Kill switch оставьте `false`, но подготовьте операционную процедуру его включения.
+7. Первый rollout оркестратора выполняйте после migrations `0006` и `0007`: сначала `MTR_AGENT_ORCHESTRATOR_ENABLED=true`, затем независимо actions/events. Для event ingress нужен отдельный `MTR_AGENT_EVENT_INGRESS_SECRET` ≥32 символов. Kill switch оставьте `false`, но подготовьте операционную процедуру его включения.
 
 Изменённые environment variables действуют только для новых deployments; после
 ротации credentials выполните redeploy.
@@ -158,7 +158,7 @@ vercel env run -e "$MTR_TARGET" -- pnpm db:seed
 Сверьте напечатанный non-secret target с ресурсом среды. Миграция должна завершиться
 до переключения production traffic; после seed readiness обязана показать 8/24/30/30.
 
-Migration `0006_mtr_agent_orchestrator` только добавляет durable cases, evidence, plans, tasks, action proposals, event inbox, proactive insights и metric events; `0004_product_iteration` и `0005_scoped_rbac` не изменяются. Код можно развернуть с выключенными flags, применить migration controlled job, проверить readiness и только затем включить основной runtime. Rollback уровня приложения: выключить основной flag или включить kill switch; additive таблицы остаются совместимыми и не требуют down-migration.
+Migration `0006_mtr_agent_orchestrator` только добавляет durable cases, evidence, plans, tasks, action proposals, event inbox, proactive insights и metric events. Следующая additive migration `0007_mtr_agent_learning` добавляет проектно- и owner-scoped карантин обратной связи с проверяемым жизненным циклом; она не включает автоматическое обучение и не меняет runtime-ответы. `0004_product_iteration`, `0005_scoped_rbac` и `0006` не изменяются. Код можно развернуть с выключенными flags, применить migrations controlled job, проверить readiness и только затем включить основной runtime. Rollback уровня приложения: выключить основной flag или включить kill switch; additive таблицы остаются совместимыми и не требуют down-migration.
 
 ### 5.4 Deploy gate
 

@@ -5,9 +5,9 @@
 | Группа | Статус | Runtime evidence |
 |---|---|---|
 | G-01…G-19 | `РЕАЛИЗОВАНО ЛОКАЛЬНО` | Единый runtime, canonical context, scoped ports, durable `0006`, commands/cases/evidence/plans/tasks/actions/events/metrics, public projection, citation reauth и persisted observability покрыты unit/integration/E2E regressions |
-| G-20 | `ЧАСТИЧНО` | Полный текущий eval `34/34`; целевой отдельный manifest ≥100 случаев не создан и не заявляется выполненным |
+| G-20 | `ЧАСТИЧНО` | Legacy eval `34/34` и отдельный production-shaped analytical eval `20/20`; целевой curriculum 200 случаев ещё не набран |
 | G-21 | `ЧАСТИЧНО` | Новый desktop/mobile workspace E2E зелёный; целевая матрица ≥27 orchestrator-сценариев не набрана |
-| G-22 | `ЛОКАЛЬНО PASS / PREVIEW BLOCKED` | `pnpm check`: 112 файлов/473 теста, privacy 407, eval 34/34, build/PDF assets PASS; push, PR и exact-SHA Preview невозможны без remote/upstream/Vercel credentials |
+| G-22 | `ЛОКАЛЬНО PASS / PREVIEW BLOCKED` | `pnpm check`: 125 файлов/514 тестов, privacy 450, legacy eval 34/34, analytical eval 20/20, build/PDF assets PASS; push, PR и exact-SHA Preview невозможны без remote/upstream/Vercel credentials |
 
 Production не изменён. Статусы ниже сохраняют исходную gap-карту и не переписывают baseline задним числом.
 
@@ -34,7 +34,7 @@ Production не изменён. Статусы ниже сохраняют ис�
 | G-17 | Русский публичный UI | Raw response/status/source labels | Центральная локализация и safe fallback | DOM и E2E raw-token scan |
 | G-18 | Sources drill-down + reauth | Citation GET сериализует сохранённые записи | Permission/resource recheck перед показом/переходом | Revoke и cross-project возвращают 404 |
 | G-19 | Полный audit/observability | Command runtime не имеет durable trace; action audit не доказан live | Received/completed/failure traces, atomic critical action | Audit failure не коммитит action |
-| G-20 | 100 runtime eval | Baseline 34/34, donor helper-heavy eval | ≥100, ≥40 новых orchestrator, adversarial matrix | Eval manifest и executed runtime cases |
+| G-20 | 200 runtime eval | Baseline 34/34 и analytical manifest 20/20 | 200 production-shaped, включая analytical, temporal, adversarial, feedback и scale | Раздельные manifests и executed runtime cases |
 | G-21 | 27 E2E | Текущий smoke не покрывает новый контур | Role/task/digest/risk/action/revoke/partial/concurrency E2E | ≥27 distinct scenarios |
 | G-22 | Preview/performance/clean checkout | Для feature SHA нет push/Preview credentials | Clean worktree gate и exact-SHA Preview либо внешний blocker | p50/p95, concurrency и release manifest |
 

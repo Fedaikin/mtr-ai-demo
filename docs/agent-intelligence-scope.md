@@ -19,7 +19,7 @@
 - `src/application/agent-orchestrator/**` — semantic query, planning, verifier, analytical capabilities.
 - `src/domain/agent/**` — versioned semantic/evidence/forecast/scenario/recommendation contracts.
 - `src/ports/agent-orchestrator.ts` и новые узкие agent analytics ports.
-- Новые agent-specific persistence adapters и следующая свободная additive migration `0007_*`, только если durable history нельзя корректно хранить в существующей `0006_mtr_agent_orchestrator`.
+- Новые agent-specific persistence adapters и additive migration `0007_mtr_agent_learning` только для owner feedback/curated learning history; существующие migrations остаются immutable.
 - Versioned scenario dataset, generators и fixtures, не меняющие users/RBAC/auth.
 - Agent widget и `/mtr-analysis` только для аналитического ответа, прогресса, scenario comparison, feedback и history.
 - `evals/**`, evaluator, agent tests/E2E, acceptance, observability и документация.
@@ -47,7 +47,7 @@
 | Process/scenario templates | 5 |
 | Prompt | active `mtr-project-agent` `3.0.0`; rollback `1.0.0` |
 | Existing agent eval | 34 golden cases |
-| Migrations | `0000`–`0006`; следующая свободная — `0007` |
+| Migrations | `0000`–`0006` immutable; новая additive `0007_mtr_agent_learning` |
 
 Точное покрытие и denominators зафиксированы в
 [`mtr-agent-data-coverage.md`](./mtr-agent-data-coverage.md). Главный разрыв:
@@ -60,6 +60,7 @@
 - Эталонные сценарии используют явный scope исходных трёх спецификаций и 24 позиций.
 - Analytical dataset `g1-vertical-v1` создан отдельно от browse-корпуса: schema `1.0.0`, dataset version `1.0.0-DEMO`, deterministic seed/checksum, 12 specifications / 240 positions, 228 сквозных position → catalog → SAP mappings, 52 недели движений, 48 shortage cases и 24 future outcome oracles.
 - Semantic registry `semantic-registry-1.0.0`, quality gate, evidence graph, forecast/backtest, root-cause, scenario, verifier и public `ANALYSIS` projection реализованы в feature branch.
+- Feedback lifecycle создаёт owner-only quarantined candidate и требует human approval, applicability, regression case, validation checksum, audit и rollback; automatic online learning отсутствует.
 - Scenario data являются авторитетными внутри замкнутого прототипа, но не должны менять пользователей/RBAC/auth или выдаваться за данные реального предприятия вне прототипа.
 
 Формулы и публичный контракт: [`mtr-analytics-semantic-layer.md`](./mtr-analytics-semantic-layer.md).
@@ -96,5 +97,5 @@
 
 Gate G0 result: baseline технически зелёный; исходная analytical completeness `FAIL`.
 G1 foundation и детерминированный G2/G3 vertical реализованы локально. Следующие
-обязательные шаги: durable analytical history/evidence, production-shaped eval corpus,
+обязательные шаги: durable analytical history/evidence, расширение production-shaped eval corpus,
 расширенный E2E и строгая Preview-приёмка. Пользователи, RBAC/auth и Production не меняются.

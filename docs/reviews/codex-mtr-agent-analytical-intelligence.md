@@ -3,7 +3,7 @@
 Ветка: `codex/mtr-agent-analytical-intelligence`
 
 Base: `70543c6c34d6778695a07a5400006742ed5e3a21`
-Статус: G1 завершён; deterministic G2/G3 vertical реализован, persistence/eval/Preview ещё открыты
+Статус: deterministic G1–G3 vertical и безопасный feedback slice G4 реализованы; полный curriculum/acceptance/Preview ещё открыты
 
 ## Scope
 
@@ -26,19 +26,19 @@ Base: `70543c6c34d6778695a07a5400006742ed5e3a21`
 
 ## Safety и lifecycle
 
-- [ ] Action использует proposal → confirm → reauthorization → idempotency → audit.
-- [ ] Feedback не меняет online behavior.
-- [ ] LearningCandidate quarantined и требует human approval.
+- [x] Action использует proposal → confirm → reauthorization → idempotency → audit.
+- [x] Feedback не меняет online behavior.
+- [x] LearningCandidate quarantined и требует human approval, regression case и validation checksum.
 - [ ] Role switch/revoke очищает или повторно авторизует context/history.
-- [ ] SAP/Appius write отсутствует.
+- [x] SAP/Appius write отсутствует.
 
 ## Gates
 
 - [x] G0 baseline/coverage: technical PASS, analytical completeness FAIL с точными denominators.
 - [x] G1 semantic/data/evidence foundation.
-- [ ] G2 engines реализованы и unit/integration green; oracle/eval gate ещё не достигнут.
-- [ ] G3 unified `ANALYSIS` runtime/verifier/public UX и safe rich message history реализованы; durable evidence lineage и model-source citation adapter ещё открыты.
-- [ ] G4 recommendation/autonomy/feedback.
+- [x] G2 engines реализованы и unit/integration green; полный target curriculum ещё не достигнут.
+- [x] G3 unified `ANALYSIS` runtime/verifier/public UX и safe rich message history реализованы; durable evidence lineage и model-source citation adapter ещё открыты.
+- [ ] G4 частично: recommendation, A3 proposal/confirm и curated feedback lifecycle реализованы; полная analytical history, outcome learning и proactive acceptance ещё открыты.
 - [ ] ≥200 eval, ≥40 E2E, held-out/adversarial/backtesting/scale; сейчас 34 legacy + 20 отдельных current-runtime analytical eval.
 - [ ] Clean full gate, strict acceptance и scoped fix-loop.
 - [ ] Draft PR и Preview exact SHA; Production не затронут.
