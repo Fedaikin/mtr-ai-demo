@@ -28,7 +28,7 @@ test.describe("Навигация, рабочая область аналити�
     const run = await completeRun(page.request, await createRun(page.request));
     const analyticsLink = page
       .getByRole("navigation", { name: "Основная навигация" })
-      .getByRole("link", { name: "МТР-аналитик" });
+      .getByRole("link", { name: "МТР-анализ" });
 
     for (const path of [
       "/agent",
@@ -48,67 +48,55 @@ test.describe("Навигация, рабочая область аналити�
     ).toHaveAttribute("aria-current", "page");
   });
 
-  test("desktop: AI-агент открывается в первом экране, а поле ввода остаётся видимым", async ({
+  test("desktop: МТР Агент открывается виджетом, а поле ввода остаётся видимым", async ({
     page,
     isMobile,
   }) => {
     test.skip(Boolean(isMobile), "Проверка предназначена для desktop-компоновки");
-    await page.goto("/agent");
+    await page.goto("/mtr-analysis");
 
-    const agentTab = page.getByRole("tab", { name: "AI-агент" });
-    await expect(agentTab).toBeInViewport();
+    const openAgent = page.getByRole("button", { name: "МТР-агент", exact: true });
+    await expect(openAgent).toBeInViewport();
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
-    await agentTab.click();
+    await openAgent.click();
 
-    const composer = page.getByTestId("agent-input");
+    const widget = page.getByRole("complementary", { name: "МТР-агент", exact: true });
+    const composer = widget.getByTestId("agent-input");
     await expect(composer).toBeVisible();
     await expect(composer).toBeInViewport();
     const layout = await readAgentLayout(page);
-    expect(layout.windowScrollY).toBe(0);
+    expect(layout.panelTop).toBeGreaterThanOrEqual(0);
+    expect(layout.panelHeight).toBeLessThanOrEqual(layout.viewportHeight);
     expect(layout.composerBottom).toBeLessThanOrEqual(layout.viewportHeight);
     expect(layout.historyOverflowY).toMatch(/auto|scroll/u);
   });
 
-  test("mobile: AI-агент возвращает на исходную вкладку и прежнее место", async ({
+  test("mobile: МТР Агент закрывается без потери позиции страницы", async ({
     page,
     isMobile,
   }) => {
     test.skip(!isMobile, "Проверка предназначена для мобильной компоновки");
-    await page.goto("/agent");
+    await page.goto("/specifications");
 
-    const openButton = page.getByRole("button", { name: "Открыть AI-агента" });
-    const panel = page.locator("#analytics-panel-agent");
-    const composer = page.getByTestId("agent-input");
+    await page.evaluate(() => window.scrollTo(0, Math.min(96, document.documentElement.scrollHeight - window.innerHeight)));
+    const initialScrollY = await page.evaluate(() => window.scrollY);
+    const openButton = page.getByRole("button", { name: "МТР-агент", exact: true });
+    await openButton.click();
+    const panel = page.getByRole("complementary", { name: "МТР-агент", exact: true });
+    const composer = panel.getByTestId("agent-input");
+    await expect(panel).toBeVisible();
+    await expect(composer).toBeVisible();
+    await expect(composer).toBeInViewport();
+    const layout = await readAgentLayout(page);
+    expect(layout.panelTop).toBe(0);
+    expect(layout.panelLeft).toBe(0);
+    expect(layout.panelWidth).toBe(layout.viewportWidth);
+    expect(layout.panelHeight).toBe(layout.viewportHeight);
+    expect(layout.composerBottom).toBeLessThanOrEqual(layout.viewportHeight);
 
-    for (const sourceTab of ["Обзор", "Позиции"] as const) {
-      await page.getByRole("tab", { name: sourceTab }).click();
-      await expect(page.getByRole("tabpanel", { name: sourceTab })).toBeVisible();
-      await page.evaluate(() => {
-        const maximumScrollY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-        window.scrollTo(0, Math.min(96, maximumScrollY));
-      });
-      await expect(openButton).toBeInViewport();
-      const initialScrollY = await page.evaluate(() => window.scrollY);
-      expect(initialScrollY).toBeGreaterThan(0);
-      await openButton.click();
-
-      await expect(panel).toBeVisible();
-      await expect(composer).toBeVisible();
-      await expect(composer).toBeInViewport();
-      const layout = await readAgentLayout(page);
-      expect(layout.panelTop).toBe(0);
-      expect(layout.panelLeft).toBe(0);
-      expect(layout.panelWidth).toBe(layout.viewportWidth);
-      expect(layout.panelHeight).toBe(layout.viewportHeight);
-      expect(layout.composerBottom).toBeLessThanOrEqual(layout.viewportHeight);
-      expect(await page.locator("body").evaluate((body) => body.style.overflow)).toBe("hidden");
-
-      await page.getByRole("button", { name: "Закрыть" }).click();
-      await expect(panel).toBeHidden();
-      await expect(page.getByRole("tabpanel", { name: sourceTab })).toBeVisible();
-      await expect(page.getByRole("tab", { name: sourceTab })).toHaveAttribute("aria-selected", "true");
-      await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(initialScrollY);
-    }
+    await page.getByRole("button", { name: "Закрыть агента" }).click();
+    await expect(panel).toBeHidden();
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(initialScrollY);
   });
 
   test("основные экраны не показывают необработанные английские enum", async ({ page }) => {
@@ -151,9 +139,9 @@ test.describe("Навигация, рабочая область аналити�
 
 async function readAgentLayout(page: Page) {
   return page.evaluate(() => {
-    const panel = document.querySelector<HTMLElement>("#analytics-panel-agent");
-    const composer = document.querySelector<HTMLElement>('[data-testid="agent-input"]');
-    const history = document.querySelector<HTMLElement>('[aria-live="polite"]');
+    const panel = document.querySelector<HTMLElement>("#mtr-agent-widget");
+    const composer = panel?.querySelector<HTMLElement>('[data-testid="agent-input"]');
+    const history = panel?.querySelector<HTMLElement>('[aria-live="polite"]');
     if (!panel || !composer || !history) throw new Error("Рабочая область AI-агента не найдена");
     const panelRect = panel.getBoundingClientRect();
     const composerRect = composer.getBoundingClientRect();

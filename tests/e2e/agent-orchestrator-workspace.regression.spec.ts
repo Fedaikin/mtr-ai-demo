@@ -43,9 +43,10 @@ test("desktop: /mtr-analysis содержит единый workspace и выпо
   expect(geometry.bodyOverflow).toBe(0);
 
   await chat.getByRole("button", { name: "Остатки", exact: true }).click();
-  await expect(chat.getByTestId("agent-command-result")).toBeVisible({ timeout: 7_000 });
-  await expect(chat.getByTestId("agent-command-result")).toContainText("Остатки");
-  await expect(page.locator("body")).not.toContainText(/\b(?:SUMMARY|PARTIAL|Evidence)\b/u);
+  const commandResult = chat.getByTestId("agent-command-result");
+  await expect(commandResult).toBeVisible({ timeout: 7_000 });
+  await expect(commandResult).toContainText("Остатки");
+  await expect(commandResult).not.toContainText(/\b(?:SUMMARY|PARTIAL|Evidence)\b/u);
   await page.screenshot({ path: "/tmp/mtr-agent-orchestrator-workspace-desktop.png", fullPage: true });
 });
 

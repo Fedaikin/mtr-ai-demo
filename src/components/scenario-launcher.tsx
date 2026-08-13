@@ -149,7 +149,7 @@ export function ScenarioLauncher({
           <h2 id="launch-title" className="mt-1 text-lg font-semibold">Параметры моделирования</h2>
           <p className="mt-2 text-sm leading-5 text-slate-600">Сервер сохранит входной snapshot и журнал каждого шага.</p>
         </div>
-        <div className="space-y-4">
+        <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Сценарий" htmlFor="scenario-id">
             <select
               id="scenario-id"
@@ -165,8 +165,20 @@ export function ScenarioLauncher({
               {scenarios.map((scenario) => <option key={scenario.id} value={scenario.id}>{scenario.name}</option>)}
             </select>
           </Field>
-          {selectedScenario ? <p className="-mt-2 text-xs leading-5 text-slate-500">{selectedScenario.description}</p> : null}
-          <Field label="Спецификация" htmlFor="specification-id">
+          <Field label="Режим" htmlFor="run-mode">
+            <select
+              id="run-mode"
+              value={mode}
+              onChange={(event) => setMode(event.target.value as "NORMAL" | "DRY_RUN")}
+              className="focus-ring h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm"
+            >
+              <option value="NORMAL">Обычный режим</option>
+              <option value="DRY_RUN">Проверочный запуск</option>
+            </select>
+          </Field>
+          {selectedScenario ? <p className="text-xs leading-5 text-slate-500 sm:col-span-2">{selectedScenario.description}</p> : null}
+          <div className="sm:col-span-2">
+            <Field label="Спецификация" htmlFor="specification-id">
             <select
               id="specification-id"
               value={specificationId}
@@ -180,18 +192,8 @@ export function ScenarioLauncher({
                 </option>
               ))}
             </select>
-          </Field>
-          <Field label="Режим" htmlFor="run-mode">
-            <select
-              id="run-mode"
-              value={mode}
-              onChange={(event) => setMode(event.target.value as "NORMAL" | "DRY_RUN")}
-              className="focus-ring h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm"
-            >
-              <option value="NORMAL">Обычный режим</option>
-              <option value="DRY_RUN">Проверочный запуск</option>
-            </select>
-          </Field>
+            </Field>
+          </div>
         </div>
         <button
           type="button"

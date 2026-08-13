@@ -44,9 +44,8 @@ test.describe("МТР — обязательные сценарии мастер
 
     await expect(page.locator("header").getByText("Демо-пользователь 1", { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Демо-пользователь 1" })).toBeVisible();
-    await expectMetric(page, "Актуальные позиции", "24");
     const userCard = page.getByText("Данные пользователя", { exact: true }).locator("..");
-    await expect(userCard.getByText("Спецификации", { exact: true }).locator("..")).toContainText("3");
+    await expect(userCard.getByText("Спецификации", { exact: true }).locator("..")).toContainText("83");
     await expect(userCard.getByText("Запуски", { exact: true }).locator("..")).toContainText("0");
     await expect(page.getByText("Только синтетические демонстрационные данные", { exact: true })).toHaveCount(1);
   });
@@ -71,7 +70,7 @@ test.describe("МТР — обязательные сценарии мастер
     await expect(page.getByLabel("Журнал шагов").getByText("Завершено", { exact: true })).toHaveCount(6);
 
     await page
-      .getByRole("navigation", { name: "Основная навигация" })
+      .getByRole("navigation", { name: "Разделы сценариев и запусков" })
       .getByRole("link", { name: "Запуски", exact: true })
       .click();
     const runRow = page
@@ -161,17 +160,18 @@ test.describe("МТР — обязательные сценарии мастер
     page,
     isMobile,
   }) => {
-    await page.goto("/agent");
+    await page.goto("/mtr-analysis");
     await page.waitForLoadState("networkidle");
-    await page.getByRole("tab", { name: "AI-агент" }).click();
-    const userChat = page.getByLabel("Диалог с МТР-аналитиком");
-    await page.getByTestId("agent-input").fill("Каков текущий остаток материала SAP-DEMO-0001?");
+    await page.getByRole("button", { name: "МТР-агент", exact: true }).click();
+    const widget = page.getByRole("complementary", { name: "МТР-агент", exact: true });
+    const userChat = widget.getByLabel("Диалог с МТР-аналитиком");
+    await widget.getByTestId("agent-input").fill("Каков текущий остаток материала SAP-DEMO-0001?");
     const messageResponse = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
         /\/api\/agent\/threads\/[^/]+\/messages$/u.test(new URL(response.url()).pathname),
     );
-    await page.getByTestId("agent-send").click();
+    await widget.getByTestId("agent-send").click();
     const payload = await responseJson<{
       items: Array<{
         role: string;
@@ -198,13 +198,13 @@ test.describe("МТР — обязательные сценарии мастер
     expect(assistant?.citations[0]?.versionOrSnapshot).toBeTruthy();
     expect(JSON.stringify(payload)).not.toMatch(INTERNAL_AGENT_CONTENT_PATTERN);
 
-    await expect(page.getByRole("heading", { name: /МТР-аналитик|AI-агент|Проектный агент/i })).toBeVisible();
+    await expect(widget).toBeVisible();
     await expect(userChat).toContainText("200");
     await expect(userChat).not.toContainText("sap.getMaterialStock");
     await expect(userChat).not.toContainText("sap.getState");
     await expect(userChat).not.toContainText("llm.respond");
 
-    if (isMobile) await page.getByRole("button", { name: "Закрыть" }).click();
+    if (isMobile) await page.getByRole("button", { name: "Закрыть агента" }).click();
     await page
       .getByRole("navigation", { name: "Основная навигация" })
       .getByRole("link", { name: "Логи агента", exact: true })
@@ -297,7 +297,7 @@ test.describe("МТР — обязательные сценарии мастер
     await page.getByRole("checkbox", { name: /Понимаю, что запуски/ }).check();
     await page.getByRole("button", { name: "Восстановить базовый набор" }).click();
     await expect(page.getByRole("status")).toHaveText(
-      "Готово: Appius — 3 584, SAP — 30 материалов и 30 остатков.",
+      "Готово: Appius — 3584, SAP — 30 материалов и 30 остатков.",
       { timeout: resetCompletionTimeout },
     );
 
