@@ -21,7 +21,7 @@ describe("deterministic industrial catalogue fixture", () => {
       createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
     expect(checksum(generateIndustrialCatalogue())).toBe(
-      "a6c3b6117ad8db880e5f861ca5b77e369d3b8062e638b91b6b76b0b7a5402f0f",
+      "569fc614d1ce055359a2152900a9258fd9488d97795248cc9ee184cff0ff0721",
     );
     expect(generateIndustrialCatalogue()).toEqual(catalogue);
   });
@@ -116,12 +116,13 @@ describe("deterministic industrial catalogue fixture", () => {
     expect(balancesByItem.size).toBe(4_800);
     expect(balanceCounts.filter((count) => count === 2)).toHaveLength(2_400);
     expect(balanceCounts.filter((count) => count === 1)).toHaveLength(2_400);
-    expect(Number(totalAvailable.toFixed(3))).toBe(350_398.118);
+    expect(Number.isInteger(totalAvailable)).toBe(true);
 
     for (const [itemId, balances] of balancesByItem) {
       const item = itemById.get(itemId);
       expect(item, itemId).toBeDefined();
       expect(balances.every((balance) => balance.availableQuantity >= 0)).toBe(true);
+      expect(balances.every((balance) => Number.isInteger(balance.availableQuantity))).toBe(true);
       expect(balances.every((balance) => balance.unit === item?.unit)).toBe(true);
       expect(balances.every((balance) => balance.snapshotAt === catalogue.manifest.snapshotAt)).toBe(true);
       expect(new Set(balances.map((balance) => `${balance.plant}/${balance.storageLocation}`)).size).toBe(balances.length);

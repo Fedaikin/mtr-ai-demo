@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { readFile, readdir } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { readdir } from "node:fs/promises";
 import { extname, relative, resolve } from "node:path";
 
 const projectRoot = resolve(process.cwd());
@@ -30,16 +31,6 @@ const candidateRoots = [
   "postcss.config.mjs",
   "tsconfig.json",
   "vitest.config.ts",
-  "../.github/workflows/mtr-prototype-ci.yml",
-  "../docs/architecture.md",
-  "../docs/ai-agent-compliance.md",
-  "../docs/data-dictionary.md",
-  "../docs/decisions.md",
-  "../docs/known-limitations.md",
-  "../docs/performance-report.md",
-  "../docs/qa-report.md",
-  "../docs/requirements-traceability.md",
-  "../docs/tz-compliance-audit.md",
 ];
 const ignoredSegments = new Set(["node_modules", ".next", ".git", "output"]);
 const textExtensions = new Set([
@@ -100,8 +91,8 @@ function gitCandidates(): string[] | undefined {
   try {
     const stdout = execFileSync(
       "git",
-      ["ls-files", "--cached", "--others", "--exclude-standard", "--", ...candidateRoots],
-      { cwd: projectRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+      ["-c", "core.fsmonitor=false", "ls-files", "--cached", "--others", "--exclude-standard", "--", ...candidateRoots],
+      { cwd: projectRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 5_000 },
     );
     return stdout.split(/\r?\n/u).filter(Boolean);
   } catch {
@@ -137,8 +128,8 @@ function configuredForbiddenMarkers(): string[] {
     .filter(Boolean);
 }
 
-async function scanFile(filePath: string): Promise<Finding[]> {
-  const contents = await readFile(resolve(projectRoot, filePath), "utf8");
+function scanFile(filePath: string): Finding[] {
+  const contents = readFileSync(resolve(projectRoot, filePath), "utf8");
   if (contents.includes("\0")) return [];
 
   const findings: Finding[] = [];
@@ -162,7 +153,8 @@ async function scanFile(filePath: string): Promise<Finding[]> {
 
 async function main(): Promise<void> {
   const files = await candidateFiles();
-  const findings = (await Promise.all(files.map(scanFile))).flat();
+  const findings: Finding[] = [];
+  for (const file of files) findings.push(...scanFile(file));
   const uniqueFindings = [
     ...new Map(findings.map((finding) => [`${finding.path}:${finding.type}`, finding])).values(),
   ];

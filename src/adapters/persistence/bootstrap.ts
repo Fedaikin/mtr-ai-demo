@@ -203,7 +203,13 @@ export async function getSeedCounts(
       (select count(*)::int from ${users} where ${users.userId} = ${userId}) as "users",
       (select count(*)::int from ${specifications} where ${specifications.userId} = ${userId}) as "specifications",
       (select count(*)::int from ${specificationVersions} where ${specificationVersions.userId} = ${userId}) as "specificationVersions",
-      (select count(*)::int from ${specificationPositions} where ${specificationPositions.userId} = ${userId}) as "canonicalPositions",
+      (select count(*)::int
+        from ${specificationPositions}
+        inner join ${specificationVersions}
+          on ${specificationVersions.id} = ${specificationPositions.versionId}
+          and ${specificationVersions.userId} = ${userId}
+        where ${specificationPositions.userId} = ${userId}
+          and ${specificationVersions.isCurrent} = true) as "canonicalPositions",
       (select count(*)::int from ${sapMaterials} where ${sapMaterials.userId} = ${userId}) as "sapMaterials",
       (select count(*)::int from ${sapStockBalances} where ${sapStockBalances.userId} = ${userId}) as "sapBalances",
       (select count(*)::int from ${normativeDocuments} where ${normativeDocuments.userId} = ${userId}) as "normativeDocuments",

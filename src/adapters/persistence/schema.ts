@@ -86,6 +86,12 @@ export const specificationVersions = pgTable(
     status: text("status").notNull(),
     effectiveAt: timestamp("effective_at", { withTimezone: true, mode: "string" }).notNull(),
     positionCount: integer("position_count").notNull(),
+    sourceFileId: text("source_file_id"),
+    sourceFileName: text("source_file_name"),
+    sourceKind: text("source_kind"),
+    publishedBy: text("published_by"),
+    publishedAt: timestamp("published_at", { withTimezone: true, mode: "string" }),
+    validationSummary: jsonb("validation_summary").$type<Record<string, unknown>>(),
     historicSnapshot: jsonb("historic_snapshot").$type<Record<string, unknown>>(),
     accessAttributes: jsonb("access_attributes").$type<Record<string, unknown>>().notNull().default({}),
     ...mutableColumns,
@@ -121,7 +127,11 @@ export const specificationPositions = pgTable(
   },
   (table) => [
     index("positions_user_spec_idx").on(table.userId, table.specificationId),
-    uniqueIndex("positions_internal_code_uq").on(table.userId, table.internalCode),
+    uniqueIndex("positions_version_internal_code_uq").on(
+      table.userId,
+      table.versionId,
+      table.internalCode,
+    ),
   ],
 );
 
@@ -167,7 +177,10 @@ export const sapStockBalances = pgTable(
     snapshotAt: timestamp("snapshot_at", { withTimezone: true, mode: "string" }).notNull(),
     ...mutableColumns,
   },
-  (table) => [index("sap_stock_material_idx").on(table.userId, table.materialId)],
+  (table) => [
+    index("sap_stock_material_idx").on(table.userId, table.materialId),
+    check("sap_stock_available_quantity_nonnegative_integer_check", sql`${table.availableQuantity} >= 0 AND ${table.availableQuantity} = trunc(${table.availableQuantity})`),
+  ],
 );
 
 /**
@@ -295,6 +308,10 @@ export const catalogStockBalances = pgTable(
     check(
       "catalog_stock_available_quantity_check",
       sql`${table.availableQuantity} >= 0`,
+    ),
+    check(
+      "catalog_stock_available_quantity_integer_check",
+      sql`${table.availableQuantity} = trunc(${table.availableQuantity})`,
     ),
   ],
 );
@@ -524,6 +541,29 @@ export const positionAnalysisResults = pgTable(
   ],
 );
 
+export const analysisReviewDecisions = pgTable(
+  "analysis_review_decisions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull().references(() => users.id),
+    runId: text("run_id").notNull().references(() => scenarioRuns.id),
+    resultId: text("result_id").notNull().references(() => positionAnalysisResults.id),
+    positionId: text("position_id").notNull(),
+    doublecheckOutcome: text("doublecheck_outcome").notNull(),
+    status: text("status").notNull(),
+    agentEvidence: jsonb("agent_evidence").$type<Record<string, unknown>>().notNull(),
+    independentEvidence: jsonb("independent_evidence").$type<Record<string, unknown>>().notNull(),
+    decisionReason: text("decision_reason"),
+    decidedBy: text("decided_by"),
+    decidedAt: timestamp("decided_at", { withTimezone: true, mode: "string" }),
+    ...mutableColumns,
+  },
+  (table) => [
+    uniqueIndex("analysis_review_run_position_uq").on(table.userId, table.runId, table.positionId),
+    index("analysis_review_user_status_idx").on(table.userId, table.status),
+  ],
+);
+
 export const agentThreads = pgTable(
   "agent_threads",
   {
@@ -652,6 +692,7 @@ export const schema = {
   scenarioRuns,
   scenarioRunSteps,
   positionAnalysisResults,
+  analysisReviewDecisions,
   agentThreads,
   agentMessages,
   agentCitations,

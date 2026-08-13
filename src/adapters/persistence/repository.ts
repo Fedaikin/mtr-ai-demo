@@ -62,6 +62,7 @@ import type {
 import { getSeedCounts, resetDemoDatabase, type SeedCounts } from "./bootstrap";
 import { type Database, getDatabase } from "./db";
 import {
+  analysisReviewDecisions,
   agentCitations,
   agentMessages,
   agentThreads,
@@ -369,6 +370,36 @@ export interface UploadedFileInput {
   normalizedData?: Record<string, unknown> | null;
 }
 
+export interface SpecificationImportPositionInput {
+  internalCode: string;
+  nameRu: string;
+  requiredQuantity: number;
+  unit: string;
+  equipmentType?: string;
+  standard?: string;
+  materialGrade?: string;
+  dimensions?: Record<string, string | number | boolean | null>;
+}
+
+export interface PublishSpecificationImportInput {
+  fileId: string;
+  mode: "NEW" | "NEW_VERSION";
+  projectCode?: string;
+  name?: string;
+  specificationId?: string;
+  positions: SpecificationImportPositionInput[];
+  validationSummary: Record<string, unknown>;
+}
+
+export interface AnalysisReviewSeed {
+  resultId: string;
+  runId: string;
+  positionId: string;
+  exact: boolean;
+  agentEvidence: Record<string, unknown>;
+  independentEvidence: Record<string, unknown>;
+}
+
 export interface AgentMessageInput {
   id?: string;
   threadId: string;
@@ -546,6 +577,143 @@ export class MtrRepository {
       .where(eq(specifications.userId, userId))
       .orderBy(asc(specifications.projectCode), asc(specifications.id));
     return rows.map(toSpecification);
+  }
+
+  async publishSpecificationImport(
+    userId: string,
+    input: PublishSpecificationImportInput,
+  ): Promise<{ specification: Specification; version: SpecificationVersion }> {
+    trustedUser(userId);
+    if (input.positions.length === 0) throw new Error("В файле нет валидных позиций для публикации.");
+    const duplicateCodes = input.positions
+      .map((position) => position.internalCode)
+      .filter((code, index, all) => all.indexOf(code) !== index);
+    if (duplicateCodes.length > 0) throw new Error(`Повторяются коды позиций: ${[...new Set(duplicateCodes)].slice(0, 5).join(", ")}`);
+
+    return this.db.transaction(async (transaction) => {
+      const tx = transaction as unknown as Database;
+      const [file] = await tx.select().from(uploadedFiles).where(and(
+        eq(uploadedFiles.userId, userId),
+        eq(uploadedFiles.id, input.fileId),
+      )).limit(1);
+      if (!file) throw new Error("Загруженный файл не найден.");
+      if (file.parseStatus !== "PARSED") throw new Error("Файл требует ручной проверки и не может быть опубликован.");
+
+      const now = new Date().toISOString();
+      const specificationId = input.mode === "NEW"
+        ? `spec-${randomUUID()}`
+        : input.specificationId?.trim();
+      if (!specificationId) throw new Error("Не выбрана спецификация для новой версии.");
+
+      let versionNumber = 1;
+      if (input.mode === "NEW") {
+        if (!input.projectCode?.trim() || !input.name?.trim()) {
+          throw new Error("Для новой спецификации укажите проект и название.");
+        }
+      } else {
+        const [currentSpecification] = await tx.select().from(specifications).where(and(
+          eq(specifications.userId, userId),
+          eq(specifications.id, specificationId),
+        )).limit(1);
+        if (!currentSpecification) throw new Error("Спецификация не найдена.");
+        versionNumber = currentSpecification.latestVersionNumber + 1;
+        await tx.update(specificationVersions).set({
+          isCurrent: false,
+          status: "SUPERSEDED",
+          updatedAt: now,
+          version: sql`${specificationVersions.version} + 1`,
+        }).where(and(
+          eq(specificationVersions.userId, userId),
+          eq(specificationVersions.specificationId, specificationId),
+          eq(specificationVersions.isCurrent, true),
+        ));
+      }
+
+      const versionId = `${specificationId}-v${versionNumber}`;
+      if (input.mode === "NEW") {
+        await tx.insert(specifications).values({
+          id: specificationId,
+          userId,
+          projectCode: input.projectCode!.trim().slice(0, 120),
+          name: input.name!.trim().slice(0, 300),
+          latestVersionId: versionId,
+          latestVersionNumber: versionNumber,
+          positionCount: input.positions.length,
+          accessAttributes: { level: "DEMO_USER" },
+          createdBy: userId,
+        });
+      }
+
+      const [version] = await tx.insert(specificationVersions).values({
+        id: versionId,
+        specificationId,
+        userId,
+        versionNumber,
+        isCurrent: true,
+        status: "ACTIVE",
+        effectiveAt: now,
+        positionCount: input.positions.length,
+        sourceFileId: file.id,
+        sourceFileName: file.originalName,
+        sourceKind: file.extension.replace(/^\./u, "").toLocaleUpperCase("ru-RU"),
+        publishedBy: userId,
+        publishedAt: now,
+        validationSummary: input.validationSummary,
+        accessAttributes: { level: "DEMO_USER" },
+        createdBy: userId,
+      }).returning();
+      if (!version) throw new Error("Не удалось создать версию спецификации.");
+
+      await tx.insert(specificationPositions).values(input.positions.map((position, index) => ({
+        id: `position-${randomUUID()}`,
+        specificationId,
+        versionId,
+        userId,
+        internalCode: position.internalCode,
+        nameRu: position.nameRu,
+        synonyms: [],
+        equipmentType: position.equipmentType ?? "OTHER",
+        standard: position.standard,
+        materialGrade: position.materialGrade,
+        dimensions: position.dimensions ?? {},
+        requiredQuantity: String(position.requiredQuantity),
+        unit: position.unit,
+        classification: { sourceRow: String(index + 1), importFileId: file.id },
+        accessAttributes: { level: "DEMO_USER" },
+        fixtureTags: ["USER_IMPORT"],
+        isSyntheticDemo: false,
+        createdBy: userId,
+      })));
+
+      if (input.mode === "NEW_VERSION") {
+        await tx.update(specifications).set({
+          latestVersionId: versionId,
+          latestVersionNumber: versionNumber,
+          positionCount: input.positions.length,
+          updatedAt: now,
+          version: sql`${specifications.version} + 1`,
+        }).where(and(eq(specifications.userId, userId), eq(specifications.id, specificationId)));
+      }
+
+      await tx.insert(auditLogs).values({
+        id: `audit-${randomUUID()}`,
+        userId,
+        actorDisplayName: DEMO_USER_DISPLAY_NAME,
+        action: input.mode === "NEW" ? "specification.import.created" : "specification.import.version_created",
+        entityType: "specification",
+        entityId: specificationId,
+        outcome: "SUCCESS",
+        details: { fileId: file.id, fileName: file.originalName, versionId, versionNumber, positionCount: input.positions.length },
+        retentionUntil: oneCalendarYearAfter(now),
+      });
+
+      const [specification] = await tx.select().from(specifications).where(and(
+        eq(specifications.userId, userId),
+        eq(specifications.id, specificationId),
+      )).limit(1);
+      if (!specification) throw new Error("Не удалось получить опубликованную спецификацию.");
+      return { specification: toSpecification(specification), version: toSpecificationVersion(version) };
+    });
   }
 
   async getSpecification(userId: string, specificationId: string): Promise<Specification | null> {
@@ -750,15 +918,6 @@ export class MtrRepository {
         )
         .returning();
       if (!previousVersion) throw new OptimisticLockError(current.id);
-
-      await tx
-        .delete(specificationPositions)
-        .where(
-          and(
-            eq(specificationPositions.userId, userId),
-            eq(specificationPositions.versionId, current.id),
-          ),
-        );
 
       const [nextVersion] = await tx
         .insert(specificationVersions)
@@ -2547,6 +2706,75 @@ export class MtrRepository {
     return rows.map(toAnalysisResult);
   }
 
+  async ensureAnalysisReviews(userId: string, inputs: AnalysisReviewSeed[]) {
+    trustedUser(userId);
+    if (inputs.length === 0) return [];
+    await this.db.insert(analysisReviewDecisions).values(inputs.map((input) => ({
+      id: `review-${randomUUID()}`,
+      userId,
+      runId: input.runId,
+      resultId: input.resultId,
+      positionId: input.positionId,
+      doublecheckOutcome: input.exact ? "CONFIRMED_FOR_HUMAN_REVIEW" : "HUMAN_REVIEW_REQUIRED",
+      status: "PENDING",
+      agentEvidence: input.agentEvidence,
+      independentEvidence: input.independentEvidence,
+      createdBy: userId,
+    }))).onConflictDoNothing();
+    // Older prototype rows could have been marked as automatically decided.
+    // A doublecheck is evidence for a person, never the person's decision.
+    await this.db.update(analysisReviewDecisions).set({
+      doublecheckOutcome: "CONFIRMED_FOR_HUMAN_REVIEW",
+      status: "PENDING",
+      decidedBy: null,
+      decidedAt: null,
+      updatedAt: new Date().toISOString(),
+      version: sql`${analysisReviewDecisions.version} + 1`,
+    }).where(and(
+      eq(analysisReviewDecisions.userId, userId),
+      eq(analysisReviewDecisions.runId, inputs[0]!.runId),
+      eq(analysisReviewDecisions.status, "AUTO_CONFIRMED"),
+    ));
+    return this.listAnalysisReviews(userId, inputs[0]!.runId);
+  }
+
+  async listAnalysisReviews(userId: string, runId: string) {
+    trustedUser(userId);
+    return this.db.select().from(analysisReviewDecisions).where(and(
+      eq(analysisReviewDecisions.userId, userId),
+      eq(analysisReviewDecisions.runId, runId),
+    )).orderBy(asc(analysisReviewDecisions.positionId));
+  }
+
+  async decideAnalysisReview(
+    userId: string,
+    reviewId: string,
+    decision: "CONFIRMED" | "REJECTED" | "RETURNED",
+    reason: string,
+    actorDisplayName: string,
+  ) {
+    trustedUser(userId);
+    if (reason.trim().length < 3 || reason.trim().length > 1000) throw new Error("Укажите причину решения (от 3 до 1000 символов).");
+    const now = new Date().toISOString();
+    return this.db.transaction(async (transaction) => {
+      const tx = transaction as unknown as Database;
+      const [row] = await tx.update(analysisReviewDecisions).set({
+        status: decision,
+        decisionReason: reason.trim(),
+        decidedBy: actorDisplayName,
+        decidedAt: now,
+        updatedAt: now,
+        version: sql`${analysisReviewDecisions.version} + 1`,
+      }).where(and(
+        eq(analysisReviewDecisions.userId, userId),
+        eq(analysisReviewDecisions.id, reviewId),
+      )).returning();
+      if (!row) throw new Error("Решение не найдено.");
+      await tx.insert(auditLogs).values({ id: `audit-${randomUUID()}`, userId, actorDisplayName, action: `analysis.review.${decision.toLocaleLowerCase("en-US")}`, entityType: "analysis_review", entityId: reviewId, outcome: "SUCCESS", details: { runId: row.runId, positionId: row.positionId, reason: reason.trim() }, retentionUntil: oneCalendarYearAfter(now) });
+      return row;
+    });
+  }
+
   async listAnalysisResults(userId: string, runId: string): Promise<AnalysisResultRecord[]> {
     return this.listPositionAnalysisResults(userId, runId);
   }
@@ -3319,6 +3547,12 @@ function toSpecificationVersion(row: typeof specificationVersions.$inferSelect):
     status: row.status as SpecificationVersion["status"],
     effectiveAt: row.effectiveAt,
     positionCount: row.positionCount,
+    ...(row.sourceFileId ? { sourceFileId: row.sourceFileId } : {}),
+    ...(row.sourceFileName ? { sourceFileName: row.sourceFileName } : {}),
+    ...(row.sourceKind ? { sourceKind: row.sourceKind } : {}),
+    ...(row.publishedBy ? { publishedBy: row.publishedBy } : {}),
+    ...(row.publishedAt ? { publishedAt: row.publishedAt } : {}),
+    ...(row.validationSummary ? { validationSummary: row.validationSummary } : {}),
   };
 }
 

@@ -4,14 +4,16 @@ import { resolveActiveNavigationHref } from "@/lib/navigation";
 
 describe("resolveActiveNavigationHref", () => {
   it.each([
-    ["/agent", "/agent"],
-    ["/agent?run=run-demo", "/agent"],
+    ["/agent", "/mtr-analysis"],
+    ["/mtr-analysis", "/mtr-analysis"],
     ["/catalog", "/catalog"],
     ["/catalog/CAT-DEMO-PIP-0005", "/catalog"],
-    ["/materials/SAP-DEMO-0001", "/agent"],
-    ["/reports/run-demo", "/agent"],
+    ["/materials/SAP-DEMO-0001", "/mtr-analysis"],
+    ["/reports/run-demo", "/mtr-analysis"],
     ["/specifications/spec-demo", "/specifications"],
-    ["/runs/run-demo", "/runs"],
+    ["/runs/run-demo", "/modeling"],
+    ["/modeling", "/modeling"],
+    ["/pulse", "/pulse"],
   ])("marks the expected section for %s", (pathname, expected) => {
     expect(resolveActiveNavigationHref(pathname)).toBe(expected);
   });

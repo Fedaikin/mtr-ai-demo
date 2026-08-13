@@ -258,10 +258,11 @@ export class MockLLMProvider implements LLMProvider {
       sections.push(
         [
           `Состав узла ${bom.assembly.itemCode} — ${bom.assembly.nameRu}:`,
-          ...bom.components.map(({ positionNumber, quantity, unit, isCritical, component }) =>
+          ...bom.components.map(({ positionNumber, quantity, unit, isCritical, component, alternativeFamily }) =>
             `- поз. ${positionNumber}: ${component.itemCode} — ${component.nameRu}, ${formatQuantity(quantity)} ${unit}` +
             `; доступно суммарно ${formatQuantity(component.totalAvailableQuantity)} ${component.unit}` +
-            `${isCritical ? "; критический компонент" : ""}`,
+            `${alternativeFamily?.active ? `; допустимые замены: семейство ${alternativeFamily.code}` : "; подтверждённых замен нет"}` +
+            `${isCritical ? "; риск: критический компонент" : ""}`,
           ),
         ].join("\n"),
       );
@@ -275,6 +276,8 @@ export class MockLLMProvider implements LLMProvider {
         );
         requiresHumanReview = true;
         confidence = Math.min(confidence, 0.7);
+      } else {
+        facts.push("Риск дефицита по текущему снимку не выявлен; изменение остатков требует повторной проверки.");
       }
     }
 

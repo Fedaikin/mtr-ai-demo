@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { AppNavigation } from "@/components/app-navigation";
+import { AgentWidget } from "@/components/agent-widget";
 import { LogoutButton } from "@/components/logout-button";
 import type { NavigationItem } from "@/lib/navigation";
 
@@ -9,8 +10,9 @@ const USER_NAVIGATION = [
   { name: "Обзор", href: "/" },
   { name: "Промышленный каталог", href: "/catalog" },
   { name: "Спецификации", href: "/specifications" },
-  { name: "Запуски", href: "/runs" },
-  { name: "МТР-аналитик", href: "/agent" },
+  { name: "Моделирование", href: "/modeling" },
+  { name: "МТР-анализ", href: "/mtr-analysis" },
+  { name: "Пульс МТР", href: "/pulse" },
 ] as const satisfies readonly NavigationItem[];
 
 const ADMIN_NAVIGATION = [
@@ -69,6 +71,7 @@ export function AppShell({ children, displayName }: { children: ReactNode; displ
           </main>
         </div>
       </div>
+      <AgentWidget displayName={displayName} />
     </div>
   );
 }

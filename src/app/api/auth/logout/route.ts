@@ -38,7 +38,10 @@ export async function POST(request: Request) {
       try {
         await writeLogoutAudit(correlationId, null, authenticationErrorCode(error));
       } catch (auditError) {
-        return toErrorResponse(auditError);
+        console.error("Logout audit write failed", {
+          correlationId,
+          errorType: auditError instanceof Error ? auditError.name : "UNKNOWN",
+        });
       }
     }
     return toErrorResponse(error);

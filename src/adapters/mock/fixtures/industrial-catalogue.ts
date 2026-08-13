@@ -451,7 +451,7 @@ function stockQuantity(item: CatalogueItem, randomValue: number, secondary: bool
 
   const multiplier = item.unit === "M" ? 250 : item.unit === "KG" ? 80 : item.unit === "SET" ? 24 : 120;
   const quantity = randomValue * multiplier * (secondary ? 0.45 : 1);
-  return round3(quantity);
+  return Math.max(0, Math.round(quantity));
 }
 
 function stockBalance(

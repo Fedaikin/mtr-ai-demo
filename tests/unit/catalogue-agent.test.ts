@@ -158,6 +158,8 @@ describe("агент промышленного каталога", () => {
     expect(catalog.getAssemblyBom).toHaveBeenCalledWith("CAT-DEMO-4321", userId);
     expect(output.answer).toContain("Состав узла CAT-DEMO-4321");
     expect(output.answer).toContain("CAT-DEMO-0101");
+    expect(output.answer).toContain("допустимые замены: семейство");
+    expect(output.answer).toContain("риск: критический компонент");
     expect(output.answer).toContain("2 шт.");
     expect(output.answer).toContain("CAT-DEMO-0102");
     expect(output.facts.join(" ")).toContain("6 компонентов");

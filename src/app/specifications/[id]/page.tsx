@@ -96,6 +96,8 @@ export default async function SpecificationPage({
           <Metric label="Позиции" value={formatNumber(selectedVersion.positionCount)} detail="в метаданных версии" />
         </div>
 
+        {selectedVersion.sourceFileName ? <section className="mb-5 rounded-xl border border-teal-200 bg-teal-50 p-4"><p className="text-xs font-semibold uppercase tracking-wide text-teal-800">Источник версии</p><div className="mt-2 grid gap-2 text-sm sm:grid-cols-3"><p><span className="text-slate-500">Файл:</span> {selectedVersion.sourceFileId ? <a className="font-medium text-teal-800 underline underline-offset-2" href={`/api/uploads/${selectedVersion.sourceFileId}`}>{selectedVersion.sourceFileName}</a> : selectedVersion.sourceFileName}</p><p><span className="text-slate-500">Формат:</span> {selectedVersion.sourceKind ?? "—"}</p><p><span className="text-slate-500">Опубликован:</span> {selectedVersion.publishedAt ? formatDateTime(selectedVersion.publishedAt) : "—"}</p></div>{selectedVersion.validationSummary ? <p className="mt-2 text-xs text-slate-600">Проверка импорта: {String(selectedVersion.validationSummary.validRows ?? selectedVersion.positionCount)} валидных строк · {String(selectedVersion.validationSummary.warningCount ?? 0)} предупреждений.</p> : null}</section> : null}
+
         <section className="mb-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <h2 className="text-sm font-semibold text-slate-950">Версии Appius</h2>
           <div className="mt-3 flex flex-wrap gap-2">
@@ -123,8 +125,7 @@ export default async function SpecificationPage({
           <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
             <p className="font-semibold">Режим просмотра истории</p>
             <p className="mt-1 leading-6">
-              Архивная версия не может быть выбрана для анализа. В базовом моке хранится только её метадата,
-              поэтому список исторических позиций может быть пустым.
+              Архивная версия не может быть выбрана для нового анализа. Её позиции и метаданные источника сохранены для воспроизводимости старых запусков.
             </p>
           </div>
         ) : null}

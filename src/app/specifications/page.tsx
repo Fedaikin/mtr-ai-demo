@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { AppiusMockError, createAppiusMockAdapter } from "@/adapters/mock/appius-adapter";
 import { PageHeader } from "@/components/page-header";
+import { SpecificationImportWizard } from "@/components/specification-import-wizard";
 import { formatNumber } from "@/lib/format";
 import { getDemoSession } from "@/lib/session";
 
@@ -47,10 +48,12 @@ export default async function SpecificationsPage() {
           description={`Доступны только данные пользователя «${session.user.displayName}». Для анализа используются актуальные версии.`}
         />
 
+        <SpecificationImportWizard specifications={specifications} />
+
         <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-100 px-5 py-4">
             <p className="text-sm font-medium text-slate-900">
-              {formatNumber(specifications.length)} спецификации · 24 актуальные позиции
+              {formatNumber(specifications.length)} спецификации · {formatNumber(specifications.reduce((total, item) => total + item.positionCount, 0))} актуальных позиций
             </p>
             <p className="mt-1 text-xs text-slate-500">
               Исторические версии доступны для просмотра, но не участвуют в новом анализе.

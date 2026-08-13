@@ -48,6 +48,12 @@ export interface SpecificationVersion {
   status: "ACTIVE" | "SUPERSEDED";
   effectiveAt: string;
   positionCount: number;
+  sourceFileId?: string;
+  sourceFileName?: string;
+  sourceKind?: string;
+  publishedBy?: string;
+  publishedAt?: string;
+  validationSummary?: Record<string, unknown>;
 }
 
 export interface Position {
