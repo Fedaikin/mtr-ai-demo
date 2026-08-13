@@ -60,7 +60,7 @@ describe("shared command audit capability", () => {
     expect(writeAudit.mock.calls[1]?.[1]).toMatchObject({
       action: "agent.command.completed",
       requestId: "correlation-1",
-      details: { durationMs: 12, confidence: 0.8 },
+      details: { durationMs: 12, confidence: 0.8, missingDataCount: 0 },
     });
     expect(JSON.stringify(writeAudit.mock.calls)).not.toContain("закрытое название");
   });

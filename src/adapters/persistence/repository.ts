@@ -64,9 +64,12 @@ import { type Database, getDatabase } from "./db";
 import {
   analysisReviewDecisions,
   agentTasks,
+  agentActionProposals,
+  agentEventInbox,
   agentMetricEvents,
   agentCases,
   agentPlanExecutions,
+  agentProactiveInsights,
   agentCitations,
   agentMessages,
   agentThreads,
@@ -411,6 +414,33 @@ export interface AgentAuditMetricsRecord {
   expertReviews: number;
   lastSuccessAt: string | null;
   lastFailureAt: string | null;
+}
+
+/** Persisted, user-scoped facts for the typed orchestrator dashboard. */
+export interface AgentOrchestratorMetricsRecord {
+  commandRequests: number;
+  commandSucceeded: number;
+  commandFailed: number;
+  commandPartial: number;
+  commandP50Ms: number | null;
+  commandP95Ms: number | null;
+  noCitationResponses: number;
+  humanReviewResponses: number;
+  staleOrConflictFailures: number;
+  rbacDenials: number;
+  activePlans: number;
+  stuckPlans: number;
+  succeededPlans: number;
+  failedPlans: number;
+  planP95Ms: number | null;
+  actionsProposed: number;
+  actionsExecuting: number;
+  actionsSucceeded: number;
+  actionsFailed: number;
+  actionsCancelled: number;
+  actionsExpired: number;
+  activeInsights: number;
+  failedEvents: number;
 }
 
 export interface PromptVersionRecord {
@@ -3650,6 +3680,173 @@ export class MtrRepository {
       expertReviews: finiteNumber(row.expertReviews),
       lastSuccessAt: nullableTimestamp(row.lastSuccessAt),
       lastFailureAt: nullableTimestamp(row.lastFailureAt),
+    };
+  }
+
+  /**
+   * Aggregates only persisted orchestrator facts. The query never reads chat
+   * text, action parameters, event payloads, tool output, or evidence bodies.
+   */
+  async getAgentOrchestratorMetrics(userId: string): Promise<AgentOrchestratorMetricsRecord> {
+    trustedUser(userId);
+    const result = await this.db.execute(sql`
+      with command_entries as (
+        select
+          ${auditLogs.action} as action,
+          ${auditLogs.details} as details,
+          case
+            when jsonb_typeof(${auditLogs.details} -> 'durationMs') = 'number'
+              then (${auditLogs.details} ->> 'durationMs')::double precision
+            else null
+          end as duration_ms,
+          case
+            when jsonb_typeof(${auditLogs.details} -> 'missingDataCount') = 'number'
+              then (${auditLogs.details} ->> 'missingDataCount')::integer
+            else 0
+          end as missing_data_count,
+          case
+            when jsonb_typeof(${auditLogs.details} -> 'citationCount') = 'number'
+              then (${auditLogs.details} ->> 'citationCount')::integer
+            else null
+          end as citation_count,
+          (${auditLogs.details} -> 'requiresHumanReview') = 'true'::jsonb as requires_review,
+          coalesce(${auditLogs.details} ->> 'errorCode', '') as error_code
+        from ${auditLogs}
+        where ${auditLogs.userId} = ${userId}
+          and ${auditLogs.action} in (
+            'agent.command.received',
+            'agent.command.completed',
+            'agent.command.failed'
+          )
+      ),
+      command_stats as (
+        select
+          count(*) filter (where action = 'agent.command.received')::integer as requests,
+          count(*) filter (where action = 'agent.command.completed')::integer as succeeded,
+          count(*) filter (where action = 'agent.command.failed')::integer as failed,
+          count(*) filter (
+            where action = 'agent.command.completed' and missing_data_count > 0
+          )::integer as partial,
+          round(percentile_disc(0.5) within group (order by duration_ms)
+            filter (where action = 'agent.command.completed' and duration_ms is not null))::integer as p50_ms,
+          round(percentile_disc(0.95) within group (order by duration_ms)
+            filter (where action = 'agent.command.completed' and duration_ms is not null))::integer as p95_ms,
+          count(*) filter (
+            where action = 'agent.command.completed' and citation_count = 0
+          )::integer as no_citation,
+          count(*) filter (
+            where action = 'agent.command.completed' and requires_review
+          )::integer as human_review,
+          count(*) filter (
+            where action = 'agent.command.failed'
+              and (error_code like '%STALE%' or error_code like '%CONFLICT%')
+          )::integer as stale_or_conflict,
+          count(*) filter (
+            where action = 'agent.command.failed'
+              and (
+                error_code like '%FORBIDDEN%'
+                or error_code like '%PERMISSION_DENIED%'
+                or error_code like '%ACCESS_DENIED%'
+                or error_code like '%SCOPE_DENIED%'
+              )
+          )::integer as rbac_denials
+        from command_entries
+      ),
+      plan_stats as (
+        select
+          count(*) filter (where ${agentPlanExecutions.status} in ('PLANNED','RUNNING'))::integer as active,
+          count(*) filter (
+            where ${agentPlanExecutions.status} in ('PLANNED','RUNNING')
+              and ${agentPlanExecutions.updatedAt} < now() - interval '5 minutes'
+          )::integer as stuck,
+          count(*) filter (where ${agentPlanExecutions.status} = 'SUCCEEDED')::integer as succeeded,
+          count(*) filter (where ${agentPlanExecutions.status} in ('FAILED','CANCELLED','EXPIRED'))::integer as failed,
+          round(percentile_disc(0.95) within group (
+            order by extract(epoch from (${agentPlanExecutions.completedAt} - ${agentPlanExecutions.startedAt})) * 1000
+          ) filter (
+            where ${agentPlanExecutions.completedAt} is not null
+              and ${agentPlanExecutions.startedAt} is not null
+          ))::integer as p95_ms
+        from ${agentPlanExecutions}
+        where ${agentPlanExecutions.actorUserId} = ${userId}
+      ),
+      action_stats as (
+        select
+          count(*) filter (where ${agentActionProposals.status} = 'PROPOSED')::integer as proposed,
+          count(*) filter (where ${agentActionProposals.status} in ('CONFIRMED','EXECUTING'))::integer as executing,
+          count(*) filter (where ${agentActionProposals.status} = 'SUCCEEDED')::integer as succeeded,
+          count(*) filter (where ${agentActionProposals.status} = 'FAILED')::integer as failed,
+          count(*) filter (where ${agentActionProposals.status} = 'CANCELLED')::integer as cancelled,
+          count(*) filter (where ${agentActionProposals.status} = 'EXPIRED')::integer as expired
+        from ${agentActionProposals}
+        where ${agentActionProposals.proposedByUserId} = ${userId}
+      ),
+      insight_stats as (
+        select count(*) filter (where ${agentProactiveInsights.status} = 'ACTIVE')::integer as active
+        from ${agentProactiveInsights}
+        where ${agentProactiveInsights.subjectUserId} = ${userId}
+          or ${agentProactiveInsights.createdByUserId} = ${userId}
+      ),
+      event_stats as (
+        select count(*) filter (
+          where ${agentEventInbox.status} in ('FAILED','DEAD_LETTER')
+        )::integer as failed
+        from ${agentEventInbox}
+        where ${agentEventInbox.actorUserId} = ${userId}
+      )
+      select
+        command_stats.requests as "commandRequests",
+        command_stats.succeeded as "commandSucceeded",
+        command_stats.failed as "commandFailed",
+        command_stats.partial as "commandPartial",
+        command_stats.p50_ms as "commandP50Ms",
+        command_stats.p95_ms as "commandP95Ms",
+        command_stats.no_citation as "noCitationResponses",
+        command_stats.human_review as "humanReviewResponses",
+        command_stats.stale_or_conflict as "staleOrConflictFailures",
+        command_stats.rbac_denials as "rbacDenials",
+        plan_stats.active as "activePlans",
+        plan_stats.stuck as "stuckPlans",
+        plan_stats.succeeded as "succeededPlans",
+        plan_stats.failed as "failedPlans",
+        plan_stats.p95_ms as "planP95Ms",
+        action_stats.proposed as "actionsProposed",
+        action_stats.executing as "actionsExecuting",
+        action_stats.succeeded as "actionsSucceeded",
+        action_stats.failed as "actionsFailed",
+        action_stats.cancelled as "actionsCancelled",
+        action_stats.expired as "actionsExpired",
+        insight_stats.active as "activeInsights",
+        event_stats.failed as "failedEvents"
+      from command_stats, plan_stats, action_stats, insight_stats, event_stats
+    `);
+    const row = executedRows(result)[0];
+    if (!row) throw new Error("Не удалось рассчитать метрики оркестратора МТР-агента.");
+
+    return {
+      commandRequests: finiteNumber(row.commandRequests),
+      commandSucceeded: finiteNumber(row.commandSucceeded),
+      commandFailed: finiteNumber(row.commandFailed),
+      commandPartial: finiteNumber(row.commandPartial),
+      commandP50Ms: nullableFiniteNumber(row.commandP50Ms),
+      commandP95Ms: nullableFiniteNumber(row.commandP95Ms),
+      noCitationResponses: finiteNumber(row.noCitationResponses),
+      humanReviewResponses: finiteNumber(row.humanReviewResponses),
+      staleOrConflictFailures: finiteNumber(row.staleOrConflictFailures),
+      rbacDenials: finiteNumber(row.rbacDenials),
+      activePlans: finiteNumber(row.activePlans),
+      stuckPlans: finiteNumber(row.stuckPlans),
+      succeededPlans: finiteNumber(row.succeededPlans),
+      failedPlans: finiteNumber(row.failedPlans),
+      planP95Ms: nullableFiniteNumber(row.planP95Ms),
+      actionsProposed: finiteNumber(row.actionsProposed),
+      actionsExecuting: finiteNumber(row.actionsExecuting),
+      actionsSucceeded: finiteNumber(row.actionsSucceeded),
+      actionsFailed: finiteNumber(row.actionsFailed),
+      actionsCancelled: finiteNumber(row.actionsCancelled),
+      actionsExpired: finiteNumber(row.actionsExpired),
+      activeInsights: finiteNumber(row.activeInsights),
+      failedEvents: finiteNumber(row.failedEvents),
     };
   }
 

@@ -56,11 +56,12 @@ export default async function AdminAgentLogsPage({
     searchParams,
   ]);
   const filters = parseFilters(rawQuery);
-  const [integrationStates, operationPage, runs, auditMetrics] = await Promise.all([
+  const [integrationStates, operationPage, runs, auditMetrics, orchestratorMetrics] = await Promise.all([
     repository.listIntegrationStates(session.user.id),
     repository.queryAgentAuditOperations(session.user.id, { ...filters, limit: 100 }),
     repository.listRuns(session.user.id, { limit: 200, includeSteps: false }),
     repository.getAgentAuditMetrics(session.user.id),
+    repository.getAgentOrchestratorMetrics(session.user.id),
   ]);
   const metrics = buildAgentObservabilityFromSummary(auditMetrics, integrationStates, runs);
   const operations = buildAgentOperations(operationPage.entries);
@@ -111,6 +112,42 @@ export default async function AdminAgentLogsPage({
           <MetricCard label="Активные сценарии" value={String(metrics.activeScenarios)} />
           <MetricCard label="Последний успех" value={formatOptionalDate(metrics.lastSuccessAt)} />
           <MetricCard label="Последний сбой" value={formatOptionalDate(metrics.lastFailureAt)} tone="warning" />
+        </div>
+      </section>
+
+      <section aria-labelledby="orchestrator-metrics-title" data-testid="agent-orchestrator-metrics">
+        <div className="mb-3">
+          <h2 id="orchestrator-metrics-title" className="text-base font-semibold text-slate-950">
+            Состояние оркестратора
+          </h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Метрики рассчитаны только по сохранённым командам, планам, действиям и сигналам. Личные сообщения и сырые результаты инструментов не читаются.
+          </p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
+          <MetricCard label="Команды" value={String(orchestratorMetrics.commandRequests)} />
+          <MetricCard label="Успешные команды" value={String(orchestratorMetrics.commandSucceeded)} tone="positive" />
+          <MetricCard label="Частичные ответы" value={String(orchestratorMetrics.commandPartial)} tone="warning" />
+          <MetricCard label="Ошибки команд" value={String(orchestratorMetrics.commandFailed)} tone="warning" />
+          <MetricCard label="Команды p50" value={formatDuration(orchestratorMetrics.commandP50Ms)} />
+          <MetricCard label="Команды p95" value={formatDuration(orchestratorMetrics.commandP95Ms)} />
+          <MetricCard label="Активные планы" value={String(orchestratorMetrics.activePlans)} />
+          <MetricCard label="Зависшие планы" value={String(orchestratorMetrics.stuckPlans)} tone="warning" />
+          <MetricCard label="Успешные планы" value={String(orchestratorMetrics.succeededPlans)} tone="positive" />
+          <MetricCard label="Ошибки планов" value={String(orchestratorMetrics.failedPlans)} tone="warning" />
+          <MetricCard label="Планы p95" value={formatDuration(orchestratorMetrics.planP95Ms)} />
+          <MetricCard label="Активные сигналы" value={String(orchestratorMetrics.activeInsights)} />
+          <MetricCard label="Действия предложены" value={String(orchestratorMetrics.actionsProposed)} />
+          <MetricCard label="Действия выполняются" value={String(orchestratorMetrics.actionsExecuting)} />
+          <MetricCard label="Действия завершены" value={String(orchestratorMetrics.actionsSucceeded)} tone="positive" />
+          <MetricCard label="Ошибки действий" value={String(orchestratorMetrics.actionsFailed)} tone="warning" />
+          <MetricCard label="Действия отменены" value={String(orchestratorMetrics.actionsCancelled)} />
+          <MetricCard label="Действия просрочены" value={String(orchestratorMetrics.actionsExpired)} tone="warning" />
+          <MetricCard label="Ответы без ссылок" value={String(orchestratorMetrics.noCitationResponses)} tone="warning" />
+          <MetricCard label="Нужна проверка" value={String(orchestratorMetrics.humanReviewResponses)} tone="warning" />
+          <MetricCard label="Конфликты / устаревание" value={String(orchestratorMetrics.staleOrConflictFailures)} tone="warning" />
+          <MetricCard label="Отказы доступа" value={String(orchestratorMetrics.rbacDenials)} tone="warning" />
+          <MetricCard label="Ошибки обработки событий" value={String(orchestratorMetrics.failedEvents)} tone="warning" />
         </div>
       </section>
 

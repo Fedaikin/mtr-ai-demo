@@ -102,6 +102,7 @@ export class AuditedAgentCommandCapability implements AgentCommandCapability {
         confidence: result.confidence,
         requiresHumanReview: result.requiresHumanReview,
         citationCount: result.citations.length,
+        missingDataCount: result.missingData.length,
         negativeEvidence: result.negativeEvidence,
       });
       return result as AgentCommandResultMap[K];
