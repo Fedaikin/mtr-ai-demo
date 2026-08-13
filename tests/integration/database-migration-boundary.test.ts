@@ -55,6 +55,6 @@ describe.sequential("database migration boundary", () => {
     expect(await response.json()).toMatchObject({
       user: { id: "demo-user-001", displayName: "Демо-пользователь 1" },
     });
-    await expect(database.select().from(users)).resolves.toHaveLength(7);
+    await expect(database.select().from(users)).resolves.toHaveLength(8);
   });
 });

@@ -5,6 +5,7 @@ import { useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DEMO_PERSONAS } from "@/domain/demo-personas";
 
 export function LoginForm({ returnTo, showPersonaSelector = false }: { returnTo: string; showPersonaSelector?: boolean }) {
   const router = useRouter();
@@ -38,7 +39,7 @@ export function LoginForm({ returnTo, showPersonaSelector = false }: { returnTo:
 
   return (
     <form className="space-y-4" onSubmit={submit}>
-      {showPersonaSelector ? <label className="block space-y-1.5 text-sm font-medium text-slate-800"><span>Демо-персона</span><select value={login} onChange={(event) => setLogin(event.target.value)} className="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"><option value="">Выберите роль…</option><option value="viewer">Наблюдатель</option><option value="analyst">Аналитик МТР</option><option value="expert">Эксперт МТР</option><option value="admin">Системный администратор</option><option value="auditor">Аудитор</option><option value="demo">Администратор + руководитель</option></select></label> : null}
+      {showPersonaSelector ? <label className="block space-y-1.5 text-sm font-medium text-slate-800"><span>Демо-персона</span><select value={login} onChange={(event) => setLogin(event.target.value)} className="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"><option value="">Выберите роль…</option>{DEMO_PERSONAS.map((persona) => <option key={persona.login} value={persona.login}>{persona.label}</option>)}</select></label> : null}
       <label className="block space-y-1.5 text-sm font-medium text-slate-800">
         <span>Логин</span>
         <Input name="login" value={login} onChange={(event) => setLogin(event.target.value)} autoComplete="username" required maxLength={64} autoFocus />

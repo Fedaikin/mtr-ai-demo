@@ -359,13 +359,13 @@ describe.sequential("persistent demo authentication", () => {
       const response = await switchRole(new Request("http://localhost/api/auth/switch-role", {
         method: "POST",
         headers: { "content-type": "application/json", cookie: `${SESSION_COOKIE_NAME}=${viewer!.token}`, host: "localhost", origin: "http://localhost" },
-        body: JSON.stringify({ login: "admin" }),
+        body: JSON.stringify({ login: "director" }),
       }));
       expect(response.status).toBe(200);
-      expect(await response.json()).toMatchObject({ user: { login: "admin" }, redirectTo: "/admin/users" });
+      expect(await response.json()).toMatchObject({ user: { login: "director" }, redirectTo: "/" });
       await expect(resolveDemoSession(viewer!.token)).resolves.toBeNull();
       const nextToken = response.headers.get("set-cookie")?.match(new RegExp(`${SESSION_COOKIE_NAME}=([^;]+)`))?.[1];
-      await expect(resolveDemoSession(nextToken)).resolves.toMatchObject({ user: { login: "admin", displayName: "Системный администратор" } });
+      await expect(resolveDemoSession(nextToken)).resolves.toMatchObject({ user: { login: "director", displayName: "Руководитель" } });
     } finally {
       if (previousFlag === undefined) delete process.env.DEMO_ROLE_SELECTOR;
       else process.env.DEMO_ROLE_SELECTOR = previousFlag;

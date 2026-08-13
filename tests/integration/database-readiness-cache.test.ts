@@ -28,7 +28,7 @@ describe("database readiness cache", () => {
       Array.from({ length: 20 }, () => initializeDatabase()),
     );
     expect(warmSeries.at(-1)?.counts).toMatchObject({
-      users: 7,
+      users: 8,
       canonicalPositions: 24,
       sapMaterials: 30,
     });

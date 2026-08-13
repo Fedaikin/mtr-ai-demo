@@ -27,7 +27,7 @@ describe("demo reset concurrency safety", () => {
 
     expect(identity?.displayName).toBe("Демо-пользователь 1");
     expect(new Date(identity?.createdAt ?? "").toISOString()).toBe(sentinelCreatedAt);
-    expect(counts).toMatchObject({ users: 7, canonicalPositions: 24, sapMaterials: 30 });
+    expect(counts).toMatchObject({ users: 8, canonicalPositions: 24, sapMaterials: 30 });
   });
 
   it("allows repeated reset requests without duplicating the demo identity", async () => {
@@ -36,7 +36,7 @@ describe("demo reset concurrency safety", () => {
       resetDemoDatabase(DEMO_USER_ID),
     ]);
 
-    expect(first.users).toBe(7);
-    expect(second.users).toBe(7);
+    expect(first.users).toBe(8);
+    expect(second.users).toBe(8);
   });
 });
