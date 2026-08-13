@@ -30,7 +30,8 @@
     "eval:agent:provider": "node --conditions=react-server --import tsx scripts/eval-agent-provider.ts",
     "eval:agent:security": "node --conditions=react-server --import tsx scripts/eval-agent-security.ts",
     "eval:agent:scale": "node --conditions=react-server --import tsx scripts/eval-agent-scale.ts",
-    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm privacy:scan && pnpm eval:agent && pnpm eval:agent:analytical && pnpm eval:agent:learning && pnpm eval:agent:provider && pnpm eval:agent:security && pnpm eval:agent:scale && pnpm build"
+    "eval:agent:multi-turn": "node --conditions=react-server --import tsx scripts/eval-agent-multi-turn.ts",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm privacy:scan && pnpm eval:agent && pnpm eval:agent:analytical && pnpm eval:agent:learning && pnpm eval:agent:provider && pnpm eval:agent:security && pnpm eval:agent:scale && pnpm eval:agent:multi-turn && pnpm build"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
