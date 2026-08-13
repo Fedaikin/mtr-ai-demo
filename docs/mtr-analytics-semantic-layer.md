@@ -376,7 +376,7 @@ Route возвращает:
 - Owner-only feedback сохраняется отдельной additive migration `0007_mtr_agent_learning` как quarantined candidate с prompt/model/rule/evidence provenance. Он не влияет на runtime автоматически; approval/promotion/revoke требуют human permissions, regression case, validation checksum и audit.
 - Analytical history переиспользует durable cases/evidence/plans из `0006`: хранит dataset/semantic/forecast versions, вывод, рекомендацию и source snapshots, связывает предыдущий расчёт той же позиции и отмечает изменение вывода. Internal conclusion fingerprint остаётся только в persistence.
 - Сохранённые source citations повторно авторизуются; отозванный источник скрывается и увеличивает `revokedEvidenceCount`.
-- Eval gate из мастер-промпта не закрыт: выполнены 34 legacy, 50 current-runtime analytical, 17 learning lifecycle, 20 provider-boundary и 32 security-boundary cases (`153/200`). Analytical pack содержит 20 отдельных root-cause/rolling-backtest/scenario-ranking oracle и 20 held-out cases; security pack — permission/scope/injection/reauthorization. Остаются multi-turn, feedback/versioning и scale квоты.
+- Eval gate из мастер-промпта не закрыт: выполнены 34 legacy, 50 current-runtime analytical, 17 learning lifecycle, 20 provider-boundary, 32 security-boundary и 20 scale cases (`173/200`). Analytical pack содержит 20 отдельных root-cause/rolling-backtest/scenario-ranking oracle и 20 held-out cases; security pack — permission/scope/injection/reauthorization; scale pack — 20 distinct portfolio cases с concurrency 10. Остаются multi-turn и дополнительные feedback/knowledge/version cases.
 - Ни один сценарий не выполняет SAP/Appius write и не принимает экспертное решение.
 
 ## Связанные документы

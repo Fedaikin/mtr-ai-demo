@@ -175,6 +175,7 @@ pnpm eval:agent:analytical
 pnpm eval:agent:learning
 pnpm eval:agent:provider
 pnpm eval:agent:security
+pnpm eval:agent:scale
 pnpm build
 pnpm benchmark
 pnpm test:e2e
