@@ -81,6 +81,7 @@ export const specifications = pgTable(
   {
     id: text("id").primaryKey(),
     userId: text("user_id").notNull().references(() => users.id),
+    projectId: text("project_id").default("demo-project-001"),
     projectCode: text("project_code").notNull(),
     name: text("name").notNull(),
     latestVersionId: text("latest_version_id").notNull(),
@@ -98,6 +99,7 @@ export const specificationVersions = pgTable(
     id: text("id").primaryKey(),
     specificationId: text("specification_id").notNull().references(() => specifications.id),
     userId: text("user_id").notNull().references(() => users.id),
+    projectId: text("project_id").default("demo-project-001"),
     versionNumber: integer("version_number").notNull(),
     isCurrent: boolean("is_current").notNull().default(false),
     status: text("status").notNull(),
@@ -126,6 +128,7 @@ export const specificationPositions = pgTable(
     specificationId: text("specification_id").notNull().references(() => specifications.id),
     versionId: text("version_id").notNull().references(() => specificationVersions.id),
     userId: text("user_id").notNull().references(() => users.id),
+    projectId: text("project_id").default("demo-project-001"),
     internalCode: text("internal_code").notNull(),
     nameRu: text("name_ru").notNull(),
     nameEn: text("name_en"),
@@ -157,6 +160,7 @@ export const sapMaterials = pgTable(
   {
     id: text("id").primaryKey(),
     userId: text("user_id").notNull().references(() => users.id),
+    sourceScopeId: text("source_scope_id").default("demo-sap-001"),
     materialCode: text("material_code").notNull(),
     nameRu: text("name_ru").notNull(),
     nameEn: text("name_en"),
@@ -185,6 +189,7 @@ export const sapStockBalances = pgTable(
   {
     id: text("id").primaryKey(),
     userId: text("user_id").notNull().references(() => users.id),
+    sourceScopeId: text("source_scope_id").default("demo-sap-001"),
     materialId: text("material_id").notNull().references(() => sapMaterials.id),
     plant: text("plant").notNull(),
     storageLocation: text("storage_location").notNull(),
@@ -210,6 +215,7 @@ export const catalogInterchangeabilityFamilies = pgTable(
   {
     id: text("id").primaryKey(),
     userId: text("user_id").notNull().references(() => users.id),
+    catalogScopeId: text("catalog_scope_id").default("demo-catalog-001"),
     code: text("code").notNull(),
     nameRu: text("name_ru").notNull(),
     nameEn: text("name_en"),
@@ -243,6 +249,7 @@ export const catalogItems = pgTable(
   {
     id: text("id").primaryKey(),
     userId: text("user_id").notNull().references(() => users.id),
+    catalogScopeId: text("catalog_scope_id").default("demo-catalog-001"),
     itemCode: text("item_code").notNull(),
     legacyCode: text("legacy_code"),
     manufacturerPartNumber: text("manufacturer_part_number"),
@@ -300,6 +307,7 @@ export const catalogStockBalances = pgTable(
   {
     id: text("id").primaryKey(),
     userId: text("user_id").notNull().references(() => users.id),
+    catalogScopeId: text("catalog_scope_id").default("demo-catalog-001"),
     itemId: text("item_id").notNull(),
     plant: text("plant").notNull(),
     storageLocation: text("storage_location").notNull(),
@@ -338,6 +346,7 @@ export const catalogBomComponents = pgTable(
   {
     id: text("id").primaryKey(),
     userId: text("user_id").notNull().references(() => users.id),
+    catalogScopeId: text("catalog_scope_id").default("demo-catalog-001"),
     assemblyItemId: text("assembly_item_id").notNull(),
     componentItemId: text("component_item_id").notNull(),
     positionNumber: text("position_number").notNull(),
@@ -386,6 +395,7 @@ export const normativeDocuments = pgTable(
   {
     id: text("id").primaryKey(),
     userId: text("user_id").notNull().references(() => users.id),
+    sourceScopeId: text("source_scope_id").default("demo-normative-001"),
     documentId: text("document_id").notNull(),
     title: text("title").notNull(),
     documentVersion: text("document_version").notNull(),
@@ -402,6 +412,7 @@ export const normativeChunks = pgTable(
   {
     id: text("id").primaryKey(),
     userId: text("user_id").notNull().references(() => users.id),
+    sourceScopeId: text("source_scope_id").default("demo-normative-001"),
     normativeDocumentId: text("normative_document_id").notNull().references(() => normativeDocuments.id),
     clauseId: text("clause_id").notNull(),
     title: text("title").notNull(),
@@ -456,6 +467,7 @@ export const integrationStates = pgTable(
   "integration_states",
   {
     userId: text("user_id").notNull().references(() => users.id),
+    sourceScopeId: text("source_scope_id").default("demo-system-config-001"),
     system: text("system").notNull(),
     state: text("state").notNull(),
     delayMs: integer("delay_ms").notNull().default(0),
@@ -517,6 +529,7 @@ export const scenarioRunSteps = pgTable(
     id: text("id").primaryKey(),
     runId: text("run_id").notNull().references(() => scenarioRuns.id),
     userId: text("user_id").notNull().references(() => users.id),
+    projectId: text("project_id").default("demo-project-001"),
     status: text("status").$type<ScenarioRunStatus>().notNull(),
     label: text("label").notNull(),
     outcome: text("outcome").notNull(),
@@ -539,6 +552,7 @@ export const positionAnalysisResults = pgTable(
     id: text("id").primaryKey(),
     runId: text("run_id").notNull().references(() => scenarioRuns.id),
     userId: text("user_id").notNull().references(() => users.id),
+    projectId: text("project_id").default("demo-project-001"),
     // A result can refer either to a canonical PLM position or to a validated
     // run-scoped manual-import position stored in the result snapshot.
     positionId: text("position_id").notNull(),
@@ -1405,6 +1419,7 @@ export const uploadedFiles = pgTable(
   {
     id: text("id").primaryKey(),
     userId: text("user_id").notNull().references(() => users.id),
+    projectId: text("project_id").default("demo-project-001"),
     originalName: text("original_name").notNull(),
     safeName: text("safe_name").notNull(),
     extension: text("extension").notNull(),

@@ -3676,6 +3676,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "catalog_scope_id": {
+          "name": "catalog_scope_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'demo-catalog-001'"
+        },
         "assembly_item_id": {
           "name": "assembly_item_id",
           "type": "text",
@@ -3910,6 +3917,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "catalog_scope_id": {
+          "name": "catalog_scope_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'demo-catalog-001'"
+        },
         "code": {
           "name": "code",
           "type": "text",
@@ -4095,6 +4109,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "catalog_scope_id": {
+          "name": "catalog_scope_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'demo-catalog-001'"
         },
         "item_code": {
           "name": "item_code",
@@ -4447,6 +4468,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "catalog_scope_id": {
+          "name": "catalog_scope_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'demo-catalog-001'"
+        },
         "item_id": {
           "name": "item_id",
           "type": "text",
@@ -4748,6 +4776,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "source_scope_id": {
+          "name": "source_scope_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'demo-system-config-001'"
         },
         "system": {
           "name": "system",
@@ -5133,6 +5168,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "source_scope_id": {
+          "name": "source_scope_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'demo-normative-001'"
+        },
         "normative_document_id": {
           "name": "normative_document_id",
           "type": "text",
@@ -5298,6 +5340,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "source_scope_id": {
+          "name": "source_scope_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'demo-normative-001'"
+        },
         "document_id": {
           "name": "document_id",
           "type": "text",
@@ -5435,6 +5484,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'demo-project-001'"
         },
         "position_id": {
           "name": "position_id",
@@ -5885,6 +5941,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "source_scope_id": {
+          "name": "source_scope_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'demo-sap-001'"
+        },
         "material_code": {
           "name": "material_code",
           "type": "text",
@@ -6089,6 +6152,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "source_scope_id": {
+          "name": "source_scope_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'demo-sap-001'"
+        },
         "material_id": {
           "name": "material_id",
           "type": "text",
@@ -6243,6 +6313,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'demo-project-001'"
         },
         "status": {
           "name": "status",
@@ -6768,6 +6845,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'demo-project-001'"
+        },
         "internal_code": {
           "name": "internal_code",
           "type": "text",
@@ -7003,6 +7087,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'demo-project-001'"
+        },
         "version_number": {
           "name": "version_number",
           "type": "integer",
@@ -7200,6 +7291,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'demo-project-001'"
+        },
         "project_code": {
           "name": "project_code",
           "type": "text",
@@ -7319,6 +7417,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'demo-project-001'"
         },
         "original_name": {
           "name": "original_name",

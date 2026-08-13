@@ -7,7 +7,7 @@ import { requireDemoRole } from "@/lib/session";
 export async function POST(request: Request) {
   try {
     assertSameOrigin(request);
-    const { user } = await requireDemoRole("USER");
+    const { user, authorization } = await requireDemoRole("USER");
     const body = await request.json() as Record<string, unknown>;
     const fileId = text(body.fileId, 200);
     const mode = body.mode === "NEW_VERSION" ? "NEW_VERSION" : body.mode === "NEW" ? "NEW" : null;
@@ -36,6 +36,7 @@ export async function POST(request: Request) {
     }
     const result = await repository.publishSpecificationImport(user.id, {
       fileId,
+      projectId: authorization.activeProjectId ?? undefined,
       mode,
       projectCode: text(body.projectCode, 120),
       name: text(body.name, 300),

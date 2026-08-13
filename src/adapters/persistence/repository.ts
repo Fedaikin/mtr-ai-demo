@@ -401,6 +401,7 @@ export interface SpecificationImportPositionInput {
 
 export interface PublishSpecificationImportInput {
   fileId: string;
+  projectId?: string;
   mode: "NEW" | "NEW_VERSION";
   projectCode?: string;
   name?: string;
@@ -636,6 +637,7 @@ export class MtrRepository {
       if (file.parseStatus !== "PARSED") throw new Error("Файл требует ручной проверки и не может быть опубликован.");
 
       const now = new Date().toISOString();
+      const projectId = input.projectId?.trim() || "demo-project-001";
       const specificationId = input.mode === "NEW"
         ? `spec-${randomUUID()}`
         : input.specificationId?.trim();
@@ -670,6 +672,7 @@ export class MtrRepository {
         await tx.insert(specifications).values({
           id: specificationId,
           userId,
+          projectId,
           projectCode: input.projectCode!.trim().slice(0, 120),
           name: input.name!.trim().slice(0, 300),
           latestVersionId: versionId,
@@ -684,6 +687,7 @@ export class MtrRepository {
         id: versionId,
         specificationId,
         userId,
+        projectId,
         versionNumber,
         isCurrent: true,
         status: "ACTIVE",
@@ -705,6 +709,7 @@ export class MtrRepository {
         specificationId,
         versionId,
         userId,
+        projectId,
         internalCode: position.internalCode,
         nameRu: position.nameRu,
         synonyms: [],
@@ -910,6 +915,7 @@ export class MtrRepository {
 
       const nextVersionNumber = current.versionNumber + 1;
       const nextVersionId = `${input.specificationId}-v${nextVersionNumber}`;
+      const projectId = current.projectId ?? "demo-project-001";
       const now = new Date().toISOString();
       const historicSnapshot = {
         schemaVersion: "1.0.0",
@@ -961,6 +967,7 @@ export class MtrRepository {
           id: nextVersionId,
           specificationId: input.specificationId,
           userId,
+          projectId,
           versionNumber: nextVersionNumber,
           isCurrent: true,
           status: "ACTIVE",
@@ -978,6 +985,7 @@ export class MtrRepository {
           specificationId: input.specificationId,
           versionId: nextVersionId,
           userId,
+          projectId,
           internalCode: position.internalCode,
           nameRu: position.nameRu,
           nameEn: position.nameEn,
@@ -1946,18 +1954,19 @@ export class MtrRepository {
       ),
       inserted_step as (
         insert into ${scenarioRunSteps} (
-          id, run_id, user_id, status, label, outcome, started_at,
+          id, run_id, user_id, project_id, status, label, outcome, started_at,
           completed_at, duration_ms, details, idempotency_key,
           created_at, updated_at, created_by, version
         )
         select
-          ${stepId}, claim.id, claim.user_id, ${input.status}, ${input.label},
+          ${stepId}, claim.id, claim.user_id, claim.project_id, ${input.status}, ${input.label},
           'STARTED', ${input.startedAt}::timestamptz, null, null,
           ${JSON.stringify(claimDetails)}::jsonb, ${input.idempotencyKey},
           ${now}::timestamptz, ${now}::timestamptz, claim.user_id, 1
         from eligible_run claim
         on conflict (run_id, idempotency_key) do update set
           status = excluded.status,
+          project_id = excluded.project_id,
           label = excluded.label,
           outcome = excluded.outcome,
           started_at = excluded.started_at,
@@ -2006,6 +2015,7 @@ export class MtrRepository {
         step.id as "stepId",
         step.run_id as "stepRunId",
         step.user_id as "stepUserId",
+        step.project_id as "stepProjectId",
         step.status as "stepStatus",
         step.label as "stepLabel",
         step.outcome as "stepOutcome",
@@ -2163,6 +2173,7 @@ export class MtrRepository {
           step.id as "stepId",
           step.run_id as "stepRunId",
           step.user_id as "stepUserId",
+          step.project_id as "stepProjectId",
           step.status as "stepStatus",
           step.label as "stepLabel",
           step.outcome as "stepOutcome",
@@ -2266,13 +2277,13 @@ export class MtrRepository {
           returning result.id
         ),
         inserted_step as (
-          insert into ${scenarioRunSteps} (
-            id, run_id, user_id, status, label, outcome, started_at,
+        insert into ${scenarioRunSteps} (
+            id, run_id, user_id, project_id, status, label, outcome, started_at,
             completed_at, duration_ms, details, idempotency_key,
             created_at, updated_at, created_by, version
           )
           select
-            ${stepId}, claim.id, claim.user_id, ${input.status}, ${input.label}, 'CANCELLED',
+            ${stepId}, claim.id, claim.user_id, claim.project_id, ${input.status}, ${input.label}, 'CANCELLED',
             ${input.startedAt}::timestamptz, ${now}::timestamptz, ${input.durationMs ?? 0},
             ${JSON.stringify(details)}::jsonb, ${input.idempotencyKey},
             clock_timestamp(), clock_timestamp(), claim.user_id, 1
@@ -2320,6 +2331,7 @@ export class MtrRepository {
           step.id as "stepId",
           step.run_id as "stepRunId",
           step.user_id as "stepUserId",
+          step.project_id as "stepProjectId",
           step.status as "stepStatus",
           step.label as "stepLabel",
           step.outcome as "stepOutcome",
@@ -2543,6 +2555,7 @@ export class MtrRepository {
         id: sql<string>`${stepId}`.as("id"),
         runId: scenarioRuns.id,
         userId: scenarioRuns.userId,
+        projectId: scenarioRuns.projectId,
         status: sql<ScenarioRunStatus>`${input.status}`.as("status"),
         label: sql<string>`${input.label}`.as("label"),
         outcome: sql<string>`${input.outcome}`.as("outcome"),
@@ -2620,6 +2633,7 @@ export class MtrRepository {
         id: input.id ?? `result-${randomUUID()}`,
         runId: input.runId,
         userId,
+        projectId: run.projectId ?? "demo-project-001",
         positionId: input.positionId,
         responsibility: input.responsibility,
         responsibilityConfidence: confidenceDecimal(input.responsibilityConfidence),
@@ -2675,7 +2689,7 @@ export class MtrRepository {
     return this.db.transaction(async (transaction) => {
       const tx = transaction as unknown as Database;
       const lockedRun = executedRows(await tx.execute(sql`
-        select id, version, status
+        select id, project_id, version, status
         from ${scenarioRuns}
         where ${scenarioRuns.userId} = ${userId}
           and ${scenarioRuns.id} = ${runIds[0]!}
@@ -2721,6 +2735,7 @@ export class MtrRepository {
           id: input.id ?? `result-${randomUUID()}`,
           runId: input.runId,
           userId,
+          projectId: lockedRun.project_id === null ? "demo-project-001" : String(lockedRun.project_id),
           positionId: input.positionId,
           responsibility: input.responsibility,
           responsibilityConfidence: confidenceDecimal(input.responsibilityConfidence),
@@ -3625,6 +3640,7 @@ function toSpecification(row: typeof specifications.$inferSelect): Specification
   return {
     id: row.id,
     userId: row.userId,
+    ...(row.projectId ? { projectId: row.projectId } : {}),
     projectCode: row.projectCode,
     name: row.name,
     latestVersionId: row.latestVersionId,
@@ -4149,6 +4165,7 @@ function scenarioStepRowFromTransition(row: Record<string, unknown>): typeof sce
     id: String(row.stepId),
     runId: String(row.stepRunId),
     userId: String(row.stepUserId),
+    projectId: row.stepProjectId === null ? null : String(row.stepProjectId),
     status: row.stepStatus as ScenarioRunStatus,
     label: String(row.stepLabel),
     outcome: String(row.stepOutcome),

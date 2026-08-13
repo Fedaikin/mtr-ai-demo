@@ -283,6 +283,7 @@ export interface ScenarioRunStep {
 export interface ScenarioRun {
   id: string;
   userId: string;
+  projectId?: string;
   scenarioId: string;
   specificationId: string;
   status: ScenarioRunStatus;

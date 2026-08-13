@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, eq, gte, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, eq, gte, isNull, lt, or } from "drizzle-orm";
 
 import { getDatabase, type Database } from "@/adapters/persistence/db";
 import {
@@ -89,12 +89,12 @@ export class PersistenceWeeklyDigestSourcePort implements WeeklyDigestSourcePort
         and(
           eq(specifications.id, specificationVersions.specificationId),
           eq(specifications.userId, query.subjectId),
-          sql`${specifications}."project_id" = ${query.projectId}`,
+          eq(specifications.projectId, query.projectId),
         ),
       )
       .where(and(
         eq(specificationVersions.userId, query.subjectId),
-        sql`${specificationVersions}."project_id" = ${query.projectId}`,
+        eq(specificationVersions.projectId, query.projectId),
         gte(specificationVersions.updatedAt, from),
         lt(specificationVersions.updatedAt, to),
       ))
