@@ -24,6 +24,15 @@ const mutableColumns = {
   version: integer("version").notNull().default(1),
 };
 
+const durableAgentColumns = {
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  retentionUntil: timestamp("retention_until", { withTimezone: true, mode: "string" })
+    .notNull()
+    .default(sql`now() + interval '1 year'`),
+  version: integer("version").notNull().default(1),
+};
+
 export const users = pgTable("users", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().unique(),
@@ -614,6 +623,750 @@ export const agentCitations = pgTable(
   (table) => [index("agent_citations_user_message_idx").on(table.userId, table.messageId)],
 );
 
+export const agentCases = pgTable(
+  "agent_cases",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    projectId: text("project_id").notNull(),
+    ownerUserId: text("owner_user_id").notNull().references(() => users.id),
+    threadId: text("thread_id").references(() => agentThreads.id, { onDelete: "set null" }),
+    status: text("status").notNull(),
+    title: text("title").notNull(),
+    contextSnapshot: jsonb("context_snapshot")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    authorizationVersion: integer("authorization_version").notNull(),
+    roleAssignmentSnapshot: jsonb("role_assignment_snapshot")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    createdByUserId: text("created_by_user_id").notNull().references(() => users.id),
+    ...durableAgentColumns,
+  },
+  (table) => [
+    unique("agent_cases_scope_uq").on(table.id, table.tenantId, table.projectId),
+    index("agent_cases_tenant_project_status_idx").on(
+      table.tenantId,
+      table.projectId,
+      table.status,
+    ),
+    index("agent_cases_owner_updated_idx").on(table.ownerUserId, table.updatedAt),
+    index("agent_cases_retention_idx").on(table.retentionUntil),
+    check(
+      "agent_cases_status_check",
+      sql`${table.status} in ('DRAFT','GATHERING_DATA','ANALYZED','NEEDS_REVIEW','READY','BLOCKED','CLOSED')`,
+    ),
+    check("agent_cases_auth_version_check", sql`${table.authorizationVersion} > 0`),
+    check(
+      "agent_cases_context_json_check",
+      sql`jsonb_typeof(${table.contextSnapshot}) = 'object'`,
+    ),
+    check(
+      "agent_cases_role_snapshot_json_check",
+      sql`jsonb_typeof(${table.roleAssignmentSnapshot}) = 'array'`,
+    ),
+    check(
+      "agent_cases_retention_check",
+      sql`${table.retentionUntil} >= ${table.createdAt} + interval '1 year'`,
+    ),
+  ],
+);
+
+export const agentEvidenceFacts = pgTable(
+  "agent_evidence_facts",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    projectId: text("project_id").notNull(),
+    caseId: text("case_id").notNull(),
+    kind: text("kind").notNull(),
+    summary: text("summary").notNull(),
+    sourceSystem: text("source_system").notNull(),
+    entityId: text("entity_id").notNull(),
+    versionOrSnapshot: text("version_or_snapshot").notNull(),
+    clauseId: text("clause_id"),
+    observedAt: timestamp("observed_at", { withTimezone: true, mode: "string" }).notNull(),
+    sourceSnapshotAt: timestamp("source_snapshot_at", {
+      withTimezone: true,
+      mode: "string",
+    }).notNull(),
+    freshness: text("freshness").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    accessAttributes: jsonb("access_attributes")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    fingerprint: text("fingerprint").notNull(),
+    authorizationVersion: integer("authorization_version").notNull(),
+    roleAssignmentSnapshot: jsonb("role_assignment_snapshot")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    createdByUserId: text("created_by_user_id").notNull().references(() => users.id),
+    ...durableAgentColumns,
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.caseId, table.tenantId, table.projectId],
+      foreignColumns: [agentCases.id, agentCases.tenantId, agentCases.projectId],
+      name: "agent_evidence_case_scope_fk",
+    }).onDelete("cascade"),
+    uniqueIndex("agent_evidence_case_fingerprint_uq").on(
+      table.tenantId,
+      table.caseId,
+      table.fingerprint,
+    ),
+    index("agent_evidence_tenant_project_case_idx").on(
+      table.tenantId,
+      table.projectId,
+      table.caseId,
+    ),
+    index("agent_evidence_source_entity_idx").on(
+      table.tenantId,
+      table.sourceSystem,
+      table.entityId,
+    ),
+    index("agent_evidence_retention_idx").on(table.retentionUntil),
+    check(
+      "agent_evidence_freshness_check",
+      sql`${table.freshness} in ('FRESH','AGING','STALE','UNKNOWN')`,
+    ),
+    check("agent_evidence_auth_version_check", sql`${table.authorizationVersion} > 0`),
+    check("agent_evidence_payload_json_check", sql`jsonb_typeof(${table.payload}) = 'object'`),
+    check(
+      "agent_evidence_access_json_check",
+      sql`jsonb_typeof(${table.accessAttributes}) = 'object'`,
+    ),
+    check(
+      "agent_evidence_role_snapshot_json_check",
+      sql`jsonb_typeof(${table.roleAssignmentSnapshot}) = 'array'`,
+    ),
+    check(
+      "agent_evidence_snapshot_time_check",
+      sql`${table.sourceSnapshotAt} <= ${table.observedAt}`,
+    ),
+    check(
+      "agent_evidence_retention_check",
+      sql`${table.retentionUntil} >= ${table.createdAt} + interval '1 year'`,
+    ),
+  ],
+);
+
+export const agentPlanExecutions = pgTable(
+  "agent_plan_executions",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    projectId: text("project_id").notNull(),
+    caseId: text("case_id").notNull(),
+    actorUserId: text("actor_user_id").notNull().references(() => users.id),
+    intent: text("intent").notNull(),
+    commandKey: text("command_key"),
+    status: text("status").notNull(),
+    planVersion: text("plan_version").notNull(),
+    steps: jsonb("steps").$type<Array<Record<string, unknown>>>().notNull().default([]),
+    currentStep: integer("current_step").notNull().default(0),
+    maxSteps: integer("max_steps").notNull().default(8),
+    correlationId: text("correlation_id").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    authorizationVersion: integer("authorization_version").notNull(),
+    roleAssignmentSnapshot: jsonb("role_assignment_snapshot")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    startedAt: timestamp("started_at", { withTimezone: true, mode: "string" }),
+    completedAt: timestamp("completed_at", { withTimezone: true, mode: "string" }),
+    safeErrorCode: text("safe_error_code"),
+    ...durableAgentColumns,
+  },
+  (table) => [
+    unique("agent_plan_scope_uq").on(table.id, table.tenantId, table.projectId),
+    foreignKey({
+      columns: [table.caseId, table.tenantId, table.projectId],
+      foreignColumns: [agentCases.id, agentCases.tenantId, agentCases.projectId],
+      name: "agent_plan_case_scope_fk",
+    }).onDelete("cascade"),
+    uniqueIndex("agent_plan_idempotency_uq").on(
+      table.tenantId,
+      table.projectId,
+      table.idempotencyKey,
+    ),
+    index("agent_plan_status_created_idx").on(
+      table.tenantId,
+      table.projectId,
+      table.status,
+      table.createdAt,
+    ),
+    index("agent_plan_correlation_idx").on(table.tenantId, table.correlationId),
+    index("agent_plan_retention_idx").on(table.retentionUntil),
+    check(
+      "agent_plan_status_check",
+      sql`${table.status} in ('PLANNED','RUNNING','SUCCEEDED','PARTIAL','FAILED','CANCELLED','EXPIRED')`,
+    ),
+    check(
+      "agent_plan_step_bounds_check",
+      sql`${table.maxSteps} between 1 and 20 and ${table.currentStep} between 0 and ${table.maxSteps}`,
+    ),
+    check("agent_plan_auth_version_check", sql`${table.authorizationVersion} > 0`),
+    check("agent_plan_steps_json_check", sql`jsonb_typeof(${table.steps}) = 'array'`),
+    check(
+      "agent_plan_role_snapshot_json_check",
+      sql`jsonb_typeof(${table.roleAssignmentSnapshot}) = 'array'`,
+    ),
+    check(
+      "agent_plan_completion_time_check",
+      sql`${table.completedAt} is null or ${table.startedAt} is null or ${table.completedAt} >= ${table.startedAt}`,
+    ),
+    check(
+      "agent_plan_retention_check",
+      sql`${table.retentionUntil} >= ${table.createdAt} + interval '1 year'`,
+    ),
+  ],
+);
+
+export const agentTasks = pgTable(
+  "agent_tasks",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    projectId: text("project_id").notNull(),
+    caseId: text("case_id"),
+    reviewDecisionId: text("review_decision_id").references(() => analysisReviewDecisions.id, {
+      onDelete: "set null",
+    }),
+    assigneeUserId: text("assignee_user_id").notNull().references(() => users.id),
+    assignedByUserId: text("assigned_by_user_id").notNull().references(() => users.id),
+    kind: text("kind").notNull(),
+    status: text("status").notNull(),
+    priority: text("priority").notNull(),
+    title: text("title").notNull(),
+    reason: text("reason").notNull(),
+    resourceType: text("resource_type").notNull(),
+    resourceId: text("resource_id").notNull(),
+    allowedActions: jsonb("allowed_actions").$type<string[]>().notNull().default([]),
+    assignmentHistory: jsonb("assignment_history")
+      .$type<Array<Record<string, unknown>>>()
+      .notNull()
+      .default([]),
+    idempotencyKey: text("idempotency_key").notNull(),
+    dueAt: timestamp("due_at", { withTimezone: true, mode: "string" }),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true, mode: "string" }),
+    completedAt: timestamp("completed_at", { withTimezone: true, mode: "string" }),
+    authorizationVersion: integer("authorization_version").notNull(),
+    roleAssignmentSnapshot: jsonb("role_assignment_snapshot")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    ...durableAgentColumns,
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.caseId, table.tenantId, table.projectId],
+      foreignColumns: [agentCases.id, agentCases.tenantId, agentCases.projectId],
+      name: "agent_tasks_case_scope_fk",
+    }),
+    uniqueIndex("agent_tasks_idempotency_uq").on(
+      table.tenantId,
+      table.projectId,
+      table.idempotencyKey,
+    ),
+    index("agent_tasks_assignee_status_due_idx").on(
+      table.tenantId,
+      table.assigneeUserId,
+      table.status,
+      table.dueAt,
+    ),
+    index("agent_tasks_project_priority_idx").on(
+      table.tenantId,
+      table.projectId,
+      table.priority,
+      table.status,
+    ),
+    index("agent_tasks_retention_idx").on(table.retentionUntil),
+    check(
+      "agent_tasks_kind_check",
+      sql`${table.kind} in ('ANALYSIS_REVIEW','EXPERT_REVIEW','DATA_CLARIFICATION','TECHNICAL')`,
+    ),
+    check(
+      "agent_tasks_status_check",
+      sql`${table.status} in ('AWAITING_ACCEPTANCE','IN_PROGRESS','REQUIRES_DECISION','RETURNED_FOR_CLARIFICATION','COMPLETED','CANCELLED')`,
+    ),
+    check(
+      "agent_tasks_priority_check",
+      sql`${table.priority} in ('LOW','NORMAL','HIGH','CRITICAL')`,
+    ),
+    check("agent_tasks_auth_version_check", sql`${table.authorizationVersion} > 0`),
+    check(
+      "agent_tasks_allowed_actions_json_check",
+      sql`jsonb_typeof(${table.allowedActions}) = 'array'`,
+    ),
+    check(
+      "agent_tasks_assignment_history_json_check",
+      sql`jsonb_typeof(${table.assignmentHistory}) = 'array'`,
+    ),
+    check(
+      "agent_tasks_role_snapshot_json_check",
+      sql`jsonb_typeof(${table.roleAssignmentSnapshot}) = 'array'`,
+    ),
+    check(
+      "agent_tasks_completion_time_check",
+      sql`${table.completedAt} is null or ${table.completedAt} >= ${table.createdAt}`,
+    ),
+    check(
+      "agent_tasks_retention_check",
+      sql`${table.retentionUntil} >= ${table.createdAt} + interval '1 year'`,
+    ),
+  ],
+);
+
+export const agentActionProposals = pgTable(
+  "agent_action_proposals",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    projectId: text("project_id").notNull(),
+    caseId: text("case_id").notNull(),
+    planExecutionId: text("plan_execution_id"),
+    proposedByUserId: text("proposed_by_user_id").notNull().references(() => users.id),
+    actionType: text("action_type").notNull(),
+    status: text("status").notNull(),
+    resourceDescriptor: jsonb("resource_descriptor")
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    requiredPermission: text("required_permission").notNull(),
+    summary: text("summary").notNull(),
+    consequences: jsonb("consequences").$type<string[]>().notNull().default([]),
+    parameters: jsonb("parameters").$type<Record<string, unknown>>().notNull().default({}),
+    result: jsonb("result").$type<Record<string, unknown>>(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    authorizationVersion: integer("authorization_version").notNull(),
+    roleAssignmentSnapshot: jsonb("role_assignment_snapshot")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    confirmationAuthorizationVersion: integer("confirmation_authorization_version"),
+    confirmationRoleAssignmentSnapshot: jsonb("confirmation_role_assignment_snapshot")
+      .$type<string[]>(),
+    proposedAt: timestamp("proposed_at", { withTimezone: true, mode: "string" })
+      .notNull()
+      .defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true, mode: "string" }).notNull(),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true, mode: "string" }),
+    executionStartedAt: timestamp("execution_started_at", {
+      withTimezone: true,
+      mode: "string",
+    }),
+    completedAt: timestamp("completed_at", { withTimezone: true, mode: "string" }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true, mode: "string" }),
+    safeErrorCode: text("safe_error_code"),
+    correlationId: text("correlation_id").notNull(),
+    ...durableAgentColumns,
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.caseId, table.tenantId, table.projectId],
+      foreignColumns: [agentCases.id, agentCases.tenantId, agentCases.projectId],
+      name: "agent_actions_case_scope_fk",
+    }),
+    foreignKey({
+      columns: [table.planExecutionId, table.tenantId, table.projectId],
+      foreignColumns: [
+        agentPlanExecutions.id,
+        agentPlanExecutions.tenantId,
+        agentPlanExecutions.projectId,
+      ],
+      name: "agent_actions_plan_scope_fk",
+    }),
+    uniqueIndex("agent_actions_idempotency_uq").on(
+      table.tenantId,
+      table.projectId,
+      table.idempotencyKey,
+    ),
+    index("agent_actions_actor_status_idx").on(
+      table.tenantId,
+      table.proposedByUserId,
+      table.status,
+      table.createdAt,
+    ),
+    index("agent_actions_project_status_idx").on(
+      table.tenantId,
+      table.projectId,
+      table.status,
+      table.expiresAt,
+    ),
+    index("agent_actions_retention_idx").on(table.retentionUntil),
+    check(
+      "agent_actions_type_check",
+      sql`${table.actionType} in ('RUN_SCENARIO','RETRY_SCENARIO','CREATE_REVIEW_TASK','PREPARE_REPORT_DRAFT','PREPARE_EXPORT_DRAFT')`,
+    ),
+    check(
+      "agent_actions_status_check",
+      sql`${table.status} in ('PROPOSED','CONFIRMED','EXECUTING','SUCCEEDED','FAILED','EXPIRED','CANCELLED')`,
+    ),
+    check("agent_actions_auth_version_check", sql`${table.authorizationVersion} > 0`),
+    check(
+      "agent_actions_confirm_auth_version_check",
+      sql`${table.confirmationAuthorizationVersion} is null or ${table.confirmationAuthorizationVersion} > 0`,
+    ),
+    check(
+      "agent_actions_resource_json_check",
+      sql`jsonb_typeof(${table.resourceDescriptor}) = 'object'`,
+    ),
+    check(
+      "agent_actions_consequences_json_check",
+      sql`jsonb_typeof(${table.consequences}) = 'array'`,
+    ),
+    check(
+      "agent_actions_parameters_json_check",
+      sql`jsonb_typeof(${table.parameters}) = 'object'`,
+    ),
+    check(
+      "agent_actions_result_json_check",
+      sql`${table.result} is null or jsonb_typeof(${table.result}) = 'object'`,
+    ),
+    check(
+      "agent_actions_role_snapshot_json_check",
+      sql`jsonb_typeof(${table.roleAssignmentSnapshot}) = 'array'`,
+    ),
+    check(
+      "agent_actions_confirm_role_json_check",
+      sql`${table.confirmationRoleAssignmentSnapshot} is null or jsonb_typeof(${table.confirmationRoleAssignmentSnapshot}) = 'array'`,
+    ),
+    check(
+      "agent_actions_expiry_check",
+      sql`${table.expiresAt} > ${table.proposedAt}`,
+    ),
+    check(
+      "agent_actions_confirmation_check",
+      sql`${table.status} in ('PROPOSED','CANCELLED','EXPIRED') or (${table.confirmedAt} is not null and ${table.confirmationAuthorizationVersion} is not null and ${table.confirmationRoleAssignmentSnapshot} is not null)`,
+    ),
+    check(
+      "agent_actions_retention_check",
+      sql`${table.retentionUntil} >= ${table.createdAt} + interval '1 year'`,
+    ),
+  ],
+);
+
+export const agentEventInbox = pgTable(
+  "agent_event_inbox",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    projectId: text("project_id").notNull(),
+    actorUserId: text("actor_user_id").references(() => users.id),
+    sourceSystem: text("source_system").notNull(),
+    sourceEventId: text("source_event_id").notNull(),
+    eventType: text("event_type").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    status: text("status").notNull().default("PENDING"),
+    attempts: integer("attempts").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(5),
+    availableAt: timestamp("available_at", { withTimezone: true, mode: "string" })
+      .notNull()
+      .defaultNow(),
+    receivedAt: timestamp("received_at", { withTimezone: true, mode: "string" })
+      .notNull()
+      .defaultNow(),
+    lockedAt: timestamp("locked_at", { withTimezone: true, mode: "string" }),
+    processedAt: timestamp("processed_at", { withTimezone: true, mode: "string" }),
+    safeErrorCode: text("safe_error_code"),
+    correlationId: text("correlation_id").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    authorizationVersion: integer("authorization_version"),
+    roleAssignmentSnapshot: jsonb("role_assignment_snapshot")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    ...durableAgentColumns,
+  },
+  (table) => [
+    uniqueIndex("agent_inbox_source_event_uq").on(
+      table.tenantId,
+      table.sourceSystem,
+      table.sourceEventId,
+    ),
+    uniqueIndex("agent_inbox_idempotency_uq").on(table.tenantId, table.idempotencyKey),
+    index("agent_inbox_dispatch_idx").on(table.status, table.availableAt, table.attempts),
+    index("agent_inbox_project_event_idx").on(
+      table.tenantId,
+      table.projectId,
+      table.eventType,
+      table.receivedAt,
+    ),
+    index("agent_inbox_retention_idx").on(table.retentionUntil),
+    check(
+      "agent_inbox_status_check",
+      sql`${table.status} in ('PENDING','PROCESSING','PROCESSED','FAILED','DEAD_LETTER')`,
+    ),
+    check(
+      "agent_inbox_attempts_check",
+      sql`${table.maxAttempts} between 1 and 25 and ${table.attempts} between 0 and ${table.maxAttempts}`,
+    ),
+    check(
+      "agent_inbox_auth_version_check",
+      sql`${table.authorizationVersion} is null or ${table.authorizationVersion} > 0`,
+    ),
+    check("agent_inbox_payload_json_check", sql`jsonb_typeof(${table.payload}) = 'object'`),
+    check(
+      "agent_inbox_role_snapshot_json_check",
+      sql`jsonb_typeof(${table.roleAssignmentSnapshot}) = 'array'`,
+    ),
+    check(
+      "agent_inbox_processed_time_check",
+      sql`${table.processedAt} is null or ${table.processedAt} >= ${table.receivedAt}`,
+    ),
+    check(
+      "agent_inbox_retention_check",
+      sql`${table.retentionUntil} >= ${table.createdAt} + interval '1 year'`,
+    ),
+  ],
+);
+
+export const agentProactiveInsights = pgTable(
+  "agent_proactive_insights",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    projectId: text("project_id").notNull(),
+    caseId: text("case_id"),
+    subjectUserId: text("subject_user_id").references(() => users.id),
+    triggerType: text("trigger_type").notNull(),
+    stateVersion: text("state_version").notNull(),
+    level: text("level").notNull(),
+    status: text("status").notNull().default("ACTIVE"),
+    targetType: text("target_type").notNull(),
+    targetId: text("target_id").notNull(),
+    title: text("title").notNull(),
+    summary: text("summary").notNull(),
+    recommendedAction: text("recommended_action").notNull(),
+    evidenceFactIds: jsonb("evidence_fact_ids").$type<string[]>().notNull().default([]),
+    deduplicationKey: text("deduplication_key").notNull(),
+    ruleVersion: text("rule_version").notNull(),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true, mode: "string" })
+      .notNull()
+      .defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true, mode: "string" })
+      .notNull()
+      .defaultNow(),
+    cooldownUntil: timestamp("cooldown_until", { withTimezone: true, mode: "string" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true, mode: "string" }),
+    acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true, mode: "string" }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true, mode: "string" }),
+    authorizationVersion: integer("authorization_version").notNull(),
+    roleAssignmentSnapshot: jsonb("role_assignment_snapshot")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    createdByUserId: text("created_by_user_id").references(() => users.id),
+    ...durableAgentColumns,
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.caseId, table.tenantId, table.projectId],
+      foreignColumns: [agentCases.id, agentCases.tenantId, agentCases.projectId],
+      name: "agent_insights_case_scope_fk",
+    }),
+    uniqueIndex("agent_insights_deduplication_uq").on(
+      table.tenantId,
+      table.projectId,
+      table.deduplicationKey,
+    ),
+    index("agent_insights_subject_status_idx").on(
+      table.tenantId,
+      table.subjectUserId,
+      table.status,
+      table.level,
+    ),
+    index("agent_insights_project_last_seen_idx").on(
+      table.tenantId,
+      table.projectId,
+      table.lastSeenAt,
+    ),
+    index("agent_insights_retention_idx").on(table.retentionUntil),
+    check(
+      "agent_insights_trigger_check",
+      sql`${table.triggerType} in ('APPIUS_VERSION_PUBLISHED','SAP_SNAPSHOT_RECEIVED','RISK_LEVEL_RAISED','DUE_DATE_APPROACHING','SLA_BREACHED','SCENARIO_COMPLETED','SCENARIO_FAILED','INTEGRATION_RECOVERED')`,
+    ),
+    check(
+      "agent_insights_level_check",
+      sql`${table.level} in ('LOW','MEDIUM','HIGH','CRITICAL')`,
+    ),
+    check(
+      "agent_insights_status_check",
+      sql`${table.status} in ('ACTIVE','ACKNOWLEDGED','RESOLVED','EXPIRED','SUPPRESSED')`,
+    ),
+    check("agent_insights_auth_version_check", sql`${table.authorizationVersion} > 0`),
+    check(
+      "agent_insights_evidence_json_check",
+      sql`jsonb_typeof(${table.evidenceFactIds}) = 'array'`,
+    ),
+    check(
+      "agent_insights_role_snapshot_json_check",
+      sql`jsonb_typeof(${table.roleAssignmentSnapshot}) = 'array'`,
+    ),
+    check(
+      "agent_insights_seen_time_check",
+      sql`${table.lastSeenAt} >= ${table.firstSeenAt}`,
+    ),
+    check(
+      "agent_insights_retention_check",
+      sql`${table.retentionUntil} >= ${table.createdAt} + interval '1 year'`,
+    ),
+  ],
+);
+
+export const agentMetricEvents = pgTable(
+  "agent_metric_events",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    projectId: text("project_id").notNull(),
+    actorUserId: text("actor_user_id").references(() => users.id),
+    eventType: text("event_type").notNull(),
+    eventVersion: integer("event_version").notNull(),
+    aggregateType: text("aggregate_type").notNull(),
+    aggregateId: text("aggregate_id").notNull(),
+    specificationId: text("specification_id"),
+    runId: text("run_id"),
+    taskId: text("task_id"),
+    occurredAt: timestamp("occurred_at", { withTimezone: true, mode: "string" }).notNull(),
+    correlationId: text("correlation_id").notNull(),
+    sourceVersion: text("source_version").notNull(),
+    attributes: jsonb("attributes").$type<Record<string, unknown>>().notNull().default({}),
+    idempotencyKey: text("idempotency_key").notNull(),
+    authorizationVersion: integer("authorization_version"),
+    roleAssignmentSnapshot: jsonb("role_assignment_snapshot")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    ingestedAt: timestamp("ingested_at", { withTimezone: true, mode: "string" })
+      .notNull()
+      .defaultNow(),
+    retentionUntil: timestamp("retention_until", { withTimezone: true, mode: "string" })
+      .notNull()
+      .default(sql`now() + interval '1 year'`),
+  },
+  (table) => [
+    uniqueIndex("agent_metric_event_idempotency_uq").on(
+      table.tenantId,
+      table.projectId,
+      table.idempotencyKey,
+    ),
+    uniqueIndex("agent_metric_aggregate_version_uq").on(
+      table.tenantId,
+      table.projectId,
+      table.aggregateType,
+      table.aggregateId,
+      table.eventVersion,
+    ),
+    index("agent_metric_project_event_time_idx").on(
+      table.tenantId,
+      table.projectId,
+      table.eventType,
+      table.occurredAt,
+    ),
+    index("agent_metric_correlation_idx").on(table.tenantId, table.correlationId),
+    index("agent_metric_retention_idx").on(table.retentionUntil),
+    check(
+      "agent_metric_event_type_check",
+      sql`${table.eventType} in ('SPECIFICATION_UPLOADED','ANALYSIS_STARTED','ANALYSIS_STEP_STARTED','ANALYSIS_STEP_COMPLETED','ANALYSIS_COMPLETED','EXPERT_TASK_ASSIGNED','EXPERT_DECISION_RECORDED','SHORTAGE_DETECTED','SHORTAGE_ACTION_ACCEPTED','REPORT_PUBLISHED','PROCESS_FAILED')`,
+    ),
+    check(
+      "agent_metric_aggregate_type_check",
+      sql`${table.aggregateType} in ('SPECIFICATION','RUN','ANALYSIS_STEP','EXPERT_TASK','SHORTAGE','REPORT')`,
+    ),
+    check("agent_metric_event_version_check", sql`${table.eventVersion} > 0`),
+    check(
+      "agent_metric_auth_version_check",
+      sql`${table.authorizationVersion} is null or ${table.authorizationVersion} > 0`,
+    ),
+    check("agent_metric_attributes_json_check", sql`jsonb_typeof(${table.attributes}) = 'object'`),
+    check(
+      "agent_metric_role_snapshot_json_check",
+      sql`jsonb_typeof(${table.roleAssignmentSnapshot}) = 'array'`,
+    ),
+    check(
+      "agent_metric_retention_check",
+      sql`${table.retentionUntil} >= ${table.ingestedAt} + interval '1 year'`,
+    ),
+  ],
+);
+
+export const materialMovements = pgTable(
+  "material_movements",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    projectId: text("project_id").notNull(),
+    sourceScopeId: text("source_scope_id").notNull(),
+    materialCode: text("material_code").notNull(),
+    plant: text("plant").notNull(),
+    storageLocation: text("storage_location").notNull(),
+    movementType: text("movement_type").notNull(),
+    quantity: numeric("quantity", { precision: 18, scale: 3 }).notNull(),
+    unit: text("unit").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true, mode: "string" }).notNull(),
+    sourceDocumentId: text("source_document_id").notNull(),
+    snapshotVersion: text("snapshot_version").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    attributes: jsonb("attributes").$type<Record<string, unknown>>().notNull().default({}),
+    authorizationVersion: integer("authorization_version"),
+    roleAssignmentSnapshot: jsonb("role_assignment_snapshot")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    ingestedAt: timestamp("ingested_at", { withTimezone: true, mode: "string" })
+      .notNull()
+      .defaultNow(),
+    retentionUntil: timestamp("retention_until", { withTimezone: true, mode: "string" })
+      .notNull()
+      .default(sql`now() + interval '1 year'`),
+  },
+  (table) => [
+    uniqueIndex("material_movements_idempotency_uq").on(table.tenantId, table.idempotencyKey),
+    index("material_movements_project_material_idx").on(
+      table.tenantId,
+      table.projectId,
+      table.materialCode,
+      table.occurredAt,
+    ),
+    index("material_movements_warehouse_time_idx").on(
+      table.tenantId,
+      table.sourceScopeId,
+      table.plant,
+      table.storageLocation,
+      table.occurredAt,
+    ),
+    index("material_movements_retention_idx").on(table.retentionUntil),
+    check(
+      "material_movements_type_check",
+      sql`${table.movementType} in ('RECEIPT','CONSUMPTION','TRANSFER_IN','TRANSFER_OUT','ADJUSTMENT')`,
+    ),
+    check(
+      "material_movements_quantity_check",
+      sql`${table.movementType} = 'ADJUSTMENT' or ${table.quantity} >= 0`,
+    ),
+    check(
+      "material_movements_auth_version_check",
+      sql`${table.authorizationVersion} is null or ${table.authorizationVersion} > 0`,
+    ),
+    check(
+      "material_movements_attributes_json_check",
+      sql`jsonb_typeof(${table.attributes}) = 'object'`,
+    ),
+    check(
+      "material_movements_role_snapshot_json_check",
+      sql`jsonb_typeof(${table.roleAssignmentSnapshot}) = 'array'`,
+    ),
+    check(
+      "material_movements_retention_check",
+      sql`${table.retentionUntil} >= ${table.ingestedAt} + interval '1 year'`,
+    ),
+  ],
+);
+
 export const promptVersions = pgTable(
   "prompt_versions",
   {
@@ -705,6 +1458,15 @@ export const schema = {
   agentThreads,
   agentMessages,
   agentCitations,
+  agentCases,
+  agentEvidenceFacts,
+  agentPlanExecutions,
+  agentTasks,
+  agentActionProposals,
+  agentEventInbox,
+  agentProactiveInsights,
+  agentMetricEvents,
+  materialMovements,
   promptVersions,
   auditLogs,
   uploadedFiles,

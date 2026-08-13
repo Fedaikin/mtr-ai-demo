@@ -43,6 +43,13 @@
       "when": 1786608000000,
       "tag": "0005_scoped_rbac",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786622350895,
+      "tag": "0006_mtr_agent_orchestrator",
+      "breakpoints": true
     }
   ]
 }
