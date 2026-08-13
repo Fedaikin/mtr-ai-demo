@@ -373,6 +373,8 @@ async function insertFixtureRows(db: Database, userId: string): Promise<void> {
       createdBy: userId,
     })),
   );
+  await db.insert(materialMovements).values(buildMaterialMovementRows());
+  await db.insert(agentMetricEvents).values(buildProcessMetricEventRows());
 
   const documentRows = normativeFixture.documents.map((item, index) => ({
     id: `normative-document-${String(index + 1).padStart(3, "0")}`,
@@ -526,6 +528,102 @@ async function seedRbacSubjects(db: Database): Promise<void> {
     ('assign-demo-admin','demo-user-001','role-system-admin','GLOBAL',null,'ACTIVE','demo-user-001'),('assign-demo-manager','demo-user-001','role-project-manager','PROJECT','demo-project-001','ACTIVE','demo-user-001'),
     ('assign-viewer','demo-viewer-001','role-project-viewer','PROJECT','demo-project-001','ACTIVE','demo-user-001'),('assign-analyst','demo-analyst-001','role-mtr-analyst','PROJECT','demo-project-001','ACTIVE','demo-user-001'),('assign-expert','demo-expert-001','role-mtr-expert','PROJECT','demo-project-001','ACTIVE','demo-user-001'),('assign-director','demo-director-001','role-project-viewer','PROJECT','demo-project-001','ACTIVE','demo-user-001'),
     ('assign-admin','demo-admin-001','role-system-admin','GLOBAL',null,'ACTIVE','demo-user-001'),('assign-auditor-global','demo-auditor-001','role-auditor','GLOBAL',null,'ACTIVE','demo-user-001'),('assign-auditor-project','demo-auditor-001','role-project-viewer','PROJECT','demo-project-001','ACTIVE','demo-user-001'),('assign-service','demo-service-001','role-integration-service','SERVICE',null,'ACTIVE','demo-user-001') on conflict do nothing`);
+  const warehouseIds = [...new Set(sapFixture.materials.map((item) => item.warehouse))];
+  const stockUsers = ["demo-user-001", "demo-analyst-001", "demo-expert-001", "demo-director-001"];
+  for (const stockUserId of stockUsers) {
+    for (const warehouseId of warehouseIds) {
+      await db.execute(sql`insert into user_source_access_claims
+        (id,user_id,claim_type,claim_value,source)
+        values (${`claim-${stockUserId}-${warehouseId.toLocaleLowerCase("en-US")}`},${stockUserId},'warehouseIds',${warehouseId},'DEMO_SEED')
+        on conflict (user_id,claim_type,claim_value,source) do nothing`);
+    }
+  }
+}
+
+function buildMaterialMovementRows(): Array<typeof materialMovements.$inferInsert> {
+  const anchor = new Date("2026-08-10T09:00:00.000Z");
+  return sapFixture.materials.flatMap((material, materialIndex) =>
+    Array.from({ length: 12 }, (_, weekIndex) => {
+      const occurredAt = new Date(anchor);
+      occurredAt.setUTCDate(anchor.getUTCDate() - (11 - weekIndex) * 7);
+      const ingestedAt = occurredAt.toISOString();
+      const consumption = 1 + (materialIndex % 7) + (weekIndex % 3);
+      return {
+        id: `movement-${material.recordId}-${String(weekIndex + 1).padStart(2, "0")}`,
+        tenantId: "demo-tenant-001",
+        projectId: "demo-project-001",
+        sourceScopeId: "demo-sap-001",
+        materialCode: material.materialCode,
+        plant: material.plant,
+        storageLocation: material.warehouse,
+        movementType: "CONSUMPTION",
+        quantity: decimal(consumption),
+        unit: material.unit,
+        occurredAt: ingestedAt,
+        sourceDocumentId: `SAP-DEMO-MOVEMENT-${materialIndex + 1}-${weekIndex + 1}`,
+        snapshotVersion: `sap-movements-2026-w${String(weekIndex + 1).padStart(2, "0")}`,
+        idempotencyKey: `movement:${material.recordId}:${weekIndex + 1}`,
+        attributes: { syntheticDemo: true, historyWeek: weekIndex + 1 },
+        authorizationVersion: 1,
+        roleAssignmentSnapshot: ["assign-demo-manager"],
+        ingestedAt,
+        retentionUntil: oneCalendarYearAfter(ingestedAt),
+      };
+    }),
+  );
+}
+
+function buildProcessMetricEventRows(): Array<typeof agentMetricEvents.$inferInsert> {
+  const anchor = new Date("2026-08-10T12:00:00.000Z");
+  return Array.from({ length: 12 }, (_, weekIndex) => {
+    const occurredAt = new Date(anchor);
+    occurredAt.setUTCDate(anchor.getUTCDate() - (11 - weekIndex) * 7);
+    const timestamp = occurredAt.toISOString();
+    const aggregateId = `demo-process-week-${String(weekIndex + 1).padStart(2, "0")}`;
+    const common = {
+      tenantId: "demo-tenant-001",
+      projectId: "demo-project-001",
+      actorUserId: DEMO_USER_ID,
+      eventVersion: 1,
+      aggregateType: "RUN" as const,
+      occurredAt: timestamp,
+      correlationId: `metric-week-${weekIndex + 1}`,
+      sourceVersion: "scenario-metrics-v1",
+      authorizationVersion: 1,
+      roleAssignmentSnapshot: ["assign-demo-manager"],
+      ingestedAt: timestamp,
+      retentionUntil: oneCalendarYearAfter(timestamp),
+    };
+    const started = 8 + (weekIndex % 3);
+    const completed = started - (weekIndex % 4 === 0 ? 1 : 0);
+    const review = 2 + (weekIndex % 2);
+    return [
+      {
+        ...common,
+        id: `metric-${aggregateId}-started`,
+        eventType: "ANALYSIS_STARTED",
+        aggregateId: `${aggregateId}-started`,
+        attributes: { count: started, syntheticDemo: true },
+        idempotencyKey: `${aggregateId}:started`,
+      },
+      {
+        ...common,
+        id: `metric-${aggregateId}-completed`,
+        eventType: "ANALYSIS_COMPLETED",
+        aggregateId: `${aggregateId}-completed`,
+        attributes: { count: completed, cycleTimeMs: 10_800_000 + weekIndex * 120_000, syntheticDemo: true },
+        idempotencyKey: `${aggregateId}:completed`,
+      },
+      {
+        ...common,
+        id: `metric-${aggregateId}-review`,
+        eventType: "EXPERT_TASK_ASSIGNED",
+        aggregateId: `${aggregateId}-review`,
+        attributes: { count: review, syntheticDemo: true },
+        idempotencyKey: `${aggregateId}:review`,
+      },
+    ];
+  }).flat();
 }
 
 export async function deleteUserScopedRows(
@@ -822,6 +920,12 @@ function decimal(value: number): string {
 
 function isoDate(value: string): string {
   return value.includes("T") ? value : `${value}T00:00:00.000Z`;
+}
+
+function oneCalendarYearAfter(value: string): string {
+  const date = new Date(value);
+  date.setUTCFullYear(date.getUTCFullYear() + 1);
+  return date.toISOString();
 }
 
 function naturalDocumentKey(documentId: string, version: string): string {

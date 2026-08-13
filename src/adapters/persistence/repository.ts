@@ -63,6 +63,7 @@ import { getSeedCounts, resetDemoDatabase, type SeedCounts } from "./bootstrap";
 import { type Database, getDatabase } from "./db";
 import {
   analysisReviewDecisions,
+  agentMetricEvents,
   agentCitations,
   agentMessages,
   agentThreads,
@@ -75,6 +76,7 @@ import {
   catalogStockBalances,
   dictionaries,
   integrationStates,
+  materialMovements,
   normativeChunks,
   normativeDocuments,
   positionAnalysisResults,
@@ -134,6 +136,17 @@ export interface AnalysisReviewTaskRow {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly decidedAt: string | null;
+}
+
+export interface AgentMetricEventQuery {
+  readonly projectId: string;
+  readonly from: string;
+  readonly to: string;
+}
+
+export interface MaterialMovementQuery extends AgentMetricEventQuery {
+  readonly warehouseIds: readonly string[];
+  readonly materialCodes?: readonly string[];
 }
 
 export interface CatalogOverview {
@@ -2855,6 +2868,45 @@ export class MtrRepository {
       updatedAt: review.updatedAt,
       decidedAt: review.decidedAt,
     }));
+  }
+
+  async listAgentMetricEvents(
+    userId: string,
+    query: AgentMetricEventQuery,
+  ): Promise<Array<typeof agentMetricEvents.$inferSelect>> {
+    trustedUser(userId);
+    return this.db
+      .select()
+      .from(agentMetricEvents)
+      .where(and(
+        eq(agentMetricEvents.tenantId, "demo-tenant-001"),
+        eq(agentMetricEvents.projectId, query.projectId),
+        gte(agentMetricEvents.occurredAt, query.from),
+        lt(agentMetricEvents.occurredAt, query.to),
+      ))
+      .orderBy(asc(agentMetricEvents.occurredAt), asc(agentMetricEvents.id));
+  }
+
+  async listMaterialMovements(
+    userId: string,
+    query: MaterialMovementQuery,
+  ): Promise<Array<typeof materialMovements.$inferSelect>> {
+    trustedUser(userId);
+    if (query.warehouseIds.length === 0) return [];
+    return this.db
+      .select()
+      .from(materialMovements)
+      .where(and(
+        eq(materialMovements.tenantId, "demo-tenant-001"),
+        eq(materialMovements.projectId, query.projectId),
+        inArray(materialMovements.storageLocation, [...query.warehouseIds]),
+        gte(materialMovements.occurredAt, query.from),
+        lt(materialMovements.occurredAt, query.to),
+        ...(query.materialCodes && query.materialCodes.length > 0
+          ? [inArray(materialMovements.materialCode, [...query.materialCodes])]
+          : []),
+      ))
+      .orderBy(asc(materialMovements.occurredAt), asc(materialMovements.id));
   }
 
   async decideAnalysisReview(

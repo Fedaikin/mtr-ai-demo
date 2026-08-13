@@ -178,6 +178,7 @@ export class PersistenceWeeklyDigestSourcePort implements WeeklyDigestSourcePort
     const items: DigestKpiChange[] = [];
     let invalidRows = 0;
     for (const row of rows) {
+      if (row.attributes.metricSnapshot !== true) continue;
       const projected = metricChange(row, query.subjectId);
       if (projected) items.push(projected);
       else invalidRows += 1;

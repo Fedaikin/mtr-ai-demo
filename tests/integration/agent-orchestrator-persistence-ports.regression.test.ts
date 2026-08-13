@@ -99,33 +99,49 @@ describe.sequential("production-shaped persistence ports МТР-агента", (
     ]);
   });
 
-  it.each(["RISKS", "KPI"] as const)(
-    "не подменяет отсутствующий runtime store fixture-ответом для %s",
-    async (commandKey) => {
-      const adapters = createAgentOrchestratorPersistencePorts(repository);
-      const context = executionContext(specificationId, warehouseId);
-      const result = commandKey === "RISKS"
-          ? await adapters.risks.evaluate(context, {
-              selection: validatedSelection(specificationId),
-              levels: ["HIGH"],
-              objectTypes: ["MATERIAL"],
-              horizonDays: 30,
-            })
-          : await adapters.metrics.calculate(context, {
-              selection: validatedSelection(specificationId),
-              metricKeys: ["STOCK_COVERAGE"],
-              warehouseIds: [warehouseId],
-            });
+  it("рассчитывает риск из 12-недельной persisted истории движений", async () => {
+    const adapters = createAgentOrchestratorPersistencePorts(repository);
+    const result = await adapters.risks.evaluate(executionContext(specificationId, warehouseId), {
+      selection: validatedSelection(specificationId),
+      objectTypes: ["MATERIAL"],
+      horizonDays: 90,
+    });
 
-      expect(result.evidence).toMatchObject({
-        availability: "UNAVAILABLE",
-        confidence: 0,
-        coverage: { complete: false },
-      });
-      const items = "items" in result ? result.items : result.metrics;
-      expect(items).toEqual([]);
-    },
-  );
+    expect(result.evidence).toMatchObject({ availability: "COMPLETE", coverage: { complete: true } });
+    expect(result.items.length).toBeGreaterThan(0);
+    expect(result.items[0]).toMatchObject({
+      objectType: "MATERIAL",
+      ruleVersion: "stock-exhaustion-forecast-v1",
+      requiresHumanReview: true,
+    });
+    expect(result.items[0]!.factors.join(" ")).toContain("12 полных нед.");
+    expect(result.evidence.citations).toEqual(
+      expect.arrayContaining([expect.objectContaining({ sourceKind: "MATERIAL_MOVEMENT", sourceSystem: "SAP" })]),
+    );
+  });
+
+  it("рассчитывает KPI из persisted process events и movements", async () => {
+    const adapters = createAgentOrchestratorPersistencePorts(repository);
+    const result = await adapters.metrics.calculate(executionContext(specificationId, warehouseId), {
+      selection: validatedSelection(specificationId),
+      metricKeys: ["ANALYSIS_COMPLETION_RATE", "STOCK_COVERAGE"],
+      warehouseIds: [warehouseId],
+    });
+
+    expect(result.evidence).toMatchObject({ availability: "COMPLETE", coverage: { complete: true } });
+    expect(result.metrics.map((metric) => metric.metricKey)).toEqual([
+      "ANALYSIS_COMPLETION_RATE",
+      "STOCK_COVERAGE",
+    ]);
+    expect(result.metrics.every((metric) => metric.definitionVersion && metric.formula)).toBe(true);
+    expect(result.metrics.flatMap((metric) => metric.drillDown)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sourceKind: "PROCESS_EVENT" }),
+        expect.objectContaining({ sourceKind: "MATERIAL_MOVEMENT" }),
+        expect.objectContaining({ sourceKind: "DEFINITION" }),
+      ]),
+    );
+  });
 });
 
 function executionContext(specificationId: string, warehouseId: string) {

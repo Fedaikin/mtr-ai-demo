@@ -45,6 +45,7 @@ describe.sequential("runtime source недельной сводки", () => {
         previousValue: 70,
         unit: "%",
         subjectId: DEMO_USER_ID,
+        metricSnapshot: true,
       },
       idempotencyKey: "digest-metric-1",
       authorizationVersion: 1,

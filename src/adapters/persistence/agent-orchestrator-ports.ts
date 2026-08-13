@@ -3,6 +3,7 @@ import "server-only";
 import type { MtrRepository } from "@/adapters/persistence/repository";
 import { createAnalysisReviewDecisionReadPort } from "@/adapters/persistence/agent-task-port";
 import { AgentTaskService } from "@/application/agent-orchestrator/task-service";
+import { RuntimeAgentAnalyticsService } from "@/application/agent-orchestrator/runtime-analytics-service";
 import { AgentCommandExecutionError } from "@/domain/agent/errors";
 import type { AgentExecutionContext } from "@/domain/agent/context";
 import type {
@@ -27,6 +28,7 @@ export function createAgentOrchestratorPersistencePorts(
   repository: MtrRepository,
 ): AgentOrchestratorPorts {
   const taskService = new AgentTaskService(createAnalysisReviewDecisionReadPort(repository));
+  const analyticsService = new RuntimeAgentAnalyticsService(repository);
   return {
     summary: {
       async read(context, query) {
@@ -200,20 +202,7 @@ export function createAgentOrchestratorPersistencePorts(
     risks: {
       async evaluate(context, query) {
         assertValidatedSelection(context, query.selection);
-        const requestedScope = [
-          ...selectionScope(query.selection),
-          ...(query.levels ?? []).map((level) => `risk-level:${level}`),
-          ...(query.objectTypes ?? []).map((objectType) => `risk-object:${objectType}`),
-          ...(query.horizonDays === undefined ? [] : [`risk-horizon:${query.horizonDays}`]),
-        ];
-        return {
-          items: [],
-          evidence: unavailableEvidence(
-            "RISK_STORE_UNAVAILABLE",
-            "Versioned RiskService и история рисков ещё не подключены к repository",
-            requestedScope,
-          ),
-        };
+        return analyticsService.evaluateRisks(context, query);
       },
     },
     stocks: {
@@ -308,19 +297,7 @@ export function createAgentOrchestratorPersistencePorts(
     metrics: {
       async calculate(context, query) {
         assertValidatedSelection(context, query.selection);
-        const requestedScope = [
-          ...selectionScope(query.selection),
-          ...query.warehouseIds.map((warehouseId) => `warehouse:${warehouseId}`),
-          ...(query.metricKeys ?? []).map((metricKey) => `metric:${metricKey}`),
-        ];
-        return {
-          metrics: [],
-          evidence: unavailableEvidence(
-            "METRIC_EVENT_STORE_UNAVAILABLE",
-            "Versioned material movements, process events и определения KPI не подключены к repository",
-            requestedScope,
-          ),
-        };
+        return analyticsService.calculateKpi(context, query);
       },
     },
   };

@@ -81,6 +81,9 @@ export interface AgentRisk {
   readonly objectType: string;
   readonly objectId: string;
   readonly summary: string;
+  readonly factors: readonly string[];
+  readonly impact: string;
+  readonly recommendedActions: readonly string[];
   readonly confidence: number;
   readonly ruleVersion: string;
   readonly requiresHumanReview: boolean;

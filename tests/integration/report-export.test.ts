@@ -156,7 +156,7 @@ describe.sequential("report exports", () => {
         ]),
         sap: expect.any(String),
         normative: "DEMO_RULES_VERSIONED",
-        prompt: expect.objectContaining({ version: "1.0.0", checksum: expect.any(String) }),
+        prompt: expect.objectContaining({ version: "3.0.0", checksum: expect.any(String) }),
         responsibilityRules: expect.arrayContaining([
           expect.objectContaining({ documentId: expect.any(String), version: expect.any(String) }),
         ]),
@@ -225,7 +225,7 @@ describe.sequential("report exports", () => {
     expect(sheetRows(workbook, "Экспертная проверка").length).toBeGreaterThan(1);
     const sourceRows = sheetRows(workbook, "Источники");
     expect(sourceRows).toEqual(expect.arrayContaining([
-      expect.arrayContaining(["Системный промпт", "1.0.0"]),
+      expect.arrayContaining(["Системный промпт", "3.0.0"]),
       expect.arrayContaining(["Правила ответственности"]),
       expect.arrayContaining(["Правила аналогов"]),
     ]));
