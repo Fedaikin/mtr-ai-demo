@@ -1,4 +1,5 @@
 import {
+  projectAgentCommandResult,
   availabilityLabel,
   freshnessLabel,
   responseTypeLabel,
@@ -9,6 +10,49 @@ import {
 } from "@/application/agent-orchestrator/public-projection";
 
 describe("D-09: публичная проекция результата МТР-агента", () => {
+  it("преобразует domain command в локализованный безопасный DTO виджета", () => {
+    const result = projectAgentCommandResult({
+      responseType: "RISKS",
+      title: "Риски",
+      summary: "Найден один подтверждённый риск.",
+      items: [{
+        id: "risk-1",
+        level: "HIGH",
+        score: 80,
+        horizonDays: 30,
+        objectType: "MATERIAL",
+        objectId: "SAP-DEMO-0001",
+        summary: "Риск дефицита",
+        confidence: 0.8,
+        ruleVersion: "risk-v1",
+        requiresHumanReview: true,
+      }],
+      citations: [{
+        sourceKind: "MATERIAL_MOVEMENT",
+        sourceSystem: "SAP",
+        entityId: "SAP-DEMO-0001",
+        sourceSnapshot: "movement-v1",
+        observedAt: "2026-08-13T12:00:00.000Z",
+      }],
+      missingData: [],
+      confidence: 0.8,
+      requiresHumanReview: true,
+      negativeEvidence: "NOT_EMPTY",
+      generatedAt: "2026-08-13T12:00:00.000Z",
+    }, "command-1");
+
+    expect(result).toMatchObject({
+      responseLabel: "Риски",
+      statusLabel: "Доступен частичный результат",
+      answer: "Найден один подтверждённый риск.",
+      riskLabel: "Высокий риск",
+      technicalContentRemoved: false,
+    });
+    expect(result.sources).toEqual([
+      expect.objectContaining({ sourceLabel: "SAP S/4HANA", entityId: "SAP-DEMO-0001" }),
+    ]);
+  });
+
   it.each([
     [responseTypeLabel, "SUMMARY", "Оперативная сводка"],
     [responseTypeLabel, "TASK_LIST", "Мои задачи"],

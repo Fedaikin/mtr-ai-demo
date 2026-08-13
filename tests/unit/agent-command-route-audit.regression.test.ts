@@ -72,6 +72,14 @@ describe("command route audit and feature gate", () => {
     );
 
     expect(response.status).toBe(200);
+    await expect(response.clone().json()).resolves.toEqual({
+      result: expect.objectContaining({
+        schemaVersion: "mtr-agent-command-public-v1",
+        responseLabel: "Остатки",
+        answer: "Найдена одна строка.",
+        technicalContentRemoved: false,
+      }),
+    });
     expect(mocks.handle).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: "COMMAND",

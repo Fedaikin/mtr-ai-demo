@@ -1,13 +1,17 @@
 import { containsInternalAgentContent } from "@/application/agent-presentation";
+import type { AgentOrchestratorCommandResult } from "@/ports/agent-orchestrator";
 
 const RESPONSE_TYPE_LABELS: Readonly<Record<string, string>> = Object.freeze({
   ANSWER: "Ответ МТР-агента",
   POSITION_ANALYSIS: "Анализ позиции",
   SPECIFICATION_ANALYSIS: "Анализ спецификации",
   SUMMARY: "Оперативная сводка",
+  MY_TASKS: "Мои задачи",
   TASK_LIST: "Мои задачи",
   KPI: "KPI и SLA",
+  RISKS: "Риски",
   RISK_LIST: "Список рисков",
+  STOCKS: "Остатки",
   STOCK_LIST: "Остатки",
   ACTION_PROPOSAL: "Предложенное действие",
 });
@@ -55,11 +59,15 @@ const SOURCE_SYSTEM_LABELS: Readonly<Record<string, string>> = Object.freeze({
   SCENARIO: "Сценарий анализа",
   REPORT: "Отчёт",
   PROCESS_EVENT: "События процесса",
+  PROCESS_ENGINE: "Процесс анализа",
   MATERIAL_MOVEMENT: "Движения материалов",
   TECHNICAL_SAMPLE: "Технические измерения",
   TASKS: "Сервис задач",
+  TASK_STORE: "Сервис задач",
   METRICS: "Сервис метрик",
+  METRIC_REGISTRY: "Реестр метрик",
   RISKS: "Сервис рисков",
+  RISK_ENGINE: "Сервис рисков",
   LLM: "Языковая модель",
 });
 
@@ -165,6 +173,40 @@ export function toPublicAgentCommandResult(input: unknown): PublicAgentCommandRe
   });
 }
 
+/**
+ * Converts a trusted domain command result into the narrow input accepted by
+ * the fail-closed public projector. No command items, filters or internal
+ * evidence payloads cross this boundary.
+ */
+export function projectAgentCommandResult(
+  result: AgentOrchestratorCommandResult,
+  messageId: string,
+): PublicAgentCommandResult {
+  const riskLevel = result.responseType === "RISKS"
+    ? highestRiskLevel(result.items.map((item) => item.level))
+    : null;
+  return toPublicAgentCommandResult({
+    messageId,
+    responseType: result.responseType,
+    status: result.missingData.length > 0 || result.requiresHumanReview ? "PARTIAL" : "COMPLETE",
+    answer: result.summary,
+    riskLevel,
+    confidence: result.confidence,
+    requiresHumanReview: result.requiresHumanReview,
+    generatedAt: result.generatedAt,
+    sources: result.citations.map((citation) => ({
+      accessible: true,
+      sourceSystem: citation.sourceSystem,
+      entityId: citation.entityId,
+      versionOrSnapshot: citation.sourceSnapshot,
+      clauseId: citation.clauseId ?? null,
+      freshness: citationFreshness(citation.observedAt),
+      availability: "AVAILABLE",
+      href: citationHref(citation.sourceSystem, citation.entityId),
+    })),
+  });
+}
+
 function projectSources(value: unknown): PublicAgentSource[] {
   if (!Array.isArray(value)) return [];
   return value.slice(0, 50).map((item) => projectSource(item));
@@ -250,4 +292,29 @@ function safeInternalHref(value: unknown): string | null {
     /[\r\n]/u.test(value)
   ) return null;
   return value;
+}
+
+function highestRiskLevel(values: readonly string[]): string | null {
+  const weight: Readonly<Record<string, number>> = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 };
+  return values.reduce<string | null>((highest, value) =>
+    (weight[value] ?? 0) > (highest ? weight[highest] ?? 0 : 0) ? value : highest, null);
+}
+
+function citationFreshness(observedAt: string): "FRESH" | "AGING" | "STALE" | "UNKNOWN" {
+  const observed = Date.parse(observedAt);
+  if (!Number.isFinite(observed)) return "UNKNOWN";
+  const age = Date.now() - observed;
+  if (age < 0) return "UNKNOWN";
+  if (age <= 24 * 60 * 60_000) return "FRESH";
+  if (age <= 7 * 24 * 60 * 60_000) return "AGING";
+  return "STALE";
+}
+
+function citationHref(sourceSystem: string, entityId: string): string | null {
+  const id = encodeURIComponent(entityId);
+  if (sourceSystem === "APPIUS" && /^spec-/u.test(entityId)) return `/specifications/${id}`;
+  if (sourceSystem === "SAP" && /^SAP-DEMO-/u.test(entityId)) return `/materials/${id}`;
+  if (sourceSystem === "PROCESS_ENGINE" && /^run-/u.test(entityId)) return `/runs/${id}`;
+  if (sourceSystem === "TASK_STORE" && /^review-/u.test(entityId)) return `/mtr-analysis?review=${id}`;
+  return null;
 }

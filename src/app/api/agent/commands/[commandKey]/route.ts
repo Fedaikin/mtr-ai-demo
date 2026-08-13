@@ -1,6 +1,7 @@
 import { getRepository, type AuditLogInput, type MtrRepository } from "@/adapters/persistence/repository";
 import { AuthorizationError, type TrustedRequestContext } from "@/application/authorization-service";
 import { readAgentFeaturePolicy } from "@/application/agent-orchestrator/feature-policy";
+import { projectAgentCommandResult } from "@/application/agent-orchestrator/public-projection";
 import {
   AgentCommandExecutionError,
 } from "@/application/agent-orchestrator/command-registry";
@@ -66,7 +67,9 @@ export async function POST(request: Request, { params }: CommandRouteContext) {
         citationCount: result.output.citations.length,
         negativeEvidence: result.output.negativeEvidence,
       });
-      return ok(result.output, { headers: { "cache-control": "no-store" } });
+      return ok({
+        result: projectAgentCommandResult(result.output, correlationId),
+      }, { headers: { "cache-control": "private, no-store" } });
     } catch (error) {
       await writeCommandAudit(repository, auditContext, "failed", {
         outcome: "FAILURE",
