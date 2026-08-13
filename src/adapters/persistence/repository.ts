@@ -153,6 +153,7 @@ export interface ScenarioDefinitionRecord extends ScenarioDefinition {
 
 export interface CreateScenarioRunInput {
   id?: string;
+  projectId?: string;
   scenarioId: string;
   specificationId: string;
   retryOfRunId?: string;
@@ -181,6 +182,7 @@ export interface ScenarioRunUpdate {
 }
 
 export interface ScenarioRunQuery {
+  projectId?: string;
   scenarioId?: string;
   status?: ScenarioRunStatus;
   limit?: number;
@@ -1712,6 +1714,7 @@ export class MtrRepository {
       .values({
         id: input.id ?? `run-${randomUUID()}`,
         userId,
+        projectId: input.projectId ?? "demo-project-001",
         scenarioId: input.scenarioId,
         specificationId: input.specificationId,
         retryOfRunId: input.retryOfRunId,
@@ -1753,12 +1756,35 @@ export class MtrRepository {
     return this.getScenarioRun(userId, runId);
   }
 
+  async getScenarioRunInProject(
+    userId: string,
+    projectId: string,
+    runId: string,
+  ): Promise<ScenarioRun | null> {
+    trustedUser(userId);
+    const [row] = await this.db
+      .select()
+      .from(scenarioRuns)
+      .where(
+        and(
+          eq(scenarioRuns.userId, userId),
+          eq(scenarioRuns.projectId, projectId),
+          eq(scenarioRuns.id, runId),
+        ),
+      )
+      .limit(1);
+    if (!row) return null;
+    const steps = await this.listScenarioRunSteps(userId, runId);
+    return toScenarioRun(row, steps);
+  }
+
   async listScenarioRuns(
     userId: string,
     options: ScenarioRunQuery = {},
   ): Promise<ScenarioRun[]> {
     trustedUser(userId);
     const conditions: SQL[] = [eq(scenarioRuns.userId, userId)];
+    if (options.projectId) conditions.push(eq(scenarioRuns.projectId, options.projectId));
     if (options.scenarioId) conditions.push(eq(scenarioRuns.scenarioId, options.scenarioId));
     if (options.status) conditions.push(eq(scenarioRuns.status, options.status));
     const rows = await this.db
@@ -1942,6 +1968,7 @@ export class MtrRepository {
       select
         updated_run.id as "runId",
         updated_run.user_id as "runUserId",
+        updated_run.project_id as "runProjectId",
         updated_run.scenario_id as "runScenarioId",
         updated_run.specification_id as "runSpecificationId",
         updated_run.retry_of_run_id as "runRetryOfRunId",
@@ -2098,6 +2125,7 @@ export class MtrRepository {
         select
           updated_run.id as "runId",
           updated_run.user_id as "runUserId",
+          updated_run.project_id as "runProjectId",
           updated_run.scenario_id as "runScenarioId",
           updated_run.specification_id as "runSpecificationId",
           updated_run.retry_of_run_id as "runRetryOfRunId",
@@ -2254,6 +2282,7 @@ export class MtrRepository {
         select
           updated_run.id as "runId",
           updated_run.user_id as "runUserId",
+          updated_run.project_id as "runProjectId",
           updated_run.scenario_id as "runScenarioId",
           updated_run.specification_id as "runSpecificationId",
           updated_run.retry_of_run_id as "runRetryOfRunId",
@@ -4037,6 +4066,7 @@ function scenarioRunRowFromTransition(row: Record<string, unknown>): typeof scen
   return {
     id: String(row.runId),
     userId: String(row.runUserId),
+    projectId: row.runProjectId === null ? null : String(row.runProjectId),
     scenarioId: String(row.runScenarioId),
     specificationId: String(row.runSpecificationId),
     retryOfRunId: row.runRetryOfRunId === null ? null : String(row.runRetryOfRunId),

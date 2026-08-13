@@ -479,6 +479,7 @@ export const scenarioRuns = pgTable(
   {
     id: text("id").primaryKey(),
     userId: text("user_id").notNull().references(() => users.id),
+    projectId: text("project_id").default("demo-project-001"),
     scenarioId: text("scenario_id").notNull().references(() => scenarios.id),
     specificationId: text("specification_id").notNull().references(() => specifications.id),
     retryOfRunId: text("retry_of_run_id"),
