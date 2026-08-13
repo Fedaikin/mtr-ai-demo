@@ -6,16 +6,22 @@ const mocks = vi.hoisted(() => ({
   authorization: null as TrustedRequestContext | null,
   handle: vi.fn(),
   listAgentThreads: vi.fn(),
+  listAgentMessages: vi.fn(),
   appendAgentMessage: vi.fn(),
   getActivePrompt: vi.fn(),
+  listAgentMetricEvents: vi.fn(),
+  listMaterialMovements: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/adapters/persistence/repository", () => ({
   getRepository: vi.fn(async () => ({
     listAgentThreads: mocks.listAgentThreads,
+    listAgentMessages: mocks.listAgentMessages,
     appendAgentMessage: mocks.appendAgentMessage,
     getActivePrompt: mocks.getActivePrompt,
+    listAgentMetricEvents: mocks.listAgentMetricEvents,
+    listMaterialMovements: mocks.listMaterialMovements,
   })),
 }));
 vi.mock("@/lib/session", () => ({
@@ -33,14 +39,16 @@ vi.mock("@/app/api/agent/_shared", async (importOriginal) => {
   };
 });
 
-import { POST } from "@/app/api/agent/threads/[id]/messages/route";
+import { GET, POST } from "@/app/api/agent/threads/[id]/messages/route";
 
 describe("agent messages route canonical context handoff", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.authorization = trustedContext();
     mocks.listAgentThreads.mockResolvedValue([{ id: "thread-1" }]);
+    mocks.listAgentMessages.mockResolvedValue([]);
     mocks.getActivePrompt.mockResolvedValue({ promptVersion: "prompt-v2" });
+    mocks.listAgentMetricEvents.mockResolvedValue([{ id: "event-1" }]);
     mocks.appendAgentMessage
       .mockResolvedValueOnce(messageBundle("user-message", "user", "Покажи остатки"))
       .mockResolvedValueOnce(messageBundle("assistant-message", "assistant", "Подтверждено"));
@@ -153,6 +161,32 @@ describe("agent messages route canonical context handoff", () => {
         }],
       }),
     );
+  });
+
+  it("повторно проверяет сохранённые citations после отзыва permission", async () => {
+    mocks.authorization = {
+      ...trustedContext(),
+      permissionKeys: new Set(["agent.chat"]),
+    };
+    mocks.listAgentMessages.mockResolvedValue([{
+      ...messageBundle("assistant-message", "assistant", "Старый ответ"),
+      citations: [{
+        id: "citation-1",
+        messageId: "assistant-message",
+        userId: "subject-1",
+        sourceSystem: "SAP",
+        entityId: "SAP-DEMO-0001",
+        versionOrSnapshot: "snapshot-1",
+        clauseId: null,
+      }],
+    }]);
+
+    const response = await GET(new Request("http://localhost"), routeContext("thread-1"));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      items: [expect.objectContaining({ content: "Старый ответ", citations: [] })],
+    });
   });
 });
 

@@ -39,6 +39,7 @@ export type Dimensions = Record<string, number | string | boolean | null>;
 export interface Specification {
   id: string;
   userId: string;
+  projectId?: string;
   projectCode: string;
   name: string;
   latestVersionId: string;
@@ -66,6 +67,7 @@ export interface SpecificationVersion {
 export interface Position {
   id: string;
   userId: string;
+  projectId?: string;
   internalCode: string;
   nameRu: string;
   nameEn?: string;

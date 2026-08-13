@@ -128,7 +128,10 @@ export function serializeAgentThread(thread: ThreadRow) {
   };
 }
 
-export function serializeAgentMessage(bundle: MessageBundle) {
+export function serializeAgentMessage(
+  bundle: MessageBundle,
+  authorizedCitations: MessageBundle["citations"] = bundle.citations,
+) {
   const assistant = bundle.message.role === "assistant";
   const decision = assistant
     ? toPublicAgentDecision(bundle.message.content, bundle.message.structuredOutput)
@@ -147,7 +150,7 @@ export function serializeAgentMessage(bundle: MessageBundle) {
         }
       : null,
     createdAt: bundle.message.createdAt,
-    citations: bundle.citations.map((citation) => ({
+    citations: authorizedCitations.map((citation) => ({
       sourceSystem: citation.sourceSystem,
       entityId: citation.entityId,
       versionOrSnapshot: citation.versionOrSnapshot,

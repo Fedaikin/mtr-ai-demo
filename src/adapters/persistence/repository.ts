@@ -1097,6 +1097,7 @@ export class MtrRepository {
     const positions = rows.map(({ position, versionNumber, isCurrentVersion, specificationName }) => ({
       id: position.id,
       userId: position.userId,
+      ...(position.projectId ? { projectId: position.projectId } : {}),
       internalCode: position.internalCode,
       nameRu: position.nameRu,
       ...(position.nameEn ? { nameEn: position.nameEn } : {}),
@@ -1141,6 +1142,7 @@ export class MtrRepository {
       return {
         id: position.id,
         userId,
+        ...(historic.version.projectId ? { projectId: historic.version.projectId } : {}),
         internalCode: position.internalCode,
         nameRu: position.nameRu,
         ...(position.nameEn ? { nameEn: position.nameEn } : {}),

@@ -1,6 +1,7 @@
 import { getRepository } from "@/adapters/persistence/repository";
 import { AuthorizationError } from "@/application/authorization-service";
 import { projectAgentCommandResult } from "@/application/agent-orchestrator/public-projection";
+import { reauthorizeSavedAgentCitations } from "@/application/agent-orchestrator/citation-authorization";
 import { AgentContextError } from "@/domain/agent/context";
 import { ApiError, created, ok, parseJson, toErrorResponse } from "@/lib/api";
 import { requirePermission } from "@/lib/session";
@@ -31,19 +32,41 @@ export async function GET(_request: Request, { params }: MessagesRouteContext) {
       repositoryPromise,
     ]);
 
-    const thread = await requireOwnedAgentThread(repository, session.user.id, threadId);
+    const subjectId = session.authorization.subjectId;
+    const thread = await requireOwnedAgentThread(repository, subjectId, threadId);
     if (!thread) {
       throw new ApiError(404, "AGENT_THREAD_NOT_FOUND", "Диалог агента не найден");
     }
 
-    const messages = await repository.listAgentMessages(session.user.id, threadId);
+    const messages = await repository.listAgentMessages(subjectId, threadId);
+    const visibleMessages = messages.filter(isUserVisibleAgentMessage);
+    const authorizedCitations = await reauthorizeSavedAgentCitations(
+      session.authorization,
+      repository,
+      visibleMessages.flatMap((message) => message.citations),
+    );
+    const authorizedCitationKeys = new Set(authorizedCitations.map(citationKey));
+    const items = visibleMessages.map((message) => serializeAgentMessage(
+      message,
+      message.citations.filter((citation) => authorizedCitationKeys.has(citationKey(citation))),
+    ));
     return ok(
-      { items: messages.filter(isUserVisibleAgentMessage).map(serializeAgentMessage) },
+      { items },
       { headers: { "cache-control": "no-store" } },
     );
   } catch (error) {
     return toErrorResponse(error);
   }
+}
+
+function citationKey(citation: {
+  readonly sourceSystem: string;
+  readonly entityId: string;
+  readonly versionOrSnapshot: string;
+  readonly clauseId: string | null;
+}): string {
+  return [citation.sourceSystem, citation.entityId, citation.versionOrSnapshot, citation.clauseId ?? ""]
+    .join("\u0000");
 }
 
 export async function POST(request: Request, { params }: MessagesRouteContext) {
@@ -123,8 +146,16 @@ export async function POST(request: Request, { params }: MessagesRouteContext) {
       citations: assistant.citations,
     });
 
+    const authorizedAssistantCitations = await reauthorizeSavedAgentCitations(
+      session.authorization,
+      repository,
+      assistantMessage.citations,
+    );
     return created({
-      items: [serializeAgentMessage(userMessage), serializeAgentMessage(assistantMessage)],
+      items: [
+        serializeAgentMessage(userMessage),
+        serializeAgentMessage(assistantMessage, authorizedAssistantCitations),
+      ],
     });
   } catch (error) {
     if (error instanceof AgentContextError) {
