@@ -18,7 +18,7 @@ export function AppNavigation({
   return (
     <nav
       aria-label="Основная навигация"
-      className="flex gap-1 overflow-x-auto px-3 py-3 lg:block lg:space-y-5 lg:overflow-visible"
+      className="flex gap-1 overflow-x-auto px-3 py-3 lg:block lg:min-h-0 lg:flex-1 lg:space-y-5 lg:overflow-x-hidden lg:overflow-y-auto"
     >
       {userItems.length > 0 ? <NavGroup label="Рабочее место" items={userItems} activeHref={activeHref} /> : null}
       {adminItems.length > 0 ? <NavGroup label="Администрирование" items={adminItems} activeHref={activeHref} /> : null}
@@ -37,7 +37,7 @@ function NavGroup({
 }) {
   return (
     <div className="shrink-0">
-      <p className="mb-1 hidden px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 lg:block">
+      <p className="mb-1 hidden px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 lg:block">
         {label}
       </p>
       <div className="flex gap-1 lg:block lg:space-y-0.5">

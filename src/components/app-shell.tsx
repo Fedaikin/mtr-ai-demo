@@ -45,7 +45,7 @@ export function AppShell({ children, displayName, login, permissionKeys, roleKey
         Перейти к содержимому
       </a>
       <div className="mx-auto grid min-h-screen w-full max-w-[1440px] grid-cols-[minmax(0,1fr)] lg:grid-cols-[232px_minmax(0,1fr)]">
-        <aside className="min-w-0 border-b border-slate-200 bg-white lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r">
+        <aside className="min-w-0 border-b border-slate-200 bg-white lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col lg:overflow-hidden lg:border-b-0 lg:border-r">
           <div className="flex h-16 items-center justify-between border-b border-slate-100 px-5">
             <Link href="/" className="focus-ring rounded-md" aria-label="МТР — на главную">
               <span className="block text-[11px] font-semibold uppercase tracking-[0.16em] text-teal-700">
@@ -58,7 +58,7 @@ export function AppShell({ children, displayName, login, permissionKeys, roleKey
             </span>
           </div>
           <AppNavigation userItems={userItems} adminItems={adminItems} />
-          <div className="hidden border-t border-slate-100 p-4 lg:absolute lg:bottom-0 lg:block lg:w-[231px]">
+          <div className="hidden shrink-0 border-t border-slate-100 bg-white p-4 lg:block">
             <p className="text-xs text-slate-500">Текущий пользователь</p>
             <p className="mt-1 truncate text-sm font-medium">{displayName}</p>
             <p className="mt-1 text-[11px] leading-4 text-teal-700">{roleNames || "Без активной роли"}</p>
