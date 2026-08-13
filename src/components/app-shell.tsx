@@ -16,6 +16,7 @@ const USER_NAVIGATION = [
   { name: "МТР-анализ", href: "/mtr-analysis", permissions: ["report.read"] },
   { name: "Экспертная очередь", href: "/reviews", permissions: ["review.queue.read"] },
   { name: "Пульс МТР", href: "/pulse", permissions: ["analysis.read"] },
+  { name: "Справка", href: "/help", permissions: ["profile.read.own"] },
 ] as const;
 
 const ADMIN_NAVIGATION = [

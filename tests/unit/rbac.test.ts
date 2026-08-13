@@ -22,6 +22,7 @@ describe("scoped RBAC", () => {
   it.each(negative)("%s does not grant %s", (role, permission) => expect(expandRolePermissions([role]).has(permission)).toBe(false));
 
   it("inherits analyst into manager", () => expect(expandRolePermissions(["PROJECT_MANAGER"]).has("specification.upload")).toBe(true));
+  it.each(["PROJECT_VIEWER", "MTR_ANALYST", "MTR_EXPERT", "PROJECT_MANAGER", "SYSTEM_ADMIN", "AUDITOR"] as const)("makes help navigation available to human role %s", (role) => expect(expandRolePermissions([role]).has("profile.read.own")).toBe(true));
   it("detects auditor and admin conflict", () => expect(hasRoleConflict(["AUDITOR", "SYSTEM_ADMIN"])).toBe(true));
   it("allows auditor with viewer", () => expect(hasRoleConflict(["AUDITOR", "PROJECT_VIEWER"])).toBe(false));
 });

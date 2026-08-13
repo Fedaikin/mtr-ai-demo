@@ -16,6 +16,7 @@ describe("resolveActiveNavigationHref", () => {
     ["/modeling", "/admin/scenarios"],
     ["/admin/scenarios", "/admin/scenarios"],
     ["/pulse", "/pulse"],
+    ["/help", "/help"],
   ])("marks the expected section for %s", (pathname, expected) => {
     expect(resolveActiveNavigationHref(pathname)).toBe(expected);
   });
