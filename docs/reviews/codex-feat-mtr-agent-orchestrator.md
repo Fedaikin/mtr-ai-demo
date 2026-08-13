@@ -48,7 +48,7 @@ HTTP принимает только сообщение и selection hints. Iden
 
 - `pnpm check`: PASS;
 - ESLint и TypeScript: PASS;
-- Vitest: 112 файлов / 472 теста PASS;
+- Vitest: 112 файлов / 473 теста PASS;
 - privacy scan: 407 файлов PASS;
 - agent eval: 34/34 PASS;
 - production build и 2 PDF runtime assets: PASS;

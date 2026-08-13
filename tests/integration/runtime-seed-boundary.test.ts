@@ -93,6 +93,27 @@ describe.sequential("authenticated runtime seed boundary", () => {
       },
     });
   });
+
+  it("reports the canonical eight-subject RBAC seed as ready", async () => {
+    await createPersistedProtectedContext();
+    const response = await healthCheck(
+      new Request("http://localhost/api/health?check=ready"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      status: "ok",
+      seed: {
+        status: "ok",
+        counts: {
+          users: 8,
+          canonicalPositions: 24,
+          sapMaterials: 30,
+          sapBalances: 30,
+        },
+      },
+    });
+  });
 });
 
 async function createPersistedProtectedContext() {
