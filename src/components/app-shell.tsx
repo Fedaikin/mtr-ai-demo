@@ -10,6 +10,7 @@ import { ROLE_LABELS, type PermissionKey, type RoleKey } from "@/domain/rbac";
 
 const USER_NAVIGATION = [
   { name: "Обзор", href: "/", permissions: ["project.read"] },
+  { name: "Общая аналитика", href: "/analytics", permissions: ["analysis.read"] },
   { name: "Промышленный каталог", href: "/catalog", permissions: ["catalog.read"] },
   { name: "Спецификации", href: "/specifications", permissions: ["specification.read"] },
   { name: "МТР-анализ", href: "/mtr-analysis", permissions: ["report.read"] },

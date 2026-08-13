@@ -6,6 +6,7 @@ describe("resolveActiveNavigationHref", () => {
   it.each([
     ["/agent", "/mtr-analysis"],
     ["/mtr-analysis", "/mtr-analysis"],
+    ["/analytics", "/analytics"],
     ["/catalog", "/catalog"],
     ["/catalog/CAT-DEMO-PIP-0005", "/catalog"],
     ["/materials/SAP-DEMO-0001", "/mtr-analysis"],

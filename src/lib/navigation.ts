@@ -7,6 +7,7 @@ const ANALYTICS_RELATED_PREFIXES = ["/agent", "/mtr-analysis", "/materials/", "/
 
 export function resolveActiveNavigationHref(pathname: string): string {
   if (pathname === "/") return "/";
+  if (pathname === "/analytics" || pathname.startsWith("/analytics/")) return "/analytics";
   if (pathname === "/catalog" || pathname.startsWith("/catalog/")) return "/catalog";
   if (ANALYTICS_RELATED_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(prefix))) {
     return "/mtr-analysis";
