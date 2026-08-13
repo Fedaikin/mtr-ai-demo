@@ -80,17 +80,31 @@ describe.sequential("production-shaped persistence ports МТР-агента", (
     );
   });
 
-  it.each(["MY_TASKS", "RISKS", "KPI"] as const)(
+  it("читает канонический task source и доказывает пустую личную очередь", async () => {
+    const adapters = createAgentOrchestratorPersistencePorts(repository);
+    const context = executionContext(specificationId, warehouseId);
+    const result = await adapters.tasks.listMine(context, {
+      selection: validatedSelection(specificationId),
+      assigneeSubjectId: DEMO_USER_ID,
+    });
+
+    expect(result.items).toEqual([]);
+    expect(result.evidence).toMatchObject({
+      availability: "COMPLETE",
+      confidence: 1,
+      coverage: { complete: true },
+    });
+    expect(result.evidence.citations).toEqual([
+      expect.objectContaining({ sourceKind: "TASK_RECORD", sourceSystem: "TASK_STORE" }),
+    ]);
+  });
+
+  it.each(["RISKS", "KPI"] as const)(
     "не подменяет отсутствующий runtime store fixture-ответом для %s",
     async (commandKey) => {
       const adapters = createAgentOrchestratorPersistencePorts(repository);
       const context = executionContext(specificationId, warehouseId);
-      const result = commandKey === "MY_TASKS"
-        ? await adapters.tasks.listMine(context, {
-            selection: validatedSelection(specificationId),
-            assigneeSubjectId: DEMO_USER_ID,
-          })
-        : commandKey === "RISKS"
+      const result = commandKey === "RISKS"
           ? await adapters.risks.evaluate(context, {
               selection: validatedSelection(specificationId),
               levels: ["HIGH"],

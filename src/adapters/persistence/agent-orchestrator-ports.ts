@@ -1,6 +1,8 @@
 import "server-only";
 
 import type { MtrRepository } from "@/adapters/persistence/repository";
+import { createAnalysisReviewDecisionReadPort } from "@/adapters/persistence/agent-task-port";
+import { AgentTaskService } from "@/application/agent-orchestrator/task-service";
 import { AgentCommandExecutionError } from "@/domain/agent/errors";
 import type { AgentExecutionContext } from "@/domain/agent/context";
 import type {
@@ -24,6 +26,7 @@ const MAX_STOCK_PAGE = 500;
 export function createAgentOrchestratorPersistencePorts(
   repository: MtrRepository,
 ): AgentOrchestratorPorts {
+  const taskService = new AgentTaskService(createAnalysisReviewDecisionReadPort(repository));
   return {
     summary: {
       async read(context, query) {
@@ -152,13 +155,45 @@ export function createAgentOrchestratorPersistencePorts(
         if (query.assigneeSubjectId !== context.trusted.subjectId) {
           throw new AgentCommandExecutionError("AGENT_SELECTION_STALE");
         }
+        const snapshot = await taskService.listPersonal(context, {
+          projectId: query.selection.projectId,
+          statuses: query.statuses,
+          priorities: query.priorities,
+        });
+        const requestedScope = selectionScope(query.selection);
         return {
-          items: [],
-          evidence: unavailableEvidence(
-            "TASK_STORE_UNAVAILABLE",
-            "Каноническое хранилище персональных задач ещё не подключено",
-            selectionScope(query.selection),
-          ),
+          items: snapshot.tasks.map((task) => ({
+            id: task.id,
+            title: task.title,
+            status: task.status,
+            priority: task.priority,
+            dueAt: task.dueAt,
+          })),
+          evidence: {
+            availability: snapshot.availability,
+            confidence: snapshot.complete ? 1 : 0,
+            coverage: {
+              requestedScope,
+              checkedScope: snapshot.complete ? requestedScope : [],
+              complete: snapshot.complete,
+            },
+            citations: snapshot.tasks.length > 0
+              ? snapshot.tasks.map((task) => ({
+                  sourceKind: "TASK_RECORD" as const,
+                  sourceSystem: "TASK_STORE" as const,
+                  entityId: task.id,
+                  sourceSnapshot: task.updatedAt,
+                  observedAt: snapshot.snapshotAt,
+                }))
+              : [{
+                  sourceKind: "TASK_RECORD" as const,
+                  sourceSystem: "TASK_STORE" as const,
+                  entityId: `task-query:${context.trusted.subjectId}:${query.selection.projectId}`,
+                  sourceSnapshot: snapshot.snapshotAt,
+                  observedAt: snapshot.snapshotAt,
+                }],
+            missingData: snapshot.missingData,
+          },
         };
       },
     },

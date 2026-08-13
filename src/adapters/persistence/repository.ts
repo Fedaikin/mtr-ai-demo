@@ -122,6 +122,20 @@ export interface SapSearchResult {
   nextSkip?: number;
 }
 
+export interface AnalysisReviewTaskRow {
+  readonly id: string;
+  readonly ownerSubjectId: string;
+  readonly projectId: string;
+  readonly runId: string;
+  readonly resultId: string;
+  readonly positionId: string;
+  readonly status: string;
+  readonly doublecheckOutcome: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly decidedAt: string | null;
+}
+
 export interface CatalogOverview {
   items: number;
   components: number;
@@ -2793,6 +2807,39 @@ export class MtrRepository {
       eq(analysisReviewDecisions.userId, userId),
       eq(analysisReviewDecisions.runId, runId),
     )).orderBy(asc(analysisReviewDecisions.positionId));
+  }
+
+  async listAnalysisReviewTasksInProject(
+    userId: string,
+    projectId: string,
+  ): Promise<AnalysisReviewTaskRow[]> {
+    trustedUser(userId);
+    const rows = await this.db
+      .select({ review: analysisReviewDecisions, runProjectId: scenarioRuns.projectId })
+      .from(analysisReviewDecisions)
+      .innerJoin(
+        scenarioRuns,
+        and(
+          eq(scenarioRuns.id, analysisReviewDecisions.runId),
+          eq(scenarioRuns.userId, userId),
+          eq(scenarioRuns.projectId, projectId),
+        ),
+      )
+      .where(eq(analysisReviewDecisions.userId, userId))
+      .orderBy(desc(analysisReviewDecisions.updatedAt), asc(analysisReviewDecisions.id));
+    return rows.map(({ review, runProjectId }) => ({
+      id: review.id,
+      ownerSubjectId: review.userId,
+      projectId: runProjectId ?? projectId,
+      runId: review.runId,
+      resultId: review.resultId,
+      positionId: review.positionId,
+      status: review.status,
+      doublecheckOutcome: review.doublecheckOutcome,
+      createdAt: review.createdAt,
+      updatedAt: review.updatedAt,
+      decidedAt: review.decidedAt,
+    }));
   }
 
   async decideAnalysisReview(
