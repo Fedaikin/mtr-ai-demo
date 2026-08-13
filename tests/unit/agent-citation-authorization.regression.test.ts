@@ -19,6 +19,7 @@ describe("saved agent citation reauthorization", () => {
     listAgentMetricEvents: vi.fn(),
     listMaterialMovements: vi.fn(),
     listAnalysisReviewTasksInProject: vi.fn(),
+    listAgentAssignedTasksInProject: vi.fn(),
   };
 
   beforeEach(() => {

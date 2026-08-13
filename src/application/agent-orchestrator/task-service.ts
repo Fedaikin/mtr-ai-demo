@@ -7,6 +7,8 @@ import type { AgentEvidenceAvailability, AgentMissingData } from "@/domain/agent
 import {
   TASK_REVIEW_PRIORITIES,
   TASK_REVIEW_STATUSES,
+  TASK_REVIEW_KINDS,
+  PERSONAL_TASK_ACTIONS,
   type PersonalTaskAction,
   type TaskReviewPriority,
   type TaskReviewStatus,
@@ -14,6 +16,7 @@ import {
 import type {
   AnalysisReviewDecisionReadPort,
   AnalysisReviewDecisionTaskRecord,
+  AssignedAgentTaskRecord,
 } from "@/ports/agent-tasks";
 
 const PRIORITY_WEIGHT: Readonly<Record<TaskReviewPriority, number>> = {
@@ -76,6 +79,19 @@ export class AgentTaskService {
       if (!previous || compareTimestamp(task.updatedAt, previous.updatedAt) > 0) byId.set(task.id, task);
     }
 
+    for (const row of source.assignedTasks ?? []) {
+      if (row.ownerSubjectId !== context.trusted.subjectId || row.projectId !== projectId) continue;
+      const task = projectAssignedTask(row);
+      if (!task) {
+        invalidRows += 1;
+        continue;
+      }
+      if (filter.statuses && !filter.statuses.includes(task.status)) continue;
+      if (filter.priorities && !filter.priorities.includes(task.priority)) continue;
+      const previous = byId.get(task.id);
+      if (!previous || compareTimestamp(task.updatedAt, previous.updatedAt) > 0) byId.set(task.id, task);
+    }
+
     if (invalidRows > 0) {
       missingData.push({
         code: "ANALYSIS_REVIEW_ROWS_UNSUPPORTED",
@@ -94,6 +110,34 @@ export class AgentTaskService {
       missingData: Object.freeze(missingData),
     });
   }
+}
+
+function projectAssignedTask(row: AssignedAgentTaskRecord): PersonalReviewTask | null {
+  if (
+    !TASK_REVIEW_KINDS.includes(row.kind as (typeof TASK_REVIEW_KINDS)[number]) ||
+    !TASK_REVIEW_STATUSES.includes(row.status as TaskReviewStatus) ||
+    !TASK_REVIEW_PRIORITIES.includes(row.priority as TaskReviewPriority) ||
+    !validTimestamp(row.createdAt) ||
+    !validTimestamp(row.updatedAt)
+  ) return null;
+  const allowedActions = row.allowedActions.filter((action): action is PersonalTaskAction =>
+    PERSONAL_TASK_ACTIONS.includes(action as PersonalTaskAction));
+  return Object.freeze({
+    id: row.id,
+    reviewDecisionId: row.reviewDecisionId ?? "",
+    kind: row.kind as (typeof TASK_REVIEW_KINDS)[number],
+    projectId: row.projectId,
+    runId: row.resourceType === "SCENARIO_RUN" ? row.resourceId : "",
+    positionId: row.resourceType === "POSITION" ? row.resourceId : "",
+    title: safeLabel(row.title, "Экспертное задание"),
+    status: row.status as TaskReviewStatus,
+    priority: row.priority as TaskReviewPriority,
+    dueAt: row.dueAt && validTimestamp(row.dueAt) ? row.dueAt : null,
+    href: `/mtr-analysis?task=${encodeURIComponent(row.id)}`,
+    allowedActions,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  });
 }
 
 export class AgentTaskServiceError extends Error {

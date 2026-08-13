@@ -35,6 +35,10 @@ export interface AgentCitationReadPort {
     userId: string,
     projectId: string,
   ): Promise<readonly { id: string }[]>;
+  listAgentAssignedTasksInProject(
+    userId: string,
+    projectId: string,
+  ): Promise<readonly { id: string }[]>;
 }
 
 /**
@@ -139,8 +143,13 @@ async function isReadable(
     case "TASK_STORE": {
       if (!can(context, "review.read", { resourceType: "review_task", resourceId: citation.entityId, projectId, ownerUserId: context.subjectId })) return false;
       if (citation.entityId === `task-query:${context.subjectId}:${projectId}`) return true;
-      const tasks = await memoizedRead(reads, "review-tasks", () =>
-        repository.listAnalysisReviewTasksInProject(context.subjectId, projectId));
+      const tasks = await memoizedRead(reads, "review-tasks", async () => {
+        const [reviewTasks, assignedTasks] = await Promise.all([
+          repository.listAnalysisReviewTasksInProject(context.subjectId, projectId),
+          repository.listAgentAssignedTasksInProject(context.subjectId, projectId),
+        ]);
+        return [...reviewTasks, ...assignedTasks];
+      });
       return tasks.some((task) => task.id === citation.entityId);
     }
     default:

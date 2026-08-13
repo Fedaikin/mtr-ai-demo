@@ -63,6 +63,7 @@ import { getSeedCounts, resetDemoDatabase, type SeedCounts } from "./bootstrap";
 import { type Database, getDatabase } from "./db";
 import {
   analysisReviewDecisions,
+  agentTasks,
   agentMetricEvents,
   agentCitations,
   agentMessages,
@@ -136,6 +137,47 @@ export interface AnalysisReviewTaskRow {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly decidedAt: string | null;
+}
+
+export interface AgentAssignedTaskRow {
+  readonly id: string;
+  readonly projectId: string;
+  readonly caseId: string | null;
+  readonly reviewDecisionId: string | null;
+  readonly assigneeUserId: string;
+  readonly assignedByUserId: string;
+  readonly kind: string;
+  readonly status: string;
+  readonly priority: string;
+  readonly title: string;
+  readonly reason: string;
+  readonly resourceType: string;
+  readonly resourceId: string;
+  readonly allowedActions: readonly string[];
+  readonly dueAt: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface CreateAgentAssignedTaskInput {
+  readonly id: string;
+  readonly projectId: string;
+  readonly caseId: string;
+  readonly reviewDecisionId?: string | null;
+  readonly assigneeUserId: string;
+  readonly kind: "ANALYSIS_REVIEW" | "EXPERT_REVIEW" | "DATA_CLARIFICATION" | "TECHNICAL";
+  readonly priority: "LOW" | "NORMAL" | "HIGH" | "CRITICAL";
+  readonly title: string;
+  readonly reason: string;
+  readonly resourceType: string;
+  readonly resourceId: string;
+  readonly allowedActions: readonly string[];
+  readonly dueAt?: string | null;
+  readonly idempotencyKey: string;
+  readonly authorizationVersion: number;
+  readonly roleAssignmentSnapshot: readonly string[];
+  readonly occurredAt: string;
+  readonly requestId: string;
 }
 
 export interface AgentMetricEventQuery {
@@ -2872,6 +2914,138 @@ export class MtrRepository {
     }));
   }
 
+  async findActiveProjectExpert(
+    actorUserId: string,
+    projectId: string,
+    requestedAssigneeUserId?: string | null,
+  ): Promise<string | null> {
+    trustedUser(actorUserId);
+    const requested = requestedAssigneeUserId?.trim() || null;
+    const candidates = executedRows(await this.db.execute(sql`
+      select u.id
+      from users u
+      join project_memberships pm on pm.user_id = u.id and pm.project_id = ${projectId}
+      join role_assignments ra on ra.user_id = u.id and ra.project_id = ${projectId}
+      join roles r on r.id = ra.role_id
+      where u.status = 'ACTIVE'
+        and pm.status = 'ACTIVE'
+        and pm.valid_from <= now() and (pm.valid_until is null or pm.valid_until > now())
+        and ra.status = 'ACTIVE'
+        and ra.valid_from <= now() and (ra.valid_until is null or ra.valid_until > now())
+        and r.active = true and r.key = 'MTR_EXPERT'
+        and (${requested}::text is null or u.id = ${requested})
+      order by u.id
+      limit 1
+    `));
+    return candidates[0]?.id ? String(candidates[0].id) : null;
+  }
+
+  async createOrGetAgentAssignedTask(
+    assignedByUserId: string,
+    input: CreateAgentAssignedTaskInput,
+  ): Promise<AgentAssignedTaskRow> {
+    trustedUser(assignedByUserId);
+    return this.db.transaction(async (transaction) => {
+      const tx = transaction as unknown as Database;
+      const [expert] = executedRows(await tx.execute(sql`
+        select u.id
+        from users u
+        join project_memberships pm on pm.user_id = u.id and pm.project_id = ${input.projectId}
+        join role_assignments ra on ra.user_id = u.id and ra.project_id = ${input.projectId}
+        join roles r on r.id = ra.role_id
+        where u.id = ${input.assigneeUserId}
+          and u.status = 'ACTIVE' and pm.status = 'ACTIVE' and ra.status = 'ACTIVE' and r.active = true
+          and pm.valid_from <= now() and (pm.valid_until is null or pm.valid_until > now())
+          and ra.valid_from <= now() and (ra.valid_until is null or ra.valid_until > now())
+          and r.key = 'MTR_EXPERT'
+        limit 1
+      `));
+      if (!expert) throw new Error("AGENT_TASK_ASSIGNEE_NOT_EXPERT");
+
+      const [existing] = await tx.select().from(agentTasks).where(and(
+        eq(agentTasks.tenantId, "demo-tenant-001"),
+        eq(agentTasks.projectId, input.projectId),
+        eq(agentTasks.idempotencyKey, input.idempotencyKey),
+      )).limit(1);
+      if (existing) return toAgentAssignedTask(existing);
+
+      const [created] = await tx.insert(agentTasks).values({
+        id: input.id,
+        tenantId: "demo-tenant-001",
+        projectId: input.projectId,
+        caseId: input.caseId,
+        reviewDecisionId: input.reviewDecisionId ?? null,
+        assigneeUserId: input.assigneeUserId,
+        assignedByUserId,
+        kind: input.kind,
+        status: "AWAITING_ACCEPTANCE",
+        priority: input.priority,
+        title: input.title,
+        reason: input.reason,
+        resourceType: input.resourceType,
+        resourceId: input.resourceId,
+        allowedActions: [...input.allowedActions],
+        assignmentHistory: [{
+          action: "ASSIGNED",
+          actorUserId: assignedByUserId,
+          assigneeUserId: input.assigneeUserId,
+          occurredAt: input.occurredAt,
+        }],
+        idempotencyKey: input.idempotencyKey,
+        dueAt: input.dueAt ?? null,
+        authorizationVersion: input.authorizationVersion,
+        roleAssignmentSnapshot: [...input.roleAssignmentSnapshot],
+        createdAt: input.occurredAt,
+        updatedAt: input.occurredAt,
+        retentionUntil: oneCalendarYearAfter(input.occurredAt),
+      }).onConflictDoNothing().returning();
+      if (!created) {
+        const [raced] = await tx.select().from(agentTasks).where(and(
+          eq(agentTasks.tenantId, "demo-tenant-001"),
+          eq(agentTasks.projectId, input.projectId),
+          eq(agentTasks.idempotencyKey, input.idempotencyKey),
+        )).limit(1);
+        if (!raced) throw new Error("AGENT_TASK_IDEMPOTENCY_RACE");
+        return toAgentAssignedTask(raced);
+      }
+      await tx.insert(auditLogs).values({
+        id: `audit-${randomUUID()}`,
+        userId: assignedByUserId,
+        actorDisplayName: assignedByUserId,
+        action: "agent.task.created",
+        entityType: "AGENT_TASK",
+        entityId: created.id,
+        outcome: "SUCCESS",
+        details: {
+          projectId: input.projectId,
+          caseId: input.caseId,
+          assigneeUserId: input.assigneeUserId,
+          kind: input.kind,
+          priority: input.priority,
+          authorizationVersion: input.authorizationVersion,
+          roleAssignmentSnapshot: input.roleAssignmentSnapshot,
+        },
+        occurredAt: input.occurredAt,
+        retentionUntil: oneCalendarYearAfter(input.occurredAt),
+        requestId: input.requestId,
+      });
+      return toAgentAssignedTask(created);
+    });
+  }
+
+  async listAgentAssignedTasksInProject(
+    assigneeUserId: string,
+    projectId: string,
+  ): Promise<AgentAssignedTaskRow[]> {
+    trustedUser(assigneeUserId);
+    const rows = await this.db.select().from(agentTasks).where(and(
+      eq(agentTasks.tenantId, "demo-tenant-001"),
+      eq(agentTasks.projectId, projectId),
+      eq(agentTasks.assigneeUserId, assigneeUserId),
+    )).orderBy(desc(agentTasks.updatedAt), asc(agentTasks.id));
+    return rows.map(toAgentAssignedTask);
+  }
+
   async listAgentMetricEvents(
     userId: string,
     query: AgentMetricEventQuery,
@@ -3719,6 +3893,28 @@ function toSpecificationVersion(row: typeof specificationVersions.$inferSelect):
     ...(row.publishedBy ? { publishedBy: row.publishedBy } : {}),
     ...(row.publishedAt ? { publishedAt: row.publishedAt } : {}),
     ...(row.validationSummary ? { validationSummary: row.validationSummary } : {}),
+  };
+}
+
+function toAgentAssignedTask(row: typeof agentTasks.$inferSelect): AgentAssignedTaskRow {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    caseId: row.caseId,
+    reviewDecisionId: row.reviewDecisionId,
+    assigneeUserId: row.assigneeUserId,
+    assignedByUserId: row.assignedByUserId,
+    kind: row.kind,
+    status: row.status,
+    priority: row.priority,
+    title: row.title,
+    reason: row.reason,
+    resourceType: row.resourceType,
+    resourceId: row.resourceId,
+    allowedActions: row.allowedActions,
+    dueAt: row.dueAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   };
 }
 

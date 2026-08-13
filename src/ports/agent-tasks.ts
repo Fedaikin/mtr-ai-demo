@@ -9,8 +9,8 @@ import type {
 import type { AgentEvidenceAvailability, AgentMissingData } from "@/domain/agent/evidence";
 
 /**
- * Read model built by an adapter over canonical `analysis_review_decisions`.
- * `projectId` must be joined from the owning run; no parallel review_tasks store is assumed.
+ * Read model combines canonical human decisions with confirmed orchestrator
+ * assignments. `projectId` is always resolved server-side from the owning scope.
  */
 export interface AnalysisReviewDecisionTaskRecord {
   readonly id: string;
@@ -26,6 +26,23 @@ export interface AnalysisReviewDecisionTaskRecord {
   readonly decidedAt: string | null;
 }
 
+export interface AssignedAgentTaskRecord {
+  readonly id: string;
+  readonly ownerSubjectId: string;
+  readonly projectId: string;
+  readonly reviewDecisionId: string | null;
+  readonly kind: string;
+  readonly status: string;
+  readonly priority: string;
+  readonly title: string;
+  readonly resourceType: string;
+  readonly resourceId: string;
+  readonly allowedActions: readonly string[];
+  readonly dueAt: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
 export interface AnalysisReviewDecisionReadQuery {
   readonly ownerSubjectId: string;
   readonly projectId: string;
@@ -36,6 +53,7 @@ export interface AnalysisReviewDecisionSnapshot {
   readonly availability: AgentEvidenceAvailability;
   readonly complete: boolean;
   readonly items: readonly AnalysisReviewDecisionTaskRecord[];
+  readonly assignedTasks?: readonly AssignedAgentTaskRecord[];
   readonly missingData: readonly AgentMissingData[];
 }
 

@@ -24,7 +24,11 @@ export function createAnalysisReviewDecisionReadPort(
         query.ownerSubjectId,
         query.projectId,
       );
-      const snapshotAt = rows.reduce(
+      const assignedTasks = await repository.listAgentAssignedTasksInProject(
+        query.ownerSubjectId,
+        query.projectId,
+      );
+      const snapshotAt = [...rows, ...assignedTasks].reduce(
         (latest, item) => Date.parse(item.updatedAt) > Date.parse(latest) ? item.updatedAt : latest,
         new Date().toISOString(),
       );
@@ -33,6 +37,22 @@ export function createAnalysisReviewDecisionReadPort(
         availability: "COMPLETE",
         complete: true,
         items: rows,
+        assignedTasks: assignedTasks.map((task) => ({
+          id: task.id,
+          ownerSubjectId: task.assigneeUserId,
+          projectId: task.projectId,
+          reviewDecisionId: task.reviewDecisionId,
+          kind: task.kind,
+          status: task.status,
+          priority: task.priority,
+          title: task.title,
+          resourceType: task.resourceType,
+          resourceId: task.resourceId,
+          allowedActions: task.allowedActions,
+          dueAt: task.dueAt,
+          createdAt: task.createdAt,
+          updatedAt: task.updatedAt,
+        })),
         missingData: [],
       };
     },

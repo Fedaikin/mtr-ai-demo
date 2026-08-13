@@ -85,8 +85,42 @@ export class PlatformAgentActionExecutor implements AgentActionExecutor {
         this.scheduler.scheduleScenarioRun(context.subjectId, run.id);
         return result("SCENARIO_RUN", run.id, "ACCEPTED", "Повторный запуск принят", `/runs/${encodeURIComponent(run.id)}`);
       }
-      case "CREATE_REVIEW_TASK":
-        return result("AGENT_TASK", proposal.caseId, "ACCEPTED", "Задание подготовлено в кейсе", `/mtr-analysis?case=${encodeURIComponent(proposal.caseId)}`);
+      case "CREATE_REVIEW_TASK": {
+        const requestedAssignee = stringParameter(proposal.parameters.assigneeUserId);
+        const assigneeUserId = await this.repository.findActiveProjectExpert(
+          context.subjectId,
+          proposal.projectId,
+          requestedAssignee,
+        );
+        if (!assigneeUserId) throw new Error("AGENT_TASK_EXPERT_UNAVAILABLE");
+        const task = await this.repository.createOrGetAgentAssignedTask(context.subjectId, {
+          id: `task-${proposal.id}`,
+          projectId: proposal.projectId,
+          caseId: proposal.caseId,
+          reviewDecisionId: stringParameter(proposal.parameters.reviewDecisionId),
+          assigneeUserId,
+          kind: "EXPERT_REVIEW",
+          priority: taskPriority(proposal.parameters.priority),
+          title: (stringParameter(proposal.parameters.title) ?? proposal.summary).slice(0, 300),
+          reason: (stringParameter(proposal.parameters.reason) ?? proposal.summary).slice(0, 500),
+          resourceType: proposal.resource.resourceType,
+          resourceId: proposal.resource.resourceId,
+          allowedActions: ["OPEN"],
+          dueAt: safeFutureTimestamp(proposal.parameters.dueAt, proposal.updatedAt),
+          idempotencyKey: proposal.idempotencyKey,
+          authorizationVersion: context.authorizationVersion,
+          roleAssignmentSnapshot: context.activeRoleAssignmentIds,
+          occurredAt: proposal.updatedAt,
+          requestId: context.requestId,
+        });
+        return result(
+          "AGENT_TASK",
+          task.id,
+          "ACCEPTED",
+          "Экспертное задание создано",
+          `/mtr-analysis?task=${encodeURIComponent(task.id)}`,
+        );
+      }
       case "PREPARE_REPORT_DRAFT": {
         const runId = requiredRunId(proposal);
         return result("REPORT_DRAFT", runId, "COMPLETED", "Черновик отчёта доступен для проверки", `/reports/${encodeURIComponent(runId)}`);
@@ -112,6 +146,20 @@ function requiredRunId(proposal: AgentActionProposal): string {
 
 function stringParameter(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function taskPriority(value: unknown): "LOW" | "NORMAL" | "HIGH" | "CRITICAL" {
+  return value === "LOW" || value === "NORMAL" || value === "HIGH" || value === "CRITICAL"
+    ? value
+    : "HIGH";
+}
+
+function safeFutureTimestamp(value: unknown, after: string): string | null {
+  if (typeof value !== "string") return null;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) && timestamp > Date.parse(after)
+    ? new Date(timestamp).toISOString()
+    : null;
 }
 
 function result(
