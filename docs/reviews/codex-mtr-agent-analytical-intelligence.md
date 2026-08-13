@@ -3,7 +3,7 @@
 Ветка: `codex/mtr-agent-analytical-intelligence`
 
 Base: `70543c6c34d6778695a07a5400006742ed5e3a21`
-Статус: Gate G0 зафиксирован; G1 remediation разрешён
+Статус: G1 завершён; deterministic G2/G3 vertical реализован, persistence/eval/Preview ещё открыты
 
 ## Scope
 
@@ -15,14 +15,14 @@ Base: `70543c6c34d6778695a07a5400006742ed5e3a21`
 ## Analytics trust boundary
 
 - [ ] Authorization и source filtering выполняются до retrieval.
-- [ ] Данные проходят coverage/quality/freshness gate до вывода.
-- [ ] LLM не вычисляет business metrics, forecast, scenario score или recommendation score.
-- [ ] Evidence graph восстанавливает каждый существенный derived result.
-- [ ] Forecast содержит model/version/backtest/interval/assumptions или abstains.
-- [ ] Причина отделена от корреляции.
-- [ ] Scenario immutable и не меняет operational state.
+- [x] Данные проходят coverage/quality/freshness gate до вывода.
+- [x] LLM не вычисляет business metrics, forecast, scenario score или recommendation score.
+- [ ] Evidence graph хранит source nodes, но durable lineage каждого derived result ещё не завершён.
+- [x] Forecast содержит model/version/backtest/interval/assumptions или abstains.
+- [x] Причина отделена от корреляции.
+- [x] Scenario immutable и не меняет operational state.
 - [ ] Verifier не создаёт факты и повторно авторизует citations.
-- [ ] Recommendation не является human decision.
+- [x] Recommendation не является human decision.
 
 ## Safety и lifecycle
 
@@ -35,9 +35,9 @@ Base: `70543c6c34d6778695a07a5400006742ed5e3a21`
 ## Gates
 
 - [x] G0 baseline/coverage: technical PASS, analytical completeness FAIL с точными denominators.
-- [ ] G1 semantic/data/evidence foundation.
-- [ ] G2 deterministic analytical engines.
-- [ ] G3 analytical runtime/verifier/UX.
+- [x] G1 semantic/data/evidence foundation.
+- [ ] G2 engines реализованы и unit/integration green; oracle/eval gate ещё не достигнут.
+- [ ] G3 unified `ANALYSIS` runtime/verifier/public UX реализован; durable rich history и citation reauthorization ещё открыты.
 - [ ] G4 recommendation/autonomy/feedback.
 - [ ] ≥200 eval, ≥40 E2E, held-out/adversarial/backtesting/scale.
 - [ ] Clean full gate, strict acceptance и scoped fix-loop.

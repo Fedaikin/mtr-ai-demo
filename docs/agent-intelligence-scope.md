@@ -58,8 +58,11 @@
 
 - Baseline: `BASE`, Appius portfolio `appius-portfolio-v1`, industrial catalogue `industrial-catalogue-demo-v1`, текущие SAP/normative/scenario fixtures.
 - Эталонные сценарии используют явный scope исходных трёх спецификаций и 24 позиций.
-- Новый analytical dataset обязан иметь собственные `datasetVersion`, schema version, deterministic seed, snapshot/provenance, oracle labels и скрытые future outcomes для backtesting.
+- Analytical dataset `g1-vertical-v1` создан отдельно от browse-корпуса: schema `1.0.0`, dataset version `1.0.0-DEMO`, deterministic seed/checksum, 12 specifications / 240 positions, 228 сквозных position → catalog → SAP mappings, 52 недели движений, 48 shortage cases и 24 future outcome oracles.
+- Semantic registry `semantic-registry-1.0.0`, quality gate, evidence graph, forecast/backtest, root-cause, scenario, verifier и public `ANALYSIS` projection реализованы в feature branch.
 - Scenario data являются авторитетными внутри замкнутого прототипа, но не должны менять пользователей/RBAC/auth или выдаваться за данные реального предприятия вне прототипа.
+
+Формулы и публичный контракт: [`mtr-analytics-semantic-layer.md`](./mtr-analytics-semantic-layer.md).
 
 ## Flags и provider
 
@@ -91,6 +94,7 @@
 - [x] Coverage matrix и baseline latency измерены.
 - [x] Branch review checklist обновлён фактическими evidence.
 
-Gate G0 result: baseline технически зелёный; analytical completeness `FAIL`.
-Следующий разрешённый шаг — только versioned `g1-vertical-v1`, semantic/data-quality
-contracts и evidence foundation. Пользователи, RBAC/auth и Production не меняются.
+Gate G0 result: baseline технически зелёный; исходная analytical completeness `FAIL`.
+G1 foundation и детерминированный G2/G3 vertical реализованы локально. Следующие
+обязательные шаги: durable analytical history/evidence, production-shaped eval corpus,
+расширенный E2E и строгая Preview-приёмка. Пользователи, RBAC/auth и Production не меняются.

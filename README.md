@@ -15,7 +15,7 @@
 | Сценарии | Серверный bounded runner после create/retry/manual import; UI только опрашивает состояние; работают cancel, совместимый `advance` и фактический snapshot файла (`sourceKind: UPLOADED_FILE`) |
 | Ручной импорт | Appius принимает CSV/XLS/XLSX, размеченный текст и позиционные TXT/DOCX/text-PDF ровно из четырёх полей `код / наименование / количество / единица`; смесь допустимых и отклонённых строк блокируется как `REVIEW_REQUIRED`; известный demo-image даёт фиксированный OCR, остальные изображения и scan-PDF требуют проверки. SAP fallback поддерживает только CSV/XLS/XLSX |
 | Отчёты | Интерактивный отчёт, версионное решение эксперта и экспорт JSON, XLSX, PDF |
-| МТР-агент | Единый runtime `CHAT / COMMAND / EVENT`, пять быстрых команд, bounded планы, кейсы и evidence, недельная сводка, proactive-сигналы и подтверждаемые действия; технические данные остаются в защищённом журнале |
+| МТР-агент | Единый runtime `CHAT / COMMAND / EVENT`, шесть команд, включая проверяемый анализ позиции с forecast/backtest и scenario comparison; bounded планы, кейсы, evidence, недельная сводка, proactive-сигналы и подтверждаемые действия |
 | Администрирование | Исполняемые состояния Appius, SAP, RAG и LLM, сценарии, промпты, словари, логи агента, аудит, demo-reset |
 | Хранилище | PGlite локально; PostgreSQL при заданном `DATABASE_URL`; Blob для загрузок на Vercel |
 
@@ -47,6 +47,7 @@ pnpm dev
 | Развернуть Local, Vercel или on-premise pilot | [Развёртывание](docs/deployment.md) | How-to / reference |
 | Вызвать HTTP API и проверить схему запроса | [Справочник HTTP API](docs/api-reference.md) | Reference |
 | Понять правила grounded-агента | [Поведение МТР-аналитика](docs/agent-behavior.md) | Reference / explanation |
+| Проверить формулы, качество данных, forecast и команду `ANALYSIS` | [Семантический слой аналитики МТР](docs/mtr-analytics-semantic-layer.md) | Reference / explanation / how-to |
 | Понять границы runtime, persistence и rollout | [Трассируемость МТР-агента](docs/mtr-agent-orchestrator-traceability.md) | Reference / explanation |
 | Проверить модель ролей, scopes и permissions | [Scoped RBAC](docs/RBAC.md) | Reference |
 | Увидеть исходные ограничения перед интеграцией | [Baseline МТР-агента](docs/mtr-agent-orchestrator-baseline.md) | Historical evidence |

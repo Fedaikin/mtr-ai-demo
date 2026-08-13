@@ -91,7 +91,7 @@ http://localhost:3000
 | `POST` | `/api/agent/threads` | USER | Создать диалог |
 | `GET` | `/api/agent/threads/:id/messages` | USER | История принадлежащего user диалога |
 | `POST` | `/api/agent/threads/:id/messages` | USER | Сохранить вопрос, вызвать агента, сохранить ответ |
-| `POST` | `/api/agent/commands/:commandKey` | `agent.chat` | Выполнить `SUMMARY`, `RISKS`, `STOCKS`, `KPI` или `MY_TASKS` через единый runtime |
+| `POST` | `/api/agent/commands/:commandKey` | `agent.chat` + permissions команды | Выполнить `SUMMARY`, `RISKS`, `STOCKS`, `KPI`, `MY_TASKS` или `ANALYSIS` через единый runtime |
 | `GET`, `POST` | `/api/agent/cases` | `agent.chat` | Список личных кейсов или создание scoped кейса |
 | `GET`, `DELETE` | `/api/agent/cases/:id` | `agent.chat` | Получить повторно авторизованный кейс или закрыть его |
 | `GET` | `/api/agent/digest` | `agent.chat` | Недельная сводка текущей и предыдущей календарной недели |
@@ -398,6 +398,31 @@ curl --fail-with-body -sS -b "$MTR_COOKIE_JAR" \
 ```
 
 Успех возвращает `{ "result": PublicAgentCommandResult }`: русскую safe projection, correlation ID, confidence, `requiresHumanReview`, citations и missing-data summary без tool names, raw JSON и закрытых фильтров. Каждая команда сохраняет bounded plan из трёх шагов и correlated audit.
+
+#### Анализ позиции `ANALYSIS`
+
+Команда объясняет ожидаемый дефицит, строит deterministic forecast с rolling-origin backtest, сравнивает прямой остаток, одиночный/композитный аналог и закупку, затем пропускает результат через verifier. Команда read-only и всегда оставляет решение человеку.
+
+Требуемые permissions: `agent.chat`, `analysis.read`, `specification.read`, `catalog.read`, `stock.search`.
+
+```bash
+curl --fail-with-body -sS -b "$MTR_COOKIE_JAR" \
+  -X POST "$MTR_BASE_URL/api/agent/commands/ANALYSIS" \
+  -H 'content-type: application/json' \
+  --data '{
+    "context":{"projectId":"demo-project-001","positionId":"position-portfolio-072-003"},
+    "filters":{"horizonWeeks":8,"demandMultiplier":1.1,"deliveryDelayDays":7}
+  }'
+```
+
+| Поле | Тип | Ограничение / default |
+|---|---|---|
+| `context.positionId` или `filters.positionId` | string | Требуется позиция текущего проекта; отсутствие даёт `400 AGENT_POSITION_CONTEXT_REQUIRED` |
+| `filters.horizonWeeks` | integer | `1..26`, default `8` |
+| `filters.demandMultiplier` | number | `0.5..3`, default `1` |
+| `filters.deliveryDelayDays` | integer | `0..180`, default `0` |
+
+`result.analysis` содержит только публичные facts/findings/drivers, forecast model и backtest metrics, не более трёх сценариев, recommendation text, limitations и next actions. `technicalTrace`, internal evidence IDs и raw engine payload отсекаются. Полные формулы, source priorities, quality gate и ограничения описаны в [семантическом слое аналитики МТР](mtr-analytics-semantic-layer.md).
 
 `GET /api/agent/cases` возвращает только кейсы владельца в активном проекте. `GET /api/agent/cases/:id` повторно проверяет resource и каждую citation; отозванный или чужой объект даёт `404` без existence leak. `GET /api/agent/digest?timezone=Europe/Moscow` строит две полные календарные недели из persisted tasks, metrics и events. `GET /api/agent/insights` возвращает только активные сигналы разрешённого проекта.
 
@@ -960,5 +985,6 @@ Query:
 - [Демонстрация за 7–10 минут](demo-guide.md)
 - [Эксплуатационные инструкции](operations.md)
 - [Поведение МТР-аналитика](agent-behavior.md)
+- [Семантический слой аналитики МТР](mtr-analytics-semantic-layer.md)
 - [Трассируемость и доверительные границы МТР-агента](mtr-agent-orchestrator-traceability.md)
 - [Scoped RBAC](RBAC.md)
