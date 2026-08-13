@@ -5,8 +5,10 @@
 - Ветка: `codex/reorder-general-analytics`
 - Назначение: переместить «Общую аналитику» в предпоследнюю позицию рабочего меню, непосредственно перед «Справкой».
 - База / merge base: `origin/main` / `1855e78f8b6206586fd417cffa27583e78c6a4f4`
-- Проверяемый SHA: будет зафиксирован после evidence-коммита.
-- Pull Request и Vercel Preview: ожидают первого push.
+- Проверяемый source / exact deployed SHA: `703e2c21d7e87852be507bc3fbd6f2041c7b9884`
+- Pull Request: [#3](https://github.com/Fedaikin/mtr-ai-demo/pull/3), draft
+- Vercel Preview: `https://mtr-ai-demo-6zrv9vbyj-fedaikin-7533s-projects.vercel.app`
+- Vercel deployment ID: `dpl_FesKAbu6ovHFAHKFKe9Qv7fZVwCR`
 - Дата проверки: 13.08.2026
 - Проверяющий: Codex
 
@@ -21,7 +23,7 @@
 
 - [x] Ветка создана от актуального `origin/main`; поскольку PR #1 не слит, commit `e944c16` перенесён cherry-pick-ом только в текущую ветку.
 - [x] Cherry-pick и изменение выполнены без конфликтов; `main`, чужие ветки и Production не менялись, force-push не использовался.
-- [x] `git diff --check` пройден; финальный diff и clean status будут повторно проверены после evidence-коммита.
+- [x] `git diff --check` пройден; финальный diff и clean status повторно проверяются после этого evidence-коммита.
 
 ## 4. Архитектура, RBAC и данные
 
@@ -56,17 +58,18 @@
 
 ## 8. Preview, риски и итог
 
-- [ ] Exact deployed SHA, Preview URL, deployment ID и runtime evidence — ожидают push.
+- [x] Exact SHA `703e2c2…` привязан Vercel metadata к deployment `dpl_FesK…`; статус Preview `READY`, build и deploy outputs завершены успешно.
+- [x] Runtime UI smoke дошёл до защищённого `/login`; сервер отклонил устаревший публичный demo-пароль после длительной инициализации. Менять или раскрывать ротированные credentials не требовалось; фактический порядок UI доказан regression test, полным build и exact-SHA deployment.
 - [x] Миграции/feature flags: Н/П. Rollback: обычный revert веточного commit либо закрытие PR до merge.
 - [x] P0/P1 и относящиеся к задаче P2 по локальному diff не выявлены.
 - [x] Production deployment/alias/migration не выполнялись.
 
 ### Итоговое решение
 
-- [ ] ГОТОВО К REVIEW — после получения Preview evidence и финальной проверки diff.
-- [x] НЕ ГОТОВО — ожидаются обязательные deployment evidence.
+- [x] ГОТОВО К REVIEW — после финального documentation-only evidence commit и push; PR остаётся draft.
+- [x] Н/П — НЕ ГОТОВО: обязательные локальные и deployment evidence получены.
 - [x] Н/П — внешнего блокера нет.
 
-Оставшийся риск: до готовности Preview не подтверждён deploy exact SHA.
+Оставшийся риск: интерактивный скриншот защищённого меню не получен из-за ротированного Preview-пароля; риск порядка закрыт детерминированным regression test. Production не затронут.
 
-Следующее действие: commit, push, проверка Vercel Preview и финальное обновление этого файла и PR.
+Следующее действие: review draft PR #3; merge и Production остаются отдельными решениями владельца.
