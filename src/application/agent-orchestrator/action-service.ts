@@ -20,6 +20,7 @@ import {
 const DEFAULT_EXPIRY_MINUTES = 30;
 
 export interface ProposeAgentActionInput {
+  readonly caseId: string;
   readonly actionType: AgentActionType;
   readonly resource: ResourceDescriptor;
   readonly summary: string;
@@ -29,13 +30,14 @@ export interface ProposeAgentActionInput {
 }
 
 export interface AgentActionAuditEnvelope {
-  readonly action: "agent.action.proposed" | "agent.action.completed" | "agent.action.failed" | "agent.action.cancelled";
+  readonly action: "agent.action.proposed" | "agent.action.confirmed" | "agent.action.completed" | "agent.action.failed" | "agent.action.cancelled";
   readonly actorId: string;
   readonly projectId: string;
   readonly actionProposalId: string;
   readonly actionType: AgentActionType;
   readonly permission: string;
   readonly authorizationVersion: number;
+  readonly roleAssignmentSnapshot: readonly string[];
   readonly requestId: string;
   readonly outcome: "SUCCESS" | "FAILURE";
   readonly errorCode?: string;
@@ -47,7 +49,7 @@ export interface AgentActionStore {
     audit: AgentActionAuditEnvelope,
   ): Promise<AgentActionProposal>;
   getAuthorized(id: string, subjectId: string, projectId: string): Promise<AgentActionProposal | null>;
-  claimForExecution(id: string, version: number, updatedAt: string): Promise<
+  claimForExecution(id: string, version: number, updatedAt: string, audit: AgentActionAuditEnvelope): Promise<
     | { readonly outcome: "CLAIMED"; readonly proposal: AgentActionProposal }
     | { readonly outcome: "EXISTING"; readonly proposal: AgentActionProposal }
   >;
@@ -78,6 +80,7 @@ export class AgentActionService {
     const idempotencyKey = actionIdempotencyKey(context, input);
     const proposal: AgentActionProposal = {
       id: `action-${idempotencyKey.slice(0, 24)}`,
+      caseId: input.caseId.trim(),
       actionType: input.actionType,
       projectId,
       resource: input.resource,
@@ -110,7 +113,12 @@ export class AgentActionService {
     requirePermission(context, proposal.requiredPermission, proposal.resource);
     const current = await this.executor.resolveCurrent(proposal, context);
     if (!current || !sameResource(proposal.resource, current)) throw new AgentActionError("ACTION_RESOURCE_CHANGED", "Состояние объекта изменилось");
-    const claim = await this.store.claimForExecution(proposal.id, proposal.version, this.now().toISOString());
+    const claim = await this.store.claimForExecution(
+      proposal.id,
+      proposal.version,
+      this.now().toISOString(),
+      auditEnvelope(proposal, context, "agent.action.confirmed", "SUCCESS"),
+    );
     if (claim.outcome !== "CLAIMED") return toPublicAgentActionProposal(claim.proposal);
 
     try {
@@ -150,6 +158,10 @@ export class AgentActionService {
     ));
   }
 
+  async get(id: string, context: TrustedRequestContext): Promise<PublicAgentActionProposal> {
+    return toPublicAgentActionProposal(await this.getAuthorized(id, context));
+  }
+
   private async getAuthorized(id: string, context: TrustedRequestContext): Promise<AgentActionProposal> {
     const projectId = requireActiveProject(context);
     const proposal = await this.store.getAuthorized(id, context.subjectId, projectId);
@@ -170,6 +182,7 @@ export class AgentActionError extends Error {
 function validateProposalInput(input: ProposeAgentActionInput): void {
   if (!AGENT_ACTION_TYPES.includes(input.actionType)) throw validation();
   if (!input.requestKey.trim() || input.requestKey.length > 200) throw validation();
+  if (!input.caseId.trim() || input.caseId.length > 200) throw validation();
   if (!input.summary.trim() || input.summary.length > 300) throw validation();
   if (input.consequences.length === 0 || input.consequences.length > 8) throw validation();
   if (input.consequences.some((item) => !item.trim() || item.length > 300)) throw validation();
@@ -189,6 +202,7 @@ function actionIdempotencyKey(context: TrustedRequestContext, input: ProposeAgen
     context.subjectId,
     context.activeProjectId ?? "",
     input.actionType,
+    input.caseId.trim(),
     input.resource.resourceType,
     input.resource.resourceId,
     input.requestKey.trim(),
@@ -203,7 +217,7 @@ function stableJson(value: unknown): string {
 }
 
 function auditEnvelope(proposal: AgentActionProposal, context: TrustedRequestContext, action: AgentActionAuditEnvelope["action"], outcome: AgentActionAuditEnvelope["outcome"], errorCode?: string): AgentActionAuditEnvelope {
-  return { action, actorId: context.subjectId, projectId: proposal.projectId, actionProposalId: proposal.id, actionType: proposal.actionType, permission: proposal.requiredPermission, authorizationVersion: context.authorizationVersion, requestId: context.requestId, outcome, ...(errorCode ? { errorCode } : {}) };
+  return { action, actorId: context.subjectId, projectId: proposal.projectId, actionProposalId: proposal.id, actionType: proposal.actionType, permission: proposal.requiredPermission, authorizationVersion: context.authorizationVersion, roleAssignmentSnapshot: [...context.activeRoleAssignmentIds], requestId: context.requestId, outcome, ...(errorCode ? { errorCode } : {}) };
 }
 
 function requireActiveProject(context: TrustedRequestContext): string {

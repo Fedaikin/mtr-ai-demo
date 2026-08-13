@@ -19,7 +19,15 @@ import { type Database, getDatabase, isRemoteDatabaseConfigured } from "./db";
 import { createReadinessCache } from "./readiness-cache";
 import {
   agentCitations,
+  agentActionProposals,
+  agentCases,
+  agentEventInbox,
+  agentEvidenceFacts,
+  agentMetricEvents,
   agentMessages,
+  agentPlanExecutions,
+  agentProactiveInsights,
+  agentTasks,
   agentThreads,
   analogueRules,
   analysisReviewDecisions,
@@ -27,6 +35,7 @@ import {
   authSessions,
   dictionaries,
   integrationStates,
+  materialMovements,
   normativeChunks,
   normativeDocuments,
   positionAnalysisResults,
@@ -525,6 +534,16 @@ export async function deleteUserScopedRows(
   includeUser = false,
 ): Promise<void> {
   // Child-to-parent order keeps the reset portable with FK enforcement on.
+  const demoTenantId = "demo-tenant-001";
+  await db.delete(agentActionProposals).where(eq(agentActionProposals.tenantId, demoTenantId));
+  await db.delete(agentTasks).where(eq(agentTasks.tenantId, demoTenantId));
+  await db.delete(agentProactiveInsights).where(eq(agentProactiveInsights.tenantId, demoTenantId));
+  await db.delete(agentEvidenceFacts).where(eq(agentEvidenceFacts.tenantId, demoTenantId));
+  await db.delete(agentPlanExecutions).where(eq(agentPlanExecutions.tenantId, demoTenantId));
+  await db.delete(agentCases).where(eq(agentCases.tenantId, demoTenantId));
+  await db.delete(agentEventInbox).where(eq(agentEventInbox.tenantId, demoTenantId));
+  await db.delete(agentMetricEvents).where(eq(agentMetricEvents.tenantId, demoTenantId));
+  await db.delete(materialMovements).where(eq(materialMovements.tenantId, demoTenantId));
   await db.delete(agentCitations).where(eq(agentCitations.userId, userId));
   await db.delete(agentMessages).where(eq(agentMessages.userId, userId));
   await db.delete(agentThreads).where(eq(agentThreads.userId, userId));

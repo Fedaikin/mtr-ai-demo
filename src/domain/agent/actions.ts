@@ -30,6 +30,7 @@ export interface ActionExecutionResult {
 
 export interface AgentActionProposal {
   readonly id: string;
+  readonly caseId: string;
   readonly actionType: AgentActionType;
   readonly projectId: string;
   readonly resource: ResourceDescriptor;

@@ -18,6 +18,7 @@ describe("безопасные L2-действия МТР-агента", () => {
 
     const proposal = await service.propose(
       {
+        caseId: "case-1",
         actionType: "PREPARE_REPORT_DRAFT",
         resource: { resourceType: "SCENARIO_RUN", resourceId: "run-1", projectId: "project-1", ownerUserId: "user-1", status: "COMPLETED" },
         summary: "Подготовить черновик отчёта",
@@ -75,6 +76,7 @@ describe("безопасные L2-действия МТР-агента", () => {
 
 function input() {
   return {
+    caseId: "case-1",
     actionType: "RUN_SCENARIO" as const,
     resource: { resourceType: "SCENARIO_TEMPLATE", resourceId: "scenario-1", projectId: "project-1", ownerUserId: "user-1", status: "AVAILABLE" },
     summary: "Запустить стандартный анализ",
