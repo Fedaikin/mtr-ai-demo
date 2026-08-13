@@ -25,6 +25,7 @@ export const SPECIFICATION_PORTFOLIO_MANIFEST = Object.freeze({
   expectedSpecificationCount: PORTFOLIO_SPECIFICATION_COUNT,
   expectedVersionCount: PORTFOLIO_SPECIFICATION_COUNT,
   expectedPositionCount: 3_560,
+  expectedAssemblyPositionCount: 24,
   minPositionCount: MIN_POSITION_COUNT,
   maxPositionCount: MIN_POSITION_COUNT + PORTFOLIO_SPECIFICATION_COUNT - 1,
   isSyntheticDemo: true,
@@ -90,16 +91,23 @@ export function generateSpecificationPortfolio(): SpecificationPortfolioFixture 
       item.characteristics.compatibilityStatus === "VALID_MEMBER",
   );
   const requiredPositionCount = SPECIFICATION_PORTFOLIO_MANIFEST.expectedPositionCount;
-  if (validComponents.length < requiredPositionCount) {
+  const assemblies = catalogue.items.filter((item) => item.itemKind === "ASSEMBLY");
+  const requiredComponentCount =
+    requiredPositionCount - SPECIFICATION_PORTFOLIO_MANIFEST.expectedAssemblyPositionCount;
+  if (
+    validComponents.length < requiredComponentCount ||
+    assemblies.length < SPECIFICATION_PORTFOLIO_MANIFEST.expectedAssemblyPositionCount
+  ) {
     throw new Error(
-      `Недостаточно позиций промышленного каталога: требуется ${requiredPositionCount}, доступно ${validComponents.length}.`,
+      "Недостаточно компонентов или сборок промышленного каталога для портфеля.",
     );
   }
 
   const specifications: PortfolioSpecificationFixture[] = [];
   const specificationVersions: PortfolioVersionFixture[] = [];
   const positions: PortfolioPositionFixture[] = [];
-  let itemOffset = 0;
+  let componentOffset = 0;
+  let assemblyOffset = 0;
 
   for (let index = 0; index < PORTFOLIO_SPECIFICATION_COUNT; index += 1) {
     const ordinal = FIRST_PORTFOLIO_NUMBER + index;
@@ -136,9 +144,13 @@ export function generateSpecificationPortfolio(): SpecificationPortfolioFixture 
     });
 
     for (let positionIndex = 0; positionIndex < positionCount; positionIndex += 1) {
-      const item = validComponents[itemOffset];
+      const useAssembly = index >= 68 && positionIndex < 2;
+      const item = useAssembly
+        ? assemblies[assemblyOffset]
+        : validComponents[componentOffset];
       if (!item) throw new Error("Портфель спецификаций вышел за границы каталога.");
-      itemOffset += 1;
+      if (useAssembly) assemblyOffset += 1;
+      else componentOffset += 1;
       positions.push({
         id: `position-portfolio-${suffix}-${pad(positionIndex + 1, 3)}`,
         specificationId,
@@ -160,6 +172,7 @@ export function generateSpecificationPortfolio(): SpecificationPortfolioFixture 
           catalogFamilyId: item.familyId ?? "",
           manufacturer: item.manufacturer,
           category: item.characteristics.category,
+          itemKind: item.itemKind,
         },
         access: "DEMO_USER",
         fixtureTags: [
@@ -170,6 +183,13 @@ export function generateSpecificationPortfolio(): SpecificationPortfolioFixture 
         isSyntheticDemo: true,
       });
     }
+  }
+
+  if (
+    assemblyOffset !== SPECIFICATION_PORTFOLIO_MANIFEST.expectedAssemblyPositionCount ||
+    componentOffset !== requiredComponentCount
+  ) {
+    throw new Error("Нарушено ожидаемое распределение компонентов и сборок портфеля.");
   }
 
   return { specifications, specificationVersions, positions };

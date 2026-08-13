@@ -37,6 +37,9 @@ describe("synthetic Appius specification portfolio", () => {
     expect(new Set(portfolio.specifications.map((item) => item.id)).size).toBe(80);
     expect(new Set(portfolio.positions.map((item) => item.id)).size).toBe(3_560);
     expect(new Set(portfolio.positions.map((item) => item.internalCode)).size).toBe(3_560);
+    expect(
+      portfolio.positions.filter((item) => item.classification.itemKind === "ASSEMBLY"),
+    ).toHaveLength(SPECIFICATION_PORTFOLIO_MANIFEST.expectedAssemblyPositionCount);
 
     for (const specification of portfolio.specifications) {
       const version = versionBySpecification.get(specification.id);
