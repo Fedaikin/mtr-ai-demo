@@ -238,6 +238,8 @@ Lifecycle закрыт состояниями `QUARANTINED → APPROVED → PROM
 
 Versioned `evals/mtr-agent-provider-cases.jsonl` добавляет 20 исполняемых provider-boundary кейсов: 4 validation, 4 held-out и 12 adversarial. Они не дублируют общие unit assertions, а проверяют data-driven oracle для redaction, изоляции rate window, kill switch, token/cost budgets, timeout/cancel, unsafe data policy и невалидных ответов. Запуск: `pnpm eval:agent:provider`.
 
+Versioned `evals/mtr-agent-security-cases.jsonl` содержит ещё 32 исполняемых security-кейса. Набор проверяет разрешения всех команд до handler, project/resource/period/warehouse scope до retrieval, запрет подмены identity/grants во входе, повторную авторизацию сохранённых citations, отсутствие existence leak у cross-project case и повторную проверку `authorizationVersion`/permission перед L2-действием. Запуск: `pnpm eval:agent:security`.
+
 ## Ограничения прототипа
 
 - Intent routing и извлечение идентификаторов детерминированы и рассчитаны на демонстрационные формулировки.

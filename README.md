@@ -92,8 +92,9 @@ Readiness и контроль canonical seed доступны по `/api/health`
 | `pnpm eval:agent:analytical` | Выполнить отдельный production-shaped набор analytical command/chat oracle-проверок |
 | `pnpm eval:agent:learning` | Выполнить versioned feedback/curation/rollback и trust-boundary eval |
 | `pnpm eval:agent:provider` | Выполнить 20 provider-boundary validation/held-out/adversarial проверок |
+| `pnpm eval:agent:security` | Выполнить 32 проверки permission, scope, injection, citation/case/action reauthorization |
 | `pnpm perf:smoke` | Измерить готовность API и загрузку основных экранов; поддерживает локальный или Preview base URL |
-| `pnpm check` | `lint` → `typecheck` → `test` → `privacy:scan` → legacy, analytical, learning и provider eval-наборы → `build` |
+| `pnpm check` | `lint` → `typecheck` → `test` → `privacy:scan` → legacy, analytical, learning, provider и security eval-наборы → `build` |
 | `pnpm db:migrate` | Применить checked-in Drizzle migrations |
 | `pnpm db:seed` | Заменить demo-scoped данные каноническим seed |
 | `pnpm db:reset` | Атомарно восстановить demo-scoped данные; remote reset защищён флагом |
