@@ -45,6 +45,10 @@ import {
   type CatalogueCategory,
   type CatalogueItemKind,
 } from "@/domain/catalogue";
+import type {
+  AgentAnalysisHistoryInput,
+  AgentAnalysisHistorySnapshot,
+} from "@/domain/agent/case";
 import { redactSensitiveRecord } from "@/lib/redaction";
 import type {
   CatalogAssemblyBom,
@@ -68,6 +72,7 @@ import {
   agentEventInbox,
   agentMetricEvents,
   agentCases,
+  agentEvidenceFacts,
   agentPlanExecutions,
   agentProactiveInsights,
   agentCitations,
@@ -3093,6 +3098,7 @@ export class MtrRepository {
       readonly status: "SUCCEEDED" | "FAILED";
       readonly occurredAt: string;
       readonly safeErrorCode?: string;
+      readonly analysisHistory?: AgentAnalysisHistoryInput;
       readonly actorDisplayName: string;
     },
   ): Promise<void> {
@@ -3134,8 +3140,29 @@ export class MtrRepository {
         eq(agentPlanExecutions.version, current.version),
       )).returning();
       if (!updated) throw new Error("AGENT_COMMAND_PLAN_OPTIMISTIC_LOCK");
+      const [currentCase] = await tx.select().from(agentCases).where(and(
+        eq(agentCases.id, input.caseId),
+        eq(agentCases.tenantId, "demo-tenant-001"),
+        eq(agentCases.projectId, input.projectId),
+        eq(agentCases.ownerUserId, actorUserId),
+      )).limit(1);
+      if (!currentCase) throw new Error("AGENT_COMMAND_CASE_NOT_FOUND");
+      const analysisHistory = input.analysisHistory
+        ? await buildAgentAnalysisHistory(tx, {
+            actorUserId,
+            projectId: input.projectId,
+            caseId: input.caseId,
+            selection: currentCase.contextSnapshot,
+            authorizationVersion: currentCase.authorizationVersion,
+            roleAssignmentSnapshot: currentCase.roleAssignmentSnapshot,
+            input: input.analysisHistory,
+          })
+        : null;
       await tx.update(agentCases).set({
         status: input.status === "SUCCEEDED" ? "ANALYZED" : "BLOCKED",
+        ...(analysisHistory
+          ? { contextSnapshot: { ...currentCase.contextSnapshot, analysisHistory } }
+          : {}),
         updatedAt: input.occurredAt,
       }).where(and(
         eq(agentCases.id, input.caseId),
@@ -4723,6 +4750,119 @@ function safeAgentSelection(value: Readonly<Record<string, unknown>>): Record<st
     ) output.period = { from: candidate.from, to: candidate.to };
   }
   return output;
+}
+
+async function buildAgentAnalysisHistory(
+  db: Database,
+  args: {
+    readonly actorUserId: string;
+    readonly projectId: string;
+    readonly caseId: string;
+    readonly selection: Readonly<Record<string, unknown>>;
+    readonly authorizationVersion: number;
+    readonly roleAssignmentSnapshot: readonly string[];
+    readonly input: AgentAnalysisHistoryInput;
+  },
+): Promise<AgentAnalysisHistorySnapshot> {
+  const positionId = typeof args.selection.positionId === "string"
+    ? args.selection.positionId
+    : null;
+  const [previous] = positionId
+    ? await db.select({ id: agentCases.id, contextSnapshot: agentCases.contextSnapshot })
+        .from(agentCases)
+        .where(and(
+          eq(agentCases.tenantId, "demo-tenant-001"),
+          eq(agentCases.projectId, args.projectId),
+          eq(agentCases.ownerUserId, args.actorUserId),
+          ne(agentCases.id, args.caseId),
+          sql`${agentCases.contextSnapshot}->>'positionId' = ${positionId}`,
+          sql`${agentCases.contextSnapshot}->'analysisHistory' is not null`,
+        ))
+        .orderBy(desc(agentCases.updatedAt), desc(agentCases.id))
+        .limit(1)
+    : [];
+  const previousHistory = asAgentAnalysisHistory(previous?.contextSnapshot.analysisHistory);
+  const conclusionFingerprint = createHash("sha256").update(JSON.stringify({
+    summary: args.input.summary,
+    recommendation: args.input.recommendation,
+    datasetVersion: args.input.datasetVersion,
+    semanticRegistryVersion: args.input.semanticRegistryVersion,
+    forecastModelVersion: args.input.forecastModelVersion,
+  })).digest("hex");
+  const sourceIds: string[] = [];
+  for (const citation of args.input.citations) {
+    const sourceScopeId = citation.sourceSystem === "SAP"
+      ? "demo-sap-001"
+      : citation.sourceSystem === "NORMATIVE"
+        ? "demo-normative-001"
+        : null;
+    const fingerprint = createHash("sha256").update([
+      args.caseId,
+      citation.sourceSystem,
+      citation.entityId,
+      citation.versionOrSnapshot,
+      citation.clauseId ?? "",
+    ].join("\u001f")).digest("hex");
+    const id = `evidence-${fingerprint.slice(0, 24)}`;
+    const [created] = await db.insert(agentEvidenceFacts).values({
+      id,
+      tenantId: "demo-tenant-001",
+      projectId: args.projectId,
+      caseId: args.caseId,
+      kind: "ANALYTICAL_SOURCE",
+      summary: `${citation.sourceSystem}: ${citation.entityId}`,
+      sourceSystem: citation.sourceSystem,
+      entityId: citation.entityId,
+      versionOrSnapshot: citation.versionOrSnapshot,
+      clauseId: citation.clauseId,
+      observedAt: args.input.generatedAt,
+      sourceSnapshotAt: citation.observedAt,
+      freshness: "FRESH",
+      payload: {
+        datasetVersion: args.input.datasetVersion,
+        semanticRegistryVersion: args.input.semanticRegistryVersion,
+      },
+      accessAttributes: {
+        ...(sourceScopeId ? { sourceScopeId } : {}),
+        ...(citation.sourceSystem === "CATALOG" ? { catalogScopeId: "demo-catalog-001" } : {}),
+      },
+      fingerprint,
+      authorizationVersion: args.authorizationVersion,
+      roleAssignmentSnapshot: [...args.roleAssignmentSnapshot],
+      createdByUserId: args.actorUserId,
+      createdAt: args.input.generatedAt,
+      updatedAt: args.input.generatedAt,
+      retentionUntil: oneCalendarYearAfter(args.input.generatedAt),
+    }).onConflictDoNothing().returning();
+    sourceIds.push(created?.id ?? id);
+  }
+  return {
+    schemaVersion: "mtr-agent-analysis-history-v1",
+    summary: args.input.summary,
+    confidence: Math.min(1, Math.max(0, args.input.confidence)),
+    requiresHumanReview: args.input.requiresHumanReview,
+    generatedAt: args.input.generatedAt,
+    datasetVersion: args.input.datasetVersion,
+    semanticRegistryVersion: args.input.semanticRegistryVersion,
+    forecastModelVersion: args.input.forecastModelVersion,
+    recommendation: args.input.recommendation,
+    conclusionFingerprint,
+    previousCaseId: previous?.id ?? null,
+    changedConclusion: previousHistory
+      ? previousHistory.conclusionFingerprint !== conclusionFingerprint
+      : null,
+    sourceCount: new Set(sourceIds).size,
+  };
+}
+
+function asAgentAnalysisHistory(value: unknown): AgentAnalysisHistorySnapshot | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (
+    record.schemaVersion !== "mtr-agent-analysis-history-v1" ||
+    typeof record.conclusionFingerprint !== "string"
+  ) return null;
+  return record as unknown as AgentAnalysisHistorySnapshot;
 }
 
 function trustedUser(userId: string): void {

@@ -13,11 +13,41 @@ export const AGENT_CASE_STATUSES = [
 export type AgentCaseStatus = (typeof AGENT_CASE_STATUSES)[number];
 export type AgentEvidenceFreshness = "FRESH" | "AGING" | "STALE" | "UNKNOWN";
 
+export interface AgentAnalysisHistoryCitation {
+  readonly sourceSystem: "APPIUS" | "SAP" | "CATALOG" | "NORMATIVE" | "PROCESS_ENGINE";
+  readonly entityId: string;
+  readonly versionOrSnapshot: string;
+  readonly observedAt: string;
+  readonly clauseId: string | null;
+}
+
+export interface AgentAnalysisHistoryInput {
+  readonly summary: string;
+  readonly confidence: number;
+  readonly requiresHumanReview: boolean;
+  readonly generatedAt: string;
+  readonly datasetVersion: string;
+  readonly semanticRegistryVersion: string;
+  readonly forecastModelVersion: string | null;
+  readonly recommendation: string | null;
+  readonly citations: readonly AgentAnalysisHistoryCitation[];
+}
+
+export interface AgentAnalysisHistorySnapshot
+  extends Omit<AgentAnalysisHistoryInput, "citations"> {
+  readonly schemaVersion: "mtr-agent-analysis-history-v1";
+  readonly conclusionFingerprint: string;
+  readonly previousCaseId: string | null;
+  readonly changedConclusion: boolean | null;
+  readonly sourceCount: number;
+}
+
 export interface AgentCaseContextSnapshot {
   readonly specificationId?: string;
   readonly positionId?: string;
   readonly runId?: string;
   readonly period?: Readonly<{ from: string; to: string }>;
+  readonly analysisHistory?: AgentAnalysisHistorySnapshot;
 }
 
 export interface AgentCaseRecord {
@@ -74,7 +104,13 @@ export interface PublicAgentEvidenceFact {
   readonly freshness: AgentEvidenceFreshness;
 }
 
-export interface PublicAgentCase extends Omit<AgentCaseRecord, "tenantId" | "roleAssignmentSnapshot"> {
+export interface PublicAgentCase extends Omit<
+  AgentCaseRecord,
+  "tenantId" | "roleAssignmentSnapshot" | "contextSnapshot"
+> {
+  readonly contextSnapshot: Omit<AgentCaseContextSnapshot, "analysisHistory"> & {
+    readonly analysisHistory?: Omit<AgentAnalysisHistorySnapshot, "conclusionFingerprint">;
+  };
   readonly evidence: readonly PublicAgentEvidenceFact[];
   readonly revokedEvidenceCount: number;
 }

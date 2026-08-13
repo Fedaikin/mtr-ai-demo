@@ -205,6 +205,7 @@ export function canReadEvidence(
   context: TrustedRequestContext,
 ): boolean {
   if (fact.projectId !== context.activeProjectId) return false;
+  if (!hasEvidencePermission(fact.sourceSystem, context)) return false;
   const attributes = fact.accessAttributes;
   if (attributes.deny === true) return false;
   const sourceScopeId = stringAttribute(attributes.sourceScopeId);
@@ -215,6 +216,23 @@ export function canReadEvidence(
   if (warehouseId && !(context.accessClaims.warehouseIds ?? []).includes(warehouseId)) return false;
   const allowedUserIds = arrayAttribute(attributes.allowedUserIds);
   return allowedUserIds.length === 0 || allowedUserIds.includes(context.subjectId);
+}
+
+function hasEvidencePermission(
+  sourceSystem: AgentEvidenceSourceSystem,
+  context: TrustedRequestContext,
+): boolean {
+  if (sourceSystem === "SAP") return can(context, "stock.search");
+  if (sourceSystem === "APPIUS") return can(context, "specification.read");
+  if (sourceSystem === "CATALOG") return can(context, "catalog.read");
+  if (sourceSystem === "RAG" || sourceSystem === "NORMATIVE") return can(context, "analysis.read");
+  if (sourceSystem === "TASK_STORE") return can(context, "review.read");
+  if (
+    sourceSystem === "METRIC_REGISTRY" ||
+    sourceSystem === "TELEMETRY" ||
+    sourceSystem === "PROCESS_ENGINE"
+  ) return can(context, "project.read");
+  return can(context, "agent.chat");
 }
 
 function publicCase(
@@ -229,13 +247,37 @@ function publicCase(
     threadId: record.threadId,
     status: record.status,
     title: record.title,
-    contextSnapshot: record.contextSnapshot,
+    contextSnapshot: publicContextSnapshot(record.contextSnapshot),
     authorizationVersion: record.authorizationVersion,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     version: record.version,
     evidence: Object.freeze(facts.map(publicEvidence)),
     revokedEvidenceCount,
+  };
+}
+
+function publicContextSnapshot(
+  snapshot: AgentCaseContextSnapshot,
+): PublicAgentCase["contextSnapshot"] {
+  const { analysisHistory, ...selection } = snapshot;
+  if (!analysisHistory) return selection;
+  return {
+    ...selection,
+    analysisHistory: {
+      schemaVersion: analysisHistory.schemaVersion,
+      summary: analysisHistory.summary,
+      confidence: analysisHistory.confidence,
+      requiresHumanReview: analysisHistory.requiresHumanReview,
+      generatedAt: analysisHistory.generatedAt,
+      datasetVersion: analysisHistory.datasetVersion,
+      semanticRegistryVersion: analysisHistory.semanticRegistryVersion,
+      forecastModelVersion: analysisHistory.forecastModelVersion,
+      recommendation: analysisHistory.recommendation,
+      previousCaseId: analysisHistory.previousCaseId,
+      changedConclusion: analysisHistory.changedConclusion,
+      sourceCount: analysisHistory.sourceCount,
+    },
   };
 }
 

@@ -129,6 +129,69 @@ describe("shared command audit capability", () => {
     }));
   });
 
+  it("передаёт безопасный versioned snapshot для истории аналитического ответа", async () => {
+    execute.mockResolvedValue({
+      responseType: "ANALYSIS",
+      title: "Анализ позиции",
+      summary: "Остаточный дефицит 12 EA.",
+      citations: [],
+      missingData: [],
+      confidence: 0.9,
+      requiresHumanReview: true,
+      negativeEvidence: "NOT_EMPTY",
+      generatedAt: "2026-08-13T10:00:00.000Z",
+      analysis: {
+        executiveSummary: "Остаточный дефицит 12 EA.",
+        confidence: 0.9,
+        requiresHumanReview: true,
+        generatedAt: "2026-08-13T10:00:00.000Z",
+        citations: [{
+          sourceSystem: "SAP",
+          entityId: "SAP-DEMO-0001",
+          versionOrSnapshot: "sap-v1",
+          observedAt: "2026-08-13T09:00:00.000Z",
+          clauseId: null,
+        }],
+        forecast: { selectedModel: { modelVersion: "linear-trend-v1" } },
+        recommendation: { nextAction: "Передать вариант специалисту." },
+        technicalTrace: {
+          datasetVersion: "1.0.0-DEMO",
+          semanticRegistryVersion: "semantic-registry-1.0.0",
+        },
+      },
+    });
+    const capability = new AuditedAgentCommandCapability(
+      { execute },
+      { writeAudit },
+      () => 100,
+      { startAgentCommandPlan, finishAgentCommandPlan },
+      () => new Date("2026-08-13T10:00:00.000Z"),
+    );
+
+    await capability.execute(createAgentExecutionContext(trusted(), {
+      selection: { projectId: "project-1", positionId: "position-1" },
+      correlationId: "correlation-analysis-history",
+    }), {
+      commandKey: "ANALYSIS",
+      context: { projectId: "project-1", positionId: "position-1" },
+    });
+
+    expect(finishAgentCommandPlan).toHaveBeenCalledWith("subject-1", expect.objectContaining({
+      status: "SUCCEEDED",
+      analysisHistory: {
+        summary: "Остаточный дефицит 12 EA.",
+        confidence: 0.9,
+        requiresHumanReview: true,
+        generatedAt: "2026-08-13T10:00:00.000Z",
+        datasetVersion: "1.0.0-DEMO",
+        semanticRegistryVersion: "semantic-registry-1.0.0",
+        forecastModelVersion: "linear-trend-v1",
+        recommendation: "Передать вариант специалисту.",
+        citations: [expect.objectContaining({ sourceSystem: "SAP" })],
+      },
+    }));
+  });
+
   it("фиксирует безопасный отказ плана без закрытой причины ошибки", async () => {
     execute.mockRejectedValue(Object.assign(new Error("секретная причина"), { code: "SOURCE_DOWN" }));
     const capability = new AuditedAgentCommandCapability(

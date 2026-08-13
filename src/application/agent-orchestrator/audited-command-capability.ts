@@ -1,6 +1,7 @@
 import type { AuditLogInput } from "@/adapters/persistence/repository";
 import type { AgentCommandCapability } from "@/application/agent-orchestrator/orchestrator";
 import type { AgentCommandKey } from "@/domain/agent/commands";
+import type { AgentAnalysisHistoryInput } from "@/domain/agent/case";
 import type { AgentExecutionContext } from "@/domain/agent/context";
 import type { AgentCommandRequestMap, AgentCommandResultMap } from "@/ports/agent-orchestrator";
 
@@ -33,6 +34,7 @@ export interface AgentCommandPlanPort {
       readonly status: "SUCCEEDED" | "FAILED";
       readonly occurredAt: string;
       readonly safeErrorCode?: string;
+      readonly analysisHistory?: AgentAnalysisHistoryInput;
       readonly actorDisplayName: string;
     },
   ): Promise<void>;
@@ -85,11 +87,13 @@ export class AuditedAgentCommandCapability implements AgentCommandCapability {
       ) => Promise<AgentCommandResultMap[AgentCommandKey]>;
       const result = await execute.call(this.delegate, context, request);
       if (plan && this.plans && planProjectId) {
+        const history = analysisHistory(result);
         await this.plans.finishAgentCommandPlan(context.trusted.subjectId, {
           ...plan,
           projectId: planProjectId,
           correlationId: context.correlationId,
           status: "SUCCEEDED",
+          ...(history ? { analysisHistory: history } : {}),
           actorDisplayName: context.trusted.displayName,
           occurredAt: this.timestamp().toISOString(),
         });
@@ -150,6 +154,30 @@ export class AuditedAgentCommandCapability implements AgentCommandCapability {
       details: { ...auditContext, ...details },
     });
   }
+}
+
+function analysisHistory(
+  result: AgentCommandResultMap[AgentCommandKey],
+): AgentAnalysisHistoryInput | null {
+  if (result.responseType !== "ANALYSIS") return null;
+  const analysis = result.analysis;
+  return {
+    summary: analysis.executiveSummary,
+    confidence: analysis.confidence,
+    requiresHumanReview: analysis.requiresHumanReview,
+    generatedAt: analysis.generatedAt,
+    datasetVersion: analysis.technicalTrace.datasetVersion,
+    semanticRegistryVersion: analysis.technicalTrace.semanticRegistryVersion,
+    forecastModelVersion: analysis.forecast?.selectedModel?.modelVersion ?? null,
+    recommendation: analysis.recommendation?.nextAction ?? null,
+    citations: analysis.citations.map((citation) => ({
+      sourceSystem: citation.sourceSystem,
+      entityId: citation.entityId,
+      versionOrSnapshot: citation.versionOrSnapshot,
+      observedAt: citation.observedAt,
+      clauseId: citation.clauseId,
+    })),
+  };
 }
 
 function sanitizedFilters(value: unknown): Readonly<Record<string, unknown>> {

@@ -9,6 +9,7 @@ import { agentCases, agentEvidenceFacts, auditLogs } from "@/adapters/persistenc
 import type { AgentCaseStore } from "@/application/agent-orchestrator/case-service";
 import {
   AGENT_CASE_STATUSES,
+  type AgentAnalysisHistorySnapshot,
   type AgentCaseContextSnapshot,
   type AgentCaseRecord,
   type AgentCaseStatus,
@@ -360,7 +361,30 @@ function contextSnapshot(value: Record<string, unknown>): AgentCaseContextSnapsh
       result.period = { from: period.from, to: period.to };
     }
   }
+  const history = analysisHistory(value.analysisHistory);
+  if (history) result.analysisHistory = history;
   return result as AgentCaseContextSnapshot;
+}
+
+function analysisHistory(value: unknown): AgentAnalysisHistorySnapshot | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (
+    record.schemaVersion !== "mtr-agent-analysis-history-v1" ||
+    typeof record.summary !== "string" ||
+    typeof record.confidence !== "number" ||
+    typeof record.requiresHumanReview !== "boolean" ||
+    typeof record.generatedAt !== "string" ||
+    typeof record.datasetVersion !== "string" ||
+    typeof record.semanticRegistryVersion !== "string" ||
+    !(typeof record.forecastModelVersion === "string" || record.forecastModelVersion === null) ||
+    !(typeof record.recommendation === "string" || record.recommendation === null) ||
+    typeof record.conclusionFingerprint !== "string" ||
+    !(typeof record.previousCaseId === "string" || record.previousCaseId === null) ||
+    !(typeof record.changedConclusion === "boolean" || record.changedConclusion === null) ||
+    typeof record.sourceCount !== "number"
+  ) return null;
+  return record as unknown as AgentAnalysisHistorySnapshot;
 }
 
 function oneCalendarYearAfter(timestamp: string): string {
