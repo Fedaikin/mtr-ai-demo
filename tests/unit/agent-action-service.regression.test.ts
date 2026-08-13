@@ -64,6 +64,17 @@ describe("безопасные L2-действия МТР-агента", () => {
     expect(store.completeWithAudit).toHaveBeenCalledTimes(1);
   });
 
+  it("показывает только личные предложения активного проекта", async () => {
+    const store = memoryStore();
+    const service = new AgentActionService(store, executor(vi.fn()), () => new Date("2026-08-13T12:00:00.000Z"));
+    const expected = await service.propose(input(), context(["agent.chat", "analysis.create"]));
+
+    await expect(service.list(context(["agent.chat"]))).resolves.toEqual([
+      expect.objectContaining({ id: expected.id, status: "PROPOSED" }),
+    ]);
+    expect(store.listAuthorized).toHaveBeenCalledWith("user-1", "project-1");
+  });
+
   it.each(["DECIDE_EXPERT_REVIEW", "SAP_WRITE", "APPIUS_WRITE"])(
     "запрещает неподдерживаемое действие %s",
     async (actionType) => {
@@ -130,6 +141,9 @@ function memoryStore(): AgentActionStore & Record<string, ReturnType<typeof vi.f
       const value = values.get(id);
       return value?.proposedBy === subjectId && value.projectId === projectId ? value : null;
     }),
+    listAuthorized: vi.fn(async (subjectId: string, projectId: string) =>
+      [...values.values()].filter((value) =>
+        value.proposedBy === subjectId && value.projectId === projectId)),
     claimForExecution: vi.fn(async (id: string, version: number, updatedAt: string) => {
       const value = values.get(id)!;
       if (value.status === "SUCCEEDED" || value.status === "EXECUTING") return { outcome: "EXISTING" as const, proposal: value };

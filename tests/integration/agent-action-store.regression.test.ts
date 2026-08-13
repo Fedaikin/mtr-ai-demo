@@ -56,8 +56,9 @@ describe.sequential("durable L2 action store", () => {
       },
       execute,
     };
+    const store = new PostgresAgentActionStore(db);
     const service = new AgentActionService(
-      new PostgresAgentActionStore(db),
+      store,
       executor,
       () => new Date("2026-08-13T12:00:00.000Z"),
     );
@@ -88,6 +89,9 @@ describe.sequential("durable L2 action store", () => {
     expect(replay).toEqual(completed);
     expect(execute).toHaveBeenCalledTimes(1);
     expect(proposed.parameters).toEqual({ specificationId: "spec-demo-piping-001" });
+    await expect(service.list(context)).resolves.toEqual([
+      expect.objectContaining({ id: proposed.id, status: "SUCCEEDED" }),
+    ]);
 
     const actionAudits = (await db.select().from(auditLogs).where(eq(auditLogs.entityId, proposed.id)))
       .map((row) => ({ action: row.action, details: row.details }));

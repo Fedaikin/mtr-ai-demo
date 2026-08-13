@@ -49,6 +49,7 @@ export interface AgentActionStore {
     audit: AgentActionAuditEnvelope,
   ): Promise<AgentActionProposal>;
   getAuthorized(id: string, subjectId: string, projectId: string): Promise<AgentActionProposal | null>;
+  listAuthorized(subjectId: string, projectId: string): Promise<readonly AgentActionProposal[]>;
   claimForExecution(id: string, version: number, updatedAt: string, audit: AgentActionAuditEnvelope): Promise<
     | { readonly outcome: "CLAIMED"; readonly proposal: AgentActionProposal }
     | { readonly outcome: "EXISTING"; readonly proposal: AgentActionProposal }
@@ -160,6 +161,14 @@ export class AgentActionService {
 
   async get(id: string, context: TrustedRequestContext): Promise<PublicAgentActionProposal> {
     return toPublicAgentActionProposal(await this.getAuthorized(id, context));
+  }
+
+  async list(context: TrustedRequestContext): Promise<readonly PublicAgentActionProposal[]> {
+    const projectId = requireActiveProject(context);
+    requirePermission(context, "agent.chat");
+    return Object.freeze(
+      (await this.store.listAuthorized(context.subjectId, projectId)).map(toPublicAgentActionProposal),
+    );
   }
 
   private async getAuthorized(id: string, context: TrustedRequestContext): Promise<AgentActionProposal> {

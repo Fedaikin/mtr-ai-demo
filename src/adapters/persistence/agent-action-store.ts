@@ -2,7 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
 import { type Database, getDatabase } from "@/adapters/persistence/db";
 import { agentActionProposals, auditLogs } from "@/adapters/persistence/schema";
@@ -96,6 +96,25 @@ export class PostgresAgentActionStore implements AgentActionStore {
       )
       .limit(1);
     return row ? toProposal(row) : null;
+  }
+
+  async listAuthorized(
+    subjectId: string,
+    projectId: string,
+  ): Promise<readonly AgentActionProposal[]> {
+    const rows = await this.db
+      .select()
+      .from(agentActionProposals)
+      .where(
+        and(
+          eq(agentActionProposals.tenantId, this.tenantId),
+          eq(agentActionProposals.projectId, projectId),
+          eq(agentActionProposals.proposedByUserId, subjectId),
+        ),
+      )
+      .orderBy(desc(agentActionProposals.proposedAt))
+      .limit(50);
+    return Object.freeze(rows.map(toProposal));
   }
 
   async claimForExecution(

@@ -1,7 +1,7 @@
 import { toPublicAgentActionProposal } from "@/domain/agent/actions";
 import { createAgentCaseStore } from "@/adapters/persistence/agent-case-store";
 import { AgentCaseService } from "@/application/agent-orchestrator/case-service";
-import { ApiError, created, parseJson } from "@/lib/api";
+import { ApiError, created, ok, parseJson } from "@/lib/api";
 import { requirePermission } from "@/lib/session";
 
 import {
@@ -12,6 +12,21 @@ import {
 } from "./_shared";
 
 export const dynamic = "force-dynamic";
+
+export async function GET() {
+  try {
+    assertActionsEnabled();
+    const [session, service] = await Promise.all([
+      requirePermission("agent.chat"),
+      createActionService(),
+    ]);
+    return ok({ items: await service.list(session.authorization) }, {
+      headers: { "cache-control": "private, no-store" },
+    });
+  } catch (error) {
+    return actionErrorResponse(error);
+  }
+}
 
 export async function POST(request: Request) {
   try {
