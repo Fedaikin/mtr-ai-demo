@@ -22,11 +22,13 @@ describe("g1 analytical vertical dataset", () => {
     expect(dataset.positions).toHaveLength(counts.positions);
     expect(dataset.stockSnapshots).toHaveLength(counts.stockRows);
     expect(dataset.movements).toHaveLength(counts.movementRows);
+    expect(dataset.reservationEvents).toHaveLength(counts.reservationEvents);
     expect(dataset.bomLinks).toHaveLength(counts.bomLinks);
     expect(dataset.shortages).toHaveLength(counts.shortages);
     expect(dataset.runs).toHaveLength(counts.scenarioRuns);
     expect(dataset.expertTasks).toHaveLength(counts.expertTasks);
     expect(dataset.outcomes).toHaveLength(counts.outcomeOracles);
+    expect(dataset.qualityCases).toHaveLength(counts.qualityCases);
   });
 
   it("contains the certified 95% Appius-catalog-SAP crosswalk and intentional negatives", () => {
@@ -54,7 +56,7 @@ describe("g1 analytical vertical dataset", () => {
     for (const code of mappedCodes) {
       expect(dataset.stockSnapshots.filter((row) => row.materialCode === code)).toHaveLength(4);
       const movements = dataset.movements.filter((row) => row.materialCode === code);
-      expect(movements).toHaveLength(52);
+      expect(movements).toHaveLength(208);
       expect(new Set(movements.map((row) => row.type))).toEqual(
         new Set(["CONSUMPTION", "RECEIPT", "TRANSFER", "ADJUSTMENT"]),
       );
@@ -68,6 +70,9 @@ describe("g1 analytical vertical dataset", () => {
       ),
     ).toBe(true);
     expect(dataset.movements.every((row) => Date.parse(row.occurredAt) <= asOf)).toBe(true);
+    expect(
+      dataset.reservationEvents.every((row) => Date.parse(row.occurredAt) <= asOf),
+    ).toBe(true);
   });
 
   it("provides BOM, responsibility, shortage and future-outcome oracles without hidden null-to-zero", () => {
@@ -93,8 +98,17 @@ describe("g1 analytical vertical dataset", () => {
     expect(positive.every((shortage) => shortage.expectedCandidateCodes.length > 0)).toBe(true);
     expect(negative).toHaveLength(12);
     expect(negative.every((shortage) => shortage.expectedCandidateCodes.length === 0)).toBe(true);
+    expect(positive.filter((shortage) => shortage.planKind === "SINGLE")).toHaveLength(18);
+    expect(positive.filter((shortage) => shortage.planKind === "COMPOSITE")).toHaveLength(18);
     expect(dataset.inboundSupplies).toHaveLength(48);
     expect(dataset.inboundSupplies.every((supply) => Number.isFinite(supply.confirmedQuantity))).toBe(true);
+    expect(
+      dataset.inboundSupplies.every(
+        (supply) =>
+          Date.parse(supply.promisedAt) <= Date.parse(supply.updatedAt) &&
+          (supply.actualAt === null || Date.parse(supply.updatedAt) <= Date.parse(supply.actualAt)),
+      ),
+    ).toBe(true);
     expect(resolved).toHaveLength(228);
     expect(unknown).toHaveLength(12);
     expect(unknown.every((item) => item.documentId === null && item.clauseId === null)).toBe(true);
@@ -105,5 +119,26 @@ describe("g1 analytical vertical dataset", () => {
           Date.parse(outcome.observedAt) <= Date.parse(dataset.manifest.asOf),
       ),
     ).toBe(true);
+  });
+
+  it("contains at least sixty component families and sealed quality counterexamples", () => {
+    const dataset = generateAgentAnalyticalDataset();
+    const componentFamilies = new Set(
+      dataset.positions
+        .filter((position) => position.itemKind === "COMPONENT" && position.catalogFamilyId)
+        .map((position) => position.catalogFamilyId),
+    );
+
+    expect(componentFamilies.size).toBeGreaterThanOrEqual(60);
+    expect(dataset.qualityCases.map((item) => item.kind)).toEqual([
+      "CURRENT_SNAPSHOT",
+      "STALE_SNAPSHOT",
+      "CONFLICTING_SNAPSHOT",
+      "MISSING_WEEK",
+      "UNIT_CONFLICT",
+      "ZERO_CONSUMPTION",
+    ]);
+    expect(dataset.qualityCases.filter((item) => item.expectedDisposition === "UNAVAILABLE"))
+      .toHaveLength(3);
   });
 });

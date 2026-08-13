@@ -8,6 +8,8 @@ import type {
   AnalyticalOutcomeOracle,
   AnalyticalPositionLink,
   AnalyticalProcessRun,
+  AnalyticalQualityCase,
+  AnalyticalReservationEvent,
   AnalyticalResponsibilityOracle,
   AnalyticalScenarioDataset,
   AnalyticalShortageOracle,
@@ -19,7 +21,7 @@ const AS_OF = "2026-08-10T23:59:59.000Z";
 const GENERATED_AT = "2026-08-11T07:30:00.000Z";
 const SEED = 0x47315631;
 const WAREHOUSES = ["WH-NORTH", "WH-SOUTH", "WH-EAST", "WH-WEST"] as const;
-const WEEK_COUNT = 13;
+const WEEK_COUNT = 52;
 
 const EXPECTED_COUNTS = Object.freeze({
   specifications: 12,
@@ -30,7 +32,8 @@ const EXPECTED_COUNTS = Object.freeze({
   intentionalUnmappedPositions: 12,
   warehouses: 4,
   stockRows: 912,
-  movementRows: 11_856,
+  movementRows: 47_424,
+  reservationEvents: 96,
   bomLinks: 144,
   shortages: 48,
   positiveAnalogueCases: 36,
@@ -39,6 +42,7 @@ const EXPECTED_COUNTS = Object.freeze({
   scenarioRuns: 48,
   expertTasks: 24,
   outcomeOracles: 24,
+  qualityCases: 6,
 } as const);
 
 export function generateAgentAnalyticalDataset(): AnalyticalScenarioDataset {
@@ -64,7 +68,8 @@ export function generateAgentAnalyticalDataset(): AnalyticalScenarioDataset {
     const all = positionsBySpecification.get(specification.id) ?? [];
     const assemblies = all.filter((position) => position.classification.itemKind === "ASSEMBLY");
     const components = all.filter((position) => position.classification.itemKind === "COMPONENT");
-    return [...assemblies.slice(0, 2), ...components.slice(0, 18)];
+    const distinctFamilyComponents = components.filter((_position, index) => index % 4 === 0);
+    return [...assemblies.slice(0, 2), ...distinctFamilyComponents.slice(0, 18)];
   });
   if (selectedPositions.length !== EXPECTED_COUNTS.positions) {
     throw new Error("Сертифицированная когорта должна содержать ровно 240 позиций.");
@@ -78,6 +83,7 @@ export function generateAgentAnalyticalDataset(): AnalyticalScenarioDataset {
       positionId: position.id,
       specificationId: position.specificationId,
       catalogItemCode: intentionalNegative ? null : item.itemCode,
+      catalogFamilyId: intentionalNegative ? null : item.familyId,
       sapMaterialCode: intentionalNegative ? null : sapMaterialCode(item.itemCode),
       itemKind: item.itemKind,
       unit: position.unit,
@@ -135,10 +141,37 @@ export function generateAgentAnalyticalDataset(): AnalyticalScenarioDataset {
     materialCode: position.sapMaterialCode,
     warehouseId: WAREHOUSES[index % WAREHOUSES.length],
     confirmedQuantity: index % 4 === 3 ? 0 : 4 + (index % 11),
-    expectedAt: offsetIso(AS_OF, 1 + (index % 14)),
+    promisedAt: offsetIso(AS_OF, -30 + (index % 10)),
+    updatedAt: offsetIso(AS_OF, -20 + (index % 10)),
+    actualAt: index % 4 === 0 ? null : offsetIso(AS_OF, -10 + (index % 10)),
     leadTimeDays: 2 + (index % 18),
     sourceVersion: "sap-g1-inbound-2026-08-10",
   }));
+  const reservationEvents: AnalyticalReservationEvent[] = shortagePositions.flatMap(
+    (position, index) => {
+      const reservedAt = offsetIso("2026-06-01T00:00:00.000Z", index);
+      return [
+        {
+          id: `g1-reservation-${pad(index + 1, 3)}-1`,
+          materialCode: position.sapMaterialCode,
+          warehouseId: WAREHOUSES[index % WAREHOUSES.length],
+          type: "RESERVED" as const,
+          quantity: 2 + (index % 6),
+          occurredAt: reservedAt,
+          sourceVersion: "sap-g1-reservations-v1",
+        },
+        {
+          id: `g1-reservation-${pad(index + 1, 3)}-2`,
+          materialCode: position.sapMaterialCode,
+          warehouseId: WAREHOUSES[index % WAREHOUSES.length],
+          type: "RELEASED" as const,
+          quantity: 1 + (index % 3),
+          occurredAt: offsetIso(reservedAt, 7 + (index % 5)),
+          sourceVersion: "sap-g1-reservations-v1",
+        },
+      ];
+    },
+  );
 
   const assemblyCodes = mapped
     .filter((position) => position.itemKind === "ASSEMBLY")
@@ -173,6 +206,7 @@ export function generateAgentAnalyticalDataset(): AnalyticalScenarioDataset {
       shortageQuantity: 1 + (index % 17),
       expectedAnalogueOutcome: hasCandidate ? "CANDIDATE_AVAILABLE" : "NO_CANDIDATE",
       expectedCandidateCodes: hasCandidate ? candidates.slice(0, 3) : [],
+      planKind: hasCandidate ? (index % 2 === 0 ? "SINGLE" : "COMPOSITE") : "NONE",
       ruleVersion: hasCandidate ? "analogue-g1-positive-v1" : "analogue-g1-negative-v1",
     };
   });
@@ -233,6 +267,50 @@ export function generateAgentAnalyticalDataset(): AnalyticalScenarioDataset {
             ? "SUPPLY_DELAY"
             : "RESERVATION_GROWTH",
     }));
+  const qualityCases: AnalyticalQualityCase[] = [
+    {
+      id: "g1-quality-current-snapshot",
+      kind: "CURRENT_SNAPSHOT",
+      materialCode: mapped[0].sapMaterialCode,
+      expectedDisposition: "USABLE",
+      evidence: { ageMinutes: 6, conflict: false },
+    },
+    {
+      id: "g1-quality-stale-snapshot",
+      kind: "STALE_SNAPSHOT",
+      materialCode: mapped[1].sapMaterialCode,
+      expectedDisposition: "UNAVAILABLE",
+      evidence: { ageMinutes: 1_440, conflict: false },
+    },
+    {
+      id: "g1-quality-conflicting-snapshot",
+      kind: "CONFLICTING_SNAPSHOT",
+      materialCode: mapped[2].sapMaterialCode,
+      expectedDisposition: "UNAVAILABLE",
+      evidence: { ageMinutes: 8, conflictingAvailableQuantity: 999 },
+    },
+    {
+      id: "g1-quality-missing-week",
+      kind: "MISSING_WEEK",
+      materialCode: mapped[3].sapMaterialCode,
+      expectedDisposition: "PARTIAL",
+      evidence: { missingWeek: "2026-W18" },
+    },
+    {
+      id: "g1-quality-unit-conflict",
+      kind: "UNIT_CONFLICT",
+      materialCode: mapped[4].sapMaterialCode,
+      expectedDisposition: "UNAVAILABLE",
+      evidence: { expectedUnit: mapped[4].unit, conflictingUnit: "KG" },
+    },
+    {
+      id: "g1-quality-zero-consumption",
+      kind: "ZERO_CONSUMPTION",
+      materialCode: mapped[5].sapMaterialCode,
+      expectedDisposition: "USABLE",
+      evidence: { zeroWeeks: 4, structuralMissingness: false },
+    },
+  ];
 
   const checksum = datasetChecksum([
     ...positionLinks.map((item) => `${item.positionId}:${item.sapMaterialCode ?? "UNMAPPED"}`),
@@ -264,12 +342,14 @@ export function generateAgentAnalyticalDataset(): AnalyticalScenarioDataset {
     stockSnapshots,
     movements,
     inboundSupplies,
+    reservationEvents,
     bomLinks,
     shortages,
     responsibilities,
     runs,
     expertTasks,
     outcomes,
+    qualityCases,
   };
 }
 
@@ -286,7 +366,7 @@ function movementQuantity(
 }
 
 function movementOccurredAt(weekIndex: number, typeIndex: number): string {
-  const start = new Date("2026-05-11T06:00:00.000Z");
+  const start = new Date("2025-08-11T06:00:00.000Z");
   start.setUTCDate(start.getUTCDate() + weekIndex * 7);
   start.setUTCHours(start.getUTCHours() + typeIndex * 4);
   return start.toISOString();
