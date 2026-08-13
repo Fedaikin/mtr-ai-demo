@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { AppNavigation } from "@/components/app-navigation";
 import { AgentWidget } from "@/components/agent-widget";
 import { LogoutButton } from "@/components/logout-button";
+import { RoleSwitcher } from "@/components/role-switcher";
 import type { NavigationItem } from "@/lib/navigation";
 import { ROLE_LABELS, type PermissionKey, type RoleKey } from "@/domain/rbac";
 
@@ -28,7 +29,7 @@ const ADMIN_NAVIGATION = [
   { name: "Аудит", href: "/admin/audit", permissions: ["audit.read.global", "audit.read.project"] },
 ] as const;
 
-export function AppShell({ children, displayName, permissionKeys, roleKeys }: { children: ReactNode; displayName: string; permissionKeys: readonly string[]; roleKeys: readonly string[] }) {
+export function AppShell({ children, displayName, login, permissionKeys, roleKeys, roleSelectorEnabled }: { children: ReactNode; displayName: string; login: string; permissionKeys: readonly string[]; roleKeys: readonly string[]; roleSelectorEnabled: boolean }) {
   const permissions = new Set(permissionKeys);
   const userItems = visibleItems(USER_NAVIGATION, permissions);
   const adminItems = visibleItems(ADMIN_NAVIGATION, permissions);
@@ -69,6 +70,7 @@ export function AppShell({ children, displayName, permissionKeys, roleKeys }: { 
               <p className="text-sm font-medium">{displayName}</p>
             </div>
             <div className="flex items-center gap-2">
+              {roleSelectorEnabled ? <RoleSwitcher currentLogin={login} /> : null}
               <span className="hidden rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-xs font-medium text-teal-800 sm:inline-flex">
                 Локальная модель
               </span>

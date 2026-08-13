@@ -5,6 +5,7 @@ export type UserRole = "USER" | "ADMIN";
 
 export interface DemoUser {
   id: string;
+  login?: string;
   subjectId?: string;
   displayName: string;
   roles: UserRole[];
@@ -12,6 +13,7 @@ export interface DemoUser {
   projectRoleKeys?: string[];
   permissionKeys?: string[];
   activeProjectId?: string | null;
+  isSyntheticDemo?: boolean;
   locale: "ru-RU";
 }
 

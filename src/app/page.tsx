@@ -24,6 +24,9 @@ export default async function DashboardPage() {
     redirect("/forbidden");
   }
   const { user } = session;
+  const canCreateAnalysis = session.authorization.permissionKeys.has("analysis.create");
+  const canReview = session.authorization.permissionKeys.has("review.queue.read");
+  const primaryProjectRole = session.authorization.projectRoleKeys.includes("PROJECT_MANAGER") ? "PROJECT_MANAGER" : session.authorization.projectRoleKeys.includes("MTR_EXPERT") ? "MTR_EXPERT" : session.authorization.projectRoleKeys.includes("MTR_ANALYST") ? "MTR_ANALYST" : "PROJECT_VIEWER";
   const repository = await getRepository();
   const [specifications, runs, completedRuns, integrations, counts, catalog, forecastCandidates] = await Promise.all([
     repository.listSpecifications(user.id),
@@ -53,8 +56,9 @@ export default async function DashboardPage() {
         eyebrow="Рабочее место"
         title="Обзор анализа МТР"
         description="Промышленный каталог, складские остатки, спецификации и последние результаты анализа."
-        action={<div className="flex flex-wrap gap-2"><Link href="/catalog" className="focus-ring inline-flex rounded-md border border-teal-700 bg-white px-4 py-2.5 text-sm font-semibold text-teal-800 hover:bg-teal-50">Открыть каталог</Link><Link href="/admin/scenarios" className="focus-ring inline-flex rounded-md bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-teal-800">Запустить анализ</Link></div>}
+        action={<div className="flex flex-wrap gap-2"><Link href="/catalog" className="focus-ring inline-flex rounded-md border border-teal-700 bg-white px-4 py-2.5 text-sm font-semibold text-teal-800 hover:bg-teal-50">Открыть каталог</Link>{canCreateAnalysis ? <Link href="/admin/scenarios" className="focus-ring inline-flex rounded-md bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-teal-800">Запустить анализ</Link> : null}{canReview ? <Link href="/reviews" className="focus-ring inline-flex rounded-md bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-700">Открыть очередь эксперта</Link> : null}</div>}
       />
+      <RoleWorkspacePanel role={primaryProjectRole} />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <DashboardMetric label="Позиции каталога" value={catalog.items} hint={`${catalog.components} компонентов`} />
         <DashboardMetric label="Общий остаток" value={Math.max(0, Math.round(catalog.totalAvailableQuantity))} hint={`${catalog.stockedItems} позиций в наличии · целые ед.`} />
@@ -79,6 +83,16 @@ export default async function DashboardPage() {
       <section className="mt-5 rounded-lg border border-slate-200 bg-white p-5 shadow-sm"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Интеграции</p><h2 className="mt-1 text-lg font-semibold">Оперативное состояние</h2></div><Link href="/admin/integrations" className="text-sm font-medium text-teal-800 hover:underline">Управление</Link></div><div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{integrations.map((integration) => <div key={integration.system} data-testid={`dashboard-integration-${integration.system.toLowerCase()}`} className="rounded-md border border-slate-200 p-3"><div className="flex items-center justify-between gap-3"><span className="text-sm font-semibold">{integrationSystemLabel(integration.system)}</span><span className={`h-2 w-2 rounded-full ${integration.state === "AVAILABLE" ? "bg-emerald-500" : "bg-amber-500"}`} /></div><p className="mt-1 text-xs text-slate-500">{integrationStatusLabel(integration.state)} · задержка {integration.delayMs} мс</p></div>)}</div></section>
     </>
   );
+}
+
+function RoleWorkspacePanel({ role }: { role: "PROJECT_VIEWER" | "MTR_ANALYST" | "MTR_EXPERT" | "PROJECT_MANAGER" }) {
+  const content = {
+    PROJECT_VIEWER: { eyebrow: "Режим наблюдателя", title: "Контроль без изменений", description: "Доступны спецификации, каталог, результаты анализа и отчёты. Запуск анализа, складской поиск и экспертные решения скрыты.", links: [["Просмотреть спецификации", "/specifications"], ["Открыть МТР-анализ", "/mtr-analysis"]] },
+    MTR_ANALYST: { eyebrow: "Рабочее место аналитика", title: "Подготовка и запуск анализа", description: "Загружайте и публикуйте спецификации, проверяйте складские данные и запускайте сценарии анализа МТР.", links: [["Работа со спецификациями", "/specifications"], ["Запустить сценарий", "/admin/scenarios"]] },
+    MTR_EXPERT: { eyebrow: "Рабочее место эксперта", title: "Даблчекер и экспертное решение", description: "Разбирайте очередь независимой проверки, подтверждайте или отклоняйте результаты и фиксируйте обоснование.", links: [["Очередь Даблчекера", "/reviews"], ["Полный МТР-анализ", "/mtr-analysis"]] },
+    PROJECT_MANAGER: { eyebrow: "Рабочее место руководителя", title: "Проект, команда и итоговые отчёты", description: "Управляйте участниками, контролируйте запуски и экспертную очередь, публикуйте итоговые отчёты проекта.", links: [["Участники проекта", "/projects/demo-project-001/members"], ["Сценарии и запуски", "/admin/scenarios"]] },
+  }[role];
+  return <section className="mb-5 rounded-xl border border-teal-200 bg-gradient-to-r from-teal-50 to-white p-5 shadow-sm"><p className="text-xs font-semibold uppercase tracking-wide text-teal-700">{content.eyebrow}</p><div className="mt-2 flex flex-wrap items-end justify-between gap-4"><div className="max-w-3xl"><h2 className="text-xl font-semibold text-slate-950">{content.title}</h2><p className="mt-2 text-sm leading-6 text-slate-600">{content.description}</p></div><div className="flex flex-wrap gap-2">{content.links.map(([label, href]) => <Link key={href} href={href} className="focus-ring rounded-md border border-teal-200 bg-white px-3 py-2 text-xs font-semibold text-teal-800 hover:bg-teal-100">{label}</Link>)}</div></div></section>;
 }
 
 function DashboardMetric({ label, value, hint, warning = false }: { label: string; value: number; hint: string; warning?: boolean }) { return <div className={`rounded-lg border p-4 shadow-sm ${warning ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-white"}`}><p className="text-xs text-slate-500">{label}</p><p className="mt-1 text-2xl font-semibold tabular-nums">{formatNumber(value)}</p><p className="mt-1 text-[11px] text-slate-500">{hint}</p></div>; }

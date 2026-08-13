@@ -426,6 +426,7 @@ export interface AuthUserRecord extends DemoUser {
   status: string;
   accountType: string;
   authorizationVersion: number;
+  isSyntheticDemo: boolean;
 }
 
 export interface AuthSessionRecord {
@@ -497,6 +498,7 @@ export class MtrRepository {
           status: row.status,
           accountType: row.accountType,
           authorizationVersion: row.authorizationVersion,
+          isSyntheticDemo: row.isSyntheticDemo,
         }
       : null;
   }
@@ -550,9 +552,11 @@ export class MtrRepository {
       expiresAt: row.session.expiresAt,
       user: {
         id: row.user.id,
+        login: row.user.login,
         displayName: row.user.displayName,
         roles: row.user.roles as UserRole[],
         locale: row.user.locale as "ru-RU",
+        isSyntheticDemo: row.user.isSyntheticDemo,
       },
     };
   }
@@ -578,6 +582,7 @@ export class MtrRepository {
           status: row.status,
           accountType: row.accountType,
           authorizationVersion: row.authorizationVersion,
+          isSyntheticDemo: row.isSyntheticDemo,
         }
       : null;
   }
@@ -4111,9 +4116,11 @@ function escapeLike(value: string): string {
 function publicAuthUser(user: AuthUserRecord): DemoUser {
   return {
     id: user.id,
+    login: user.login,
     displayName: user.displayName,
     roles: user.roles,
     locale: user.locale,
+    isSyntheticDemo: user.isSyntheticDemo,
   };
 }
 

@@ -13,6 +13,7 @@ import { getRepository } from "@/adapters/persistence/repository";
 import { authSessions, users } from "@/adapters/persistence/schema";
 import { POST as login } from "@/app/api/auth/login/route";
 import { POST as logout } from "@/app/api/auth/logout/route";
+import { POST as switchRole } from "@/app/api/auth/switch-role/route";
 import { DEMO_USER_ID } from "@/domain/models";
 import { SESSION_COOKIE_NAME } from "@/lib/auth-config";
 import { hashPassword } from "@/lib/password";
@@ -346,6 +347,28 @@ describe.sequential("persistent demo authentication", () => {
         }),
       );
       expect(safeRequest.status, method).toBe(200);
+    }
+  });
+
+  it("switches between synthetic demo personas and revokes the previous session", async () => {
+    const previousFlag = process.env.DEMO_ROLE_SELECTOR;
+    process.env.DEMO_ROLE_SELECTOR = "true";
+    try {
+      const viewer = await authenticateDemoCredentials("viewer", "Demo2026!");
+      expect(viewer).not.toBeNull();
+      const response = await switchRole(new Request("http://localhost/api/auth/switch-role", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: `${SESSION_COOKIE_NAME}=${viewer!.token}`, host: "localhost", origin: "http://localhost" },
+        body: JSON.stringify({ login: "admin" }),
+      }));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ user: { login: "admin" }, redirectTo: "/admin/users" });
+      await expect(resolveDemoSession(viewer!.token)).resolves.toBeNull();
+      const nextToken = response.headers.get("set-cookie")?.match(new RegExp(`${SESSION_COOKIE_NAME}=([^;]+)`))?.[1];
+      await expect(resolveDemoSession(nextToken)).resolves.toMatchObject({ user: { login: "admin", displayName: "Системный администратор" } });
+    } finally {
+      if (previousFlag === undefined) delete process.env.DEMO_ROLE_SELECTOR;
+      else process.env.DEMO_ROLE_SELECTOR = previousFlag;
     }
   });
 });

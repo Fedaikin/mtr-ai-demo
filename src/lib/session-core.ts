@@ -3,9 +3,10 @@ import "server-only";
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
 
 import { initializeDatabase } from "@/adapters/persistence/bootstrap";
-import { getRepository } from "@/adapters/persistence/repository";
+import { getRepository, type AuthUserRecord, type MtrRepository } from "@/adapters/persistence/repository";
 import { resolveAuthorizationContext, type TrustedRequestContext } from "@/application/authorization-service";
 import type { DemoUser } from "@/domain/models";
+import type { DemoPersonaLogin } from "@/domain/demo-personas";
 import { getConfiguredDemoPasswordHash, SESSION_MAX_AGE_SECONDS } from "@/lib/auth-config";
 import { verifyPassword } from "@/lib/password";
 
@@ -33,19 +34,17 @@ export async function authenticateDemoCredentials(
   const passwordHash = configuredHash ?? user?.passwordHash;
   if (!user || user.status !== "ACTIVE" || user.accountType !== "HUMAN" || !passwordHash || !(await verifyPassword(password, passwordHash))) return null;
 
-  const authorization = await resolveAuthorizationContext(user.id);
+  return createSession(repository, user);
+}
 
-  const token = randomBytes(32).toString("base64url");
-  const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1_000).toISOString();
-  const session = await repository.createAuthSession({
-    id: `session-${randomUUID()}`,
-    userId: user.id,
-    tokenHash: hashSessionToken(token),
-    expiresAt,
-    authorizationVersion: authorization.authorizationVersion,
-    activatedRoleAssignmentIds: [...authorization.activeRoleAssignmentIds],
-  });
-  return { ...session, user: contextualUser(session.user, authorization), authorization, token };
+export async function createDemoPersonaSession(login: DemoPersonaLogin): Promise<CreatedDemoSession> {
+  await initializeDatabase();
+  const repository = await getRepository();
+  const user = await repository.findUserByLogin(login);
+  if (!user || !user.isSyntheticDemo || user.status !== "ACTIVE" || user.accountType !== "HUMAN") {
+    throw new Error("Демо-персона недоступна");
+  }
+  return createSession(repository, user);
 }
 
 export async function resolveDemoSession(token: string | undefined): Promise<PersistedDemoSession | null> {
@@ -66,6 +65,14 @@ export async function revokeDemoSession(token: string | undefined): Promise<void
 export function hashSessionToken(token: string): string {
   const credentialVersion = getConfiguredDemoPasswordHash() ?? "local-demo-session-v1";
   return createHmac("sha256", credentialVersion).update(token, "utf8").digest("hex");
+}
+
+async function createSession(repository: MtrRepository, user: AuthUserRecord): Promise<CreatedDemoSession> {
+  const authorization = await resolveAuthorizationContext(user.id);
+  const token = randomBytes(32).toString("base64url");
+  const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1_000).toISOString();
+  const session = await repository.createAuthSession({ id: `session-${randomUUID()}`, userId: user.id, tokenHash: hashSessionToken(token), expiresAt, authorizationVersion: authorization.authorizationVersion, activatedRoleAssignmentIds: [...authorization.activeRoleAssignmentIds] });
+  return { ...session, user: contextualUser(session.user, authorization), authorization, token };
 }
 
 function contextualUser(user: DemoUser, authorization: TrustedRequestContext): DemoUser {
