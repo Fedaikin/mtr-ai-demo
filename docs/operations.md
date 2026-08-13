@@ -192,7 +192,7 @@ ALLOW_REMOTE_RESET=true node --env-file=.env.local --import tsx scripts/reset.ts
 pnpm check
 ```
 
-Фактическая последовательность: ESLint, Next route type generation + TypeScript, все Vitest-тесты, privacy scan, 34 deterministic eval-кейса агента, production build.
+Фактическая последовательность: ESLint, Next route type generation + TypeScript, все Vitest-тесты, privacy scan, 34 legacy eval-кейса, 20 production-shaped analytical eval-кейсов, 17 learning lifecycle eval-кейсов и production build.
 
 ### Полный release gate
 
@@ -435,9 +435,12 @@ MTR_AGENT_ORCHESTRATOR_ENABLED=true
 MTR_AGENT_ACTIONS_ENABLED=true
 MTR_AGENT_EVENTS_ENABLED=false
 MTR_AGENT_KILL_SWITCH=false
+MTR_AGENT_LLM_ENABLED=true
 ```
 
 Основной флаг включает единый `CHAT / COMMAND` runtime, кейсы, bounded plans, недельную сводку и чтение insights. Actions требуют второго флага. Event ingress оставляйте выключенным, пока не настроен отдельный service secret. Любой новый флаг по умолчанию `false`; `MTR_AGENT_KILL_SWITCH=true` имеет приоритет и останавливает новое выполнение без удаления уже сохранённых данных.
+
+`MTR_AGENT_LLM_ENABLED` — отдельный provider-level stop. Значение отсутствует или равно `true` для текущего offline-контура; только точное `false` запрещает новый provider call. Уже полученные citations инструментов не теряются: пользователь получает безопасный fallback с `confidence: 0` и `requiresHumanReview: true`. После изменения environment нужен новый deployment/process restart.
 
 `0007` не требует отдельного feature flag: endpoint обратной связи доступен только
 владельцу сохранённого ответа с `agent.chat`, а запись всегда создаётся в
@@ -470,6 +473,7 @@ curl --fail-with-body -sS -b "$MTR_COOKIE_JAR" \
 - `DATABASE_URL`: отдельная durable PostgreSQL БД;
 - `BLOB_READ_WRITE_TOKEN`: private Blob storage для uploads;
 - `LLM_PROVIDER=mock`;
+- `MTR_AGENT_LLM_ENABLED=true` (для аварийной остановки provider call задайте `false` и перезапустите deployment);
 - `APP_MODE=demo` только для защищённого demo-контура;
 - `DEMO_USER_ID=demo-user-001`.
 - `DEMO_PASSWORD_HASH`: приватный scrypt-хеш через secret manager;
@@ -496,6 +500,7 @@ curl --fail-with-body -sS -b "$MTR_COOKIE_JAR" \
 | `SAP_RATE_LIMITED` или `SAP_MALFORMED_RESPONSE` | Включён управляемый mock-отказ | Используйте валидный ручной SAP import или верните `AVAILABLE` и создайте retry |
 | `APPIUS_UNAVAILABLE` или `APPIUS_STALE_VERSION` | Appius не дал актуальную спецификацию | Используйте валидный ручной Appius import или восстановите источник; `APPIUS_ACCESS_DENIED` ручной импорт не разрешает |
 | `RAG_*` или безопасный `LLM_*` fallback | Admin-state реально применяется runtime | Проверьте audit и управляемый state; после теста верните `AVAILABLE` |
+| `LLM_PROVIDER_DISABLED`, timeout или budget fallback | Сработала provider-level policy | Проверьте `MTR_AGENT_LLM_ENABLED`, provider metadata и безопасный error code в admin audit; не отключайте budgets |
 | Изображение имеет `REVIEW_REQUIRED` | SHA-256 не входит в два известных demo OCR hash; универсальный OCR не подключён | Для Appius используйте CSV/XLS/XLSX или структурированный TXT/DOCX/text-PDF; для SAP — CSV/XLS/XLSX. Неизвестному изображению OCR не придумывается |
 | Privacy scan завершился ошибкой | Найден тип контакта или запрещённый маркер | Удалите значение из проекта; scan намеренно не печатает сам секрет |
 

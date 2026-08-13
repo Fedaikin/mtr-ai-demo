@@ -53,7 +53,8 @@ const result = await orchestrator.handle(input, session.authorization);
 
 - `createAgentService(dependencies)` создаёт application service;
 - `createMockLLMProvider()` создаёт детерминированный offline-провайдер;
-- HTTP runtime оборачивает его в `IntegrationAwareLlmProvider`, поэтому состояние LLM из админки управляет реальным вызовом;
+- `IntegrationAwareLlmProvider` применяет управляемое состояние LLM из админки;
+- `ConformingLlmProvider` является внешней границей provider call: редактирует секреты, ограничивает token/cost/rate budgets, передаёт cancel, прерывает timeout, проверяет structured output и поддерживает `MTR_AGENT_LLM_ENABLED=false`;
 - `MockLLMProvider` реализует общий `LLMProvider` и не знает о базе или HTTP.
 
 ## Маршрутизация инструментов
@@ -137,7 +138,9 @@ const result = await orchestrator.handle(input, session.authorization);
 - не добавляет citations, которых нет в envelope;
 - использует `ru-RU` для чисел и UTC для отображения snapshot.
 
-`IntegrationAwareLlmProvider` перед каждым ответом читает persisted state `LLM`: `AVAILABLE` вызывает mock сразу, `SLOW` — после контролируемой задержки, а `UNAVAILABLE`, `RATE_LIMITED` и `MALFORMED_RESPONSE` останавливают provider call с точным `LLM_*` code. `AgentService` тогда возвращает безопасный fallback с `confidence = 0` и `requiresHumanReview = true`; citations и tool calls, полученные до отказа LLM, сохраняются. Замена на внешний провайдер требует только другой реализации `LLMProvider`. Оркестрация, server-side identity, validation, citations, аудит и доменный расчёт остаются в application-слое.
+`IntegrationAwareLlmProvider` перед каждым ответом читает persisted state `LLM`: `AVAILABLE` вызывает mock сразу, `SLOW` — после контролируемой задержки, а `UNAVAILABLE`, `RATE_LIMITED` и `MALFORMED_RESPONSE` останавливают provider call с точным `LLM_*` code. Внешний `ConformingLlmProvider` охватывает весь вызов, включая эту задержку: вход очищается до делегирования, зависший вызов получает `AbortSignal`, а ответ проходит закрытую Zod-схему и выходной budget.
+
+Metadata границы фиксирует `provider / model / version`, запрет обучения и retention, `reasoningPersistence: NONE` и budgets. В audit сохраняются эти metadata и безопасный error code, но не prompt, raw response или chain-of-thought. Текущий offline provider имеет нулевую стоимость; внешний provider без отдельного разрешения не подключается. `AgentService` при любом безопасном отказе возвращает fallback с `confidence = 0` и `requiresHumanReview = true`; citations и tool calls, полученные до отказа LLM, сохраняются.
 
 ## Аналоги
 
@@ -171,6 +174,7 @@ const result = await orchestrator.handle(input, session.authorization);
 | Scenario/Report недоступен | Не угадывать статус или сводку |
 | LLM `SLOW` | Вызвать offline mock после `delayMs` |
 | LLM `UNAVAILABLE`, `RATE_LIMITED`, `MALFORMED_RESPONSE` | Вернуть соответствующий безопасный `LLM_*` fallback без придуманного вывода, сохранив подтверждённые citations |
+| `MTR_AGENT_LLM_ENABLED=false`, timeout, cancel или budget violation | Не вызывать либо прервать provider; вернуть безопасный fallback с обязательной ручной проверкой |
 
 Пользовательские ошибки не содержат stack trace, SQL, connection string, секрет или внутренний endpoint. Технический аудит хранит только код ошибки и безопасную сводку.
 
@@ -230,7 +234,7 @@ Lifecycle закрыт состояниями `QUARANTINED → APPROVED → PROM
 
 Каждая строка — отдельный валидный JSON-объект с обязательными/запрещёнными инструментами, требованиями к citations и безопасному ответу.
 
-Отдельный integration-набор `tests/integration/normative-agent-runtime.test.ts` проверяет bilingual hybrid retrieval, влияние активного admin-словаря, точные `RAG_*`/`LLM_*` коды, audit и сохранение citations при отказе LLM.
+Отдельный integration-набор `tests/integration/normative-agent-runtime.test.ts` проверяет bilingual hybrid retrieval, влияние активного admin-словаря, точные `RAG_*`/`LLM_*` коды, audit и сохранение citations при отказе LLM. `tests/unit/agent-provider-conformance.test.ts` отдельно закрепляет redaction-before-provider, kill switch, rate/token/output limits, timeout/cancel и strict structured output.
 
 ## Ограничения прототипа
 

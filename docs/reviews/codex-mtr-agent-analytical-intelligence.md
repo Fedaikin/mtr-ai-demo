@@ -17,6 +17,7 @@ Base: `70543c6c34d6778695a07a5400006742ed5e3a21`
 - [ ] Authorization и source filtering выполняются до retrieval.
 - [x] Данные проходят coverage/quality/freshness gate до вывода.
 - [x] LLM не вычисляет business metrics, forecast, scenario score или recommendation score.
+- [x] Provider-neutral boundary применяет redaction-before-call, kill switch, rate/token/cost budgets, timeout/cancel, strict output schema и audit metadata без reasoning.
 - [ ] Evidence graph хранит source nodes, но durable lineage каждого derived result ещё не завершён.
 - [x] Forecast содержит model/version/backtest/interval/assumptions или abstains.
 - [x] Причина отделена от корреляции.

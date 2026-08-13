@@ -69,6 +69,7 @@
 
 - `MTR_AGENT_ORCHESTRATOR_ENABLED`, `MTR_AGENT_ACTIONS_ENABLED`, `MTR_AGENT_EVENTS_ENABLED` — fail-closed: включены только значением `true`.
 - `MTR_AGENT_KILL_SWITCH=true` запрещает execution.
+- `MTR_AGENT_LLM_ENABLED=false` независимо запрещает provider call; provider boundary всегда применяет redaction, budgets, timeout/cancel, rate limit и strict output validation.
 - Provider mode baseline: server-side deterministic `MockLLMProvider`; внешний платный provider не подключается без отдельного разрешения.
 - Новый prompt активируется только после сквозной реализации обещанных capabilities; rollback остаётся доступен.
 

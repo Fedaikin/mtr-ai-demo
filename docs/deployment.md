@@ -26,6 +26,7 @@ Preview и Production не должны использовать общие `DAT
 | `PGLITE_DATA_DIR` | `.data/pglite` | не задавать | не задавать при PostgreSQL | локальная PGlite |
 | `BLOB_READ_WRITE_TOKEN` | необязательна | обязательна | не задавать для single-host volume | Vercel Blob uploads |
 | `LLM_PROVIDER` | `mock` | `mock` | `mock` | детерминированный провайдер без внешнего LLM |
+| `MTR_AGENT_LLM_ENABLED` | `true` | `true` | `true` | provider-level stop; только `false` запрещает новый вызов |
 | `APP_MODE` | `demo` | `demo` | `demo` или `production` | reset доступен только в `demo` |
 | `SESSION_COOKIE_SECURE` | необязательна | включается автоматически по `VERCEL` | `true` за TLS reverse proxy | принудительный `Secure` для HttpOnly session cookie |
 | `DEMO_PASSWORD_HASH` | secret, обязателен | secret, обязателен | secret, обязателен | scrypt-хеш общего demo-пароля; plaintext и реальный хеш не публикуются |
@@ -121,7 +122,7 @@ Noto Sans WOFF в свежем NFT trace PDF-export route; вне Vercel он д
 5. Для обеих сред задайте `LLM_PROVIDER=mock` и `APP_MODE=demo`. Production prototype
    с рабочим reset должен оставаться защищённым Deployment Protection.
 6. Задайте `DEMO_PASSWORD_HASH` как encrypted environment variable. Не добавляйте plaintext или реальный hash в Git.
-7. Первый rollout оркестратора выполняйте после migrations `0006` и `0007`: сначала `MTR_AGENT_ORCHESTRATOR_ENABLED=true`, затем независимо actions/events. Для event ingress нужен отдельный `MTR_AGENT_EVENT_INGRESS_SECRET` ≥32 символов. Kill switch оставьте `false`, но подготовьте операционную процедуру его включения.
+7. Первый rollout оркестратора выполняйте после migrations `0006` и `0007`: сначала `MTR_AGENT_ORCHESTRATOR_ENABLED=true`, затем независимо actions/events. Для event ingress нужен отдельный `MTR_AGENT_EVENT_INGRESS_SECRET` ≥32 символов. Kill switch оставьте `false`, `MTR_AGENT_LLM_ENABLED=true`, но подготовьте независимые операционные процедуры отключения orchestrator execution и только provider call.
 
 Изменённые environment variables действуют только для новых deployments; после
 ротации credentials выполните redeploy.
@@ -187,6 +188,8 @@ vercel curl '/api/health?check=ready' --deployment '<deployment-url>'
 ```
 
 Дополнительно проверьте redirect анонимного `/` на `/login`, вход/выход, server-driven завершение run без вызова `/advance`, отсутствие tool names в user API и наличие тех же операций в `/admin/agent-logs`. Для оркестратора проверьте `SUMMARY`, scoped `STOCKS`, смену роли с очисткой widget, reauthorized case/citation, proposal без автоматического side effect, confirm/replay и event idempotency. Production допускается только после exact-SHA Preview, HTTP 200 readiness, рабочем PDF-export, SLA run ≤15 секунд и отсутствия P0/P1. Эта feature-ветка Production не изменяет.
+
+Admin audit LLM-вызова должен содержать provider/model/version, `trainingAllowed=false`, `retentionAllowed=false` и `reasoningPersistence=NONE`, но не prompt или raw response. Отдельно проверьте `MTR_AGENT_LLM_ENABLED=false`: delegate не вызывается, а пользователь получает безопасный fallback с сохранёнными citations.
 
 ## 6. On-premise Docker Compose
 

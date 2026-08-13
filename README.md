@@ -92,7 +92,7 @@ Readiness и контроль canonical seed доступны по `/api/health`
 | `pnpm eval:agent:analytical` | Выполнить отдельный production-shaped набор analytical command/chat oracle-проверок |
 | `pnpm eval:agent:learning` | Выполнить versioned feedback/curation/rollback и trust-boundary eval |
 | `pnpm perf:smoke` | Измерить готовность API и загрузку основных экранов; поддерживает локальный или Preview base URL |
-| `pnpm check` | `lint` → `typecheck` → `test` → `privacy:scan` → оба agent eval-набора → `build` |
+| `pnpm check` | `lint` → `typecheck` → `test` → `privacy:scan` → legacy, analytical и learning eval-наборы → `build` |
 | `pnpm db:migrate` | Применить checked-in Drizzle migrations |
 | `pnpm db:seed` | Заменить demo-scoped данные каноническим seed |
 | `pnpm db:reset` | Атомарно восстановить demo-scoped данные; remote reset защищён флагом |
@@ -113,6 +113,7 @@ Readiness и контроль canonical seed доступны по `/api/health`
 | `BLOB_READ_WRITE_TOKEN` | Необязательна | Обязательна для загрузок на Vercel | Private Vercel Blob storage |
 | `LLM_PROVIDER` | `mock` | `mock` для текущего прототипа | Декларативный маркер; runtime текущей версии явно создаёт deterministic mock-provider |
 | `LLM_API_KEY` | Пустая | Не нужна для `mock` | Зарезервирована под внешний provider |
+| `MTR_AGENT_LLM_ENABLED` | `true` | Операционный флаг | Только явное `false` останавливает provider call; подтверждённые tool-citations сохраняются в безопасном fallback |
 | `APP_MODE` | `demo` | `demo` только в защищённом прототипном контуре | Разрешает API demo-reset |
 | `DEMO_USER_ID` | `demo-user-001` | `demo-user-001` | Канонический владелец предметных fixtures; доверенная session и scopes задаются сервером |
 | `DEMO_PASSWORD_HASH` | Обязателен | Обязателен через secret manager | Общий scrypt-хеш для интерактивных demo-персон; plaintext и реальный хеш в Git/UI запрещены |
@@ -149,6 +150,7 @@ docs/                        документация прототипа
 - fixture manifests `identity-base-v1`, `appius-base-v1`, `sap-base-v1`, `normative-base-v1` используют schema `1.0.0`; `scenarios-base-v2` использует schema `1.1.0` и содержит пять сценариев;
 - полный сценарий формирует golden-распределение 8 `EXACT`, 8 `LIKELY`, 5 `REVIEW`, 3 `NO_MATCH`;
 - агент получает предметные факты только через server-side capabilities с `TrustedRequestContext`;
+- каждый LLM-вызов проходит provider-neutral boundary: redaction, token/cost/rate budgets, timeout/cancel, kill switch и строгую проверку ответа; обучение, retention и сохранение reasoning запрещены;
 - сохранённые citations повторно авторизуются при чтении; L2-действия требуют отдельного подтверждения;
 - отзыв на ответ создаёт идемпотентный `LearningCandidate` в карантине; он не меняет runtime без human approval, regression case, validation checksum и отдельной активации;
 - внешний `userId` не выбирает контекст данных;
