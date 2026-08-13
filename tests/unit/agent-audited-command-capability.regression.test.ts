@@ -7,10 +7,14 @@ import { createAgentExecutionContext } from "@/domain/agent/context";
 describe("shared command audit capability", () => {
   const execute = vi.fn();
   const writeAudit = vi.fn();
+  const startAgentCommandPlan = vi.fn();
+  const finishAgentCommandPlan = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
     writeAudit.mockResolvedValue({ id: "audit-1" });
+    startAgentCommandPlan.mockResolvedValue({ id: "plan-1", caseId: "case-1", version: 1 });
+    finishAgentCommandPlan.mockResolvedValue(undefined);
     execute.mockResolvedValue({
       responseType: "STOCKS",
       title: "Остатки",
@@ -86,6 +90,69 @@ describe("shared command audit capability", () => {
       details: { errorCode: "SOURCE_DOWN" },
     });
     expect(JSON.stringify(writeAudit.mock.calls)).not.toContain("закрытая причина");
+  });
+
+  it("сохраняет bounded plan и завершает его после успешной typed capability", async () => {
+    const capability = new AuditedAgentCommandCapability(
+      { execute },
+      { writeAudit },
+      () => 100,
+      { startAgentCommandPlan, finishAgentCommandPlan },
+      () => new Date("2026-08-13T10:00:00.000Z"),
+    );
+
+    await capability.execute(createAgentExecutionContext(trusted(), {
+      selection: { projectId: "project-1", specificationId: "spec-1" },
+      correlationId: "correlation-plan-1",
+    }), {
+      commandKey: "SUMMARY",
+      context: { projectId: "project-1", specificationId: "spec-1" },
+    });
+
+    expect(startAgentCommandPlan).toHaveBeenCalledWith("subject-1", {
+      projectId: "project-1",
+      commandKey: "SUMMARY",
+      correlationId: "correlation-plan-1",
+      selection: { projectId: "project-1", specificationId: "spec-1" },
+      actorDisplayName: "Аналитик",
+      authorizationVersion: 7,
+      roleAssignmentSnapshot: ["assignment-1"],
+      occurredAt: "2026-08-13T10:00:00.000Z",
+    });
+    expect(finishAgentCommandPlan).toHaveBeenCalledWith("subject-1", expect.objectContaining({
+      id: "plan-1",
+      caseId: "case-1",
+      projectId: "project-1",
+      correlationId: "correlation-plan-1",
+      status: "SUCCEEDED",
+      actorDisplayName: "Аналитик",
+    }));
+  });
+
+  it("фиксирует безопасный отказ плана без закрытой причины ошибки", async () => {
+    execute.mockRejectedValue(Object.assign(new Error("секретная причина"), { code: "SOURCE_DOWN" }));
+    const capability = new AuditedAgentCommandCapability(
+      { execute },
+      { writeAudit },
+      () => 100,
+      { startAgentCommandPlan, finishAgentCommandPlan },
+      () => new Date("2026-08-13T10:00:00.000Z"),
+    );
+
+    await expect(capability.execute(createAgentExecutionContext(trusted(), {
+      selection: { projectId: "project-1" },
+      correlationId: "correlation-plan-failed",
+    }), {
+      commandKey: "RISKS",
+      context: { projectId: "project-1" },
+    })).rejects.toThrow("секретная причина");
+
+    expect(finishAgentCommandPlan).toHaveBeenCalledWith("subject-1", expect.objectContaining({
+      status: "FAILED",
+      actorDisplayName: "Аналитик",
+      safeErrorCode: "SOURCE_DOWN",
+    }));
+    expect(JSON.stringify(finishAgentCommandPlan.mock.calls)).not.toContain("секретная причина");
   });
 });
 

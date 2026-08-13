@@ -8,12 +8,44 @@ export interface AgentCommandAuditPort {
   writeAudit(userId: string, input: AuditLogInput): Promise<unknown>;
 }
 
+export interface AgentCommandPlanPort {
+  startAgentCommandPlan(
+    actorUserId: string,
+    input: {
+      readonly projectId: string;
+      readonly commandKey: string;
+      readonly correlationId: string;
+      readonly selection: Readonly<Record<string, unknown>>;
+      readonly actorDisplayName: string;
+      readonly authorizationVersion: number;
+      readonly roleAssignmentSnapshot: readonly string[];
+      readonly occurredAt: string;
+    },
+  ): Promise<{ readonly id: string; readonly caseId: string; readonly version: number }>;
+  finishAgentCommandPlan(
+    actorUserId: string,
+    input: {
+      readonly id: string;
+      readonly caseId: string;
+      readonly version: number;
+      readonly projectId: string;
+      readonly correlationId: string;
+      readonly status: "SUCCEEDED" | "FAILED";
+      readonly occurredAt: string;
+      readonly safeErrorCode?: string;
+      readonly actorDisplayName: string;
+    },
+  ): Promise<void>;
+}
+
 /** Shared audit boundary for quick commands and natural-language intents. */
 export class AuditedAgentCommandCapability implements AgentCommandCapability {
   constructor(
     private readonly delegate: AgentCommandCapability,
     private readonly audit: AgentCommandAuditPort,
     private readonly now: () => number = () => performance.now(),
+    private readonly plans?: AgentCommandPlanPort,
+    private readonly timestamp: () => Date = () => new Date(),
   ) {}
 
   async execute<K extends AgentCommandKey>(
@@ -29,12 +61,40 @@ export class AuditedAgentCommandCapability implements AgentCommandCapability {
     };
     await this.write(context, "received", auditContext, { outcome: "SUCCESS" });
     const startedAt = this.now();
+    let plan: Awaited<ReturnType<AgentCommandPlanPort["startAgentCommandPlan"]>> | null = null;
+    let planProjectId: string | null = null;
+    let planFinalized = false;
     try {
+      const projectId = request.context.projectId ?? context.trusted.activeProjectId;
+      if (this.plans && projectId) {
+        planProjectId = projectId;
+        plan = await this.plans.startAgentCommandPlan(context.trusted.subjectId, {
+          projectId,
+          commandKey: request.commandKey,
+          correlationId: context.correlationId,
+          selection: { ...request.context },
+          actorDisplayName: context.trusted.displayName,
+          authorizationVersion: context.trusted.authorizationVersion,
+          roleAssignmentSnapshot: context.trusted.activeRoleAssignmentIds,
+          occurredAt: this.timestamp().toISOString(),
+        });
+      }
       const execute = this.delegate.execute as unknown as (
         executionContext: AgentExecutionContext,
         commandRequest: AgentCommandRequestMap[AgentCommandKey] & { readonly commandKey: AgentCommandKey },
       ) => Promise<AgentCommandResultMap[AgentCommandKey]>;
       const result = await execute.call(this.delegate, context, request);
+      if (plan && this.plans && planProjectId) {
+        await this.plans.finishAgentCommandPlan(context.trusted.subjectId, {
+          ...plan,
+          projectId: planProjectId,
+          correlationId: context.correlationId,
+          status: "SUCCEEDED",
+          actorDisplayName: context.trusted.displayName,
+          occurredAt: this.timestamp().toISOString(),
+        });
+        planFinalized = true;
+      }
       await this.write(context, "completed", auditContext, {
         outcome: "SUCCESS",
         durationMs: elapsedMilliseconds(startedAt, this.now()),
@@ -46,11 +106,28 @@ export class AuditedAgentCommandCapability implements AgentCommandCapability {
       });
       return result as AgentCommandResultMap[K];
     } catch (error) {
+      let planFailure: unknown;
+      if (plan && this.plans && planProjectId && !planFinalized) {
+        try {
+          await this.plans.finishAgentCommandPlan(context.trusted.subjectId, {
+            ...plan,
+            projectId: planProjectId,
+            correlationId: context.correlationId,
+            status: "FAILED",
+            actorDisplayName: context.trusted.displayName,
+            occurredAt: this.timestamp().toISOString(),
+            safeErrorCode: safeErrorCode(error),
+          });
+        } catch (planError) {
+          planFailure = planError;
+        }
+      }
       await this.write(context, "failed", auditContext, {
         outcome: "FAILURE",
         durationMs: elapsedMilliseconds(startedAt, this.now()),
         errorCode: safeErrorCode(error),
       });
+      if (planFailure) throw planFailure;
       throw error;
     }
   }

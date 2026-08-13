@@ -65,6 +65,8 @@ import {
   analysisReviewDecisions,
   agentTasks,
   agentMetricEvents,
+  agentCases,
+  agentPlanExecutions,
   agentCitations,
   agentMessages,
   agentThreads,
@@ -178,6 +180,23 @@ export interface CreateAgentAssignedTaskInput {
   readonly roleAssignmentSnapshot: readonly string[];
   readonly occurredAt: string;
   readonly requestId: string;
+}
+
+export interface StartAgentCommandPlanInput {
+  readonly projectId: string;
+  readonly commandKey: string;
+  readonly correlationId: string;
+  readonly selection: Readonly<Record<string, unknown>>;
+  readonly actorDisplayName: string;
+  readonly authorizationVersion: number;
+  readonly roleAssignmentSnapshot: readonly string[];
+  readonly occurredAt: string;
+}
+
+export interface AgentCommandPlanHandle {
+  readonly id: string;
+  readonly caseId: string;
+  readonly version: number;
 }
 
 export interface AgentMetricEventQuery {
@@ -2940,6 +2959,181 @@ export class MtrRepository {
     return candidates[0]?.id ? String(candidates[0].id) : null;
   }
 
+  async startAgentCommandPlan(
+    actorUserId: string,
+    input: StartAgentCommandPlanInput,
+  ): Promise<AgentCommandPlanHandle> {
+    trustedUser(actorUserId);
+    const fingerprint = createHash("sha256").update([
+      actorUserId,
+      input.projectId,
+      input.commandKey,
+      input.correlationId,
+    ].join("\u001f")).digest("hex");
+    const caseId = `case-command-${fingerprint.slice(0, 24)}`;
+    const planId = `plan-${fingerprint.slice(0, 24)}`;
+    const idempotencyKey = `command-plan:${fingerprint}`;
+    const steps = [
+      { index: 1, key: "VALIDATE_TRUSTED_CONTEXT", status: "SUCCEEDED" },
+      { index: 2, key: "AUTHORIZE_AND_EXECUTE", status: "RUNNING" },
+      { index: 3, key: "PERSIST_PLAN_AUDIT", status: "PLANNED" },
+    ];
+    return this.db.transaction(async (transaction) => {
+      const tx = transaction as unknown as Database;
+      await tx.insert(agentCases).values({
+        id: caseId,
+        tenantId: "demo-tenant-001",
+        projectId: input.projectId,
+        ownerUserId: actorUserId,
+        status: "GATHERING_DATA",
+        title: `Команда МТР-агента: ${input.commandKey}`,
+        contextSnapshot: safeAgentSelection(input.selection),
+        authorizationVersion: input.authorizationVersion,
+        roleAssignmentSnapshot: [...input.roleAssignmentSnapshot],
+        createdByUserId: actorUserId,
+        createdAt: input.occurredAt,
+        updatedAt: input.occurredAt,
+        retentionUntil: oneCalendarYearAfter(input.occurredAt),
+      }).onConflictDoNothing();
+      const [existing] = await tx.select().from(agentPlanExecutions).where(and(
+        eq(agentPlanExecutions.tenantId, "demo-tenant-001"),
+        eq(agentPlanExecutions.projectId, input.projectId),
+        eq(agentPlanExecutions.idempotencyKey, idempotencyKey),
+      )).limit(1);
+      if (existing) return { id: existing.id, caseId: existing.caseId, version: existing.version };
+      const [created] = await tx.insert(agentPlanExecutions).values({
+        id: planId,
+        tenantId: "demo-tenant-001",
+        projectId: input.projectId,
+        caseId,
+        actorUserId,
+        intent: "READ_ONLY_COMMAND",
+        commandKey: input.commandKey,
+        status: "RUNNING",
+        planVersion: "typed-command-plan-v1",
+        steps,
+        currentStep: 2,
+        maxSteps: 3,
+        correlationId: input.correlationId,
+        idempotencyKey,
+        authorizationVersion: input.authorizationVersion,
+        roleAssignmentSnapshot: [...input.roleAssignmentSnapshot],
+        startedAt: input.occurredAt,
+        createdAt: input.occurredAt,
+        updatedAt: input.occurredAt,
+        retentionUntil: oneCalendarYearAfter(input.occurredAt),
+      }).onConflictDoNothing().returning();
+      if (!created) {
+        const [concurrent] = await tx.select().from(agentPlanExecutions).where(and(
+          eq(agentPlanExecutions.tenantId, "demo-tenant-001"),
+          eq(agentPlanExecutions.projectId, input.projectId),
+          eq(agentPlanExecutions.idempotencyKey, idempotencyKey),
+        )).limit(1);
+        if (!concurrent) throw new Error("AGENT_COMMAND_PLAN_CREATE_FAILED");
+        return { id: concurrent.id, caseId: concurrent.caseId, version: concurrent.version };
+      }
+      await tx.insert(auditLogs).values({
+        id: `audit-${randomUUID()}`,
+        userId: actorUserId,
+        actorDisplayName: input.actorDisplayName,
+        action: "agent.plan.started",
+        entityType: "AGENT_PLAN_EXECUTION",
+        entityId: created.id,
+        outcome: "SUCCESS",
+        details: {
+          projectId: input.projectId,
+          commandKey: input.commandKey,
+          planVersion: created.planVersion,
+          maxSteps: created.maxSteps,
+          authorizationVersion: input.authorizationVersion,
+        },
+        occurredAt: input.occurredAt,
+        retentionUntil: oneCalendarYearAfter(input.occurredAt),
+        requestId: input.correlationId,
+      });
+      return { id: created.id, caseId: created.caseId, version: created.version };
+    });
+  }
+
+  async finishAgentCommandPlan(
+    actorUserId: string,
+    input: AgentCommandPlanHandle & {
+      readonly projectId: string;
+      readonly correlationId: string;
+      readonly status: "SUCCEEDED" | "FAILED";
+      readonly occurredAt: string;
+      readonly safeErrorCode?: string;
+      readonly actorDisplayName: string;
+    },
+  ): Promise<void> {
+    trustedUser(actorUserId);
+    await this.db.transaction(async (transaction) => {
+      const tx = transaction as unknown as Database;
+      const [current] = await tx.select().from(agentPlanExecutions).where(and(
+        eq(agentPlanExecutions.id, input.id),
+        eq(agentPlanExecutions.tenantId, "demo-tenant-001"),
+        eq(agentPlanExecutions.projectId, input.projectId),
+        eq(agentPlanExecutions.actorUserId, actorUserId),
+      )).limit(1);
+      if (!current) throw new Error("AGENT_COMMAND_PLAN_NOT_FOUND");
+      if (current.status === input.status) return;
+      const steps = current.steps.map((step) => {
+        if (step.key === "AUTHORIZE_AND_EXECUTE") {
+          return {
+            ...step,
+            status: input.status,
+            ...(input.safeErrorCode ? { safeErrorCode: input.safeErrorCode } : {}),
+          };
+        }
+        if (step.key === "PERSIST_PLAN_AUDIT") {
+          return { ...step, status: input.status === "SUCCEEDED" ? "SUCCEEDED" : "CANCELLED" };
+        }
+        return step;
+      });
+      const [updated] = await tx.update(agentPlanExecutions).set({
+        status: input.status,
+        steps,
+        currentStep: 3,
+        completedAt: input.occurredAt,
+        safeErrorCode: input.safeErrorCode ?? null,
+        updatedAt: input.occurredAt,
+        version: current.version + 1,
+      }).where(and(
+        eq(agentPlanExecutions.id, input.id),
+        eq(agentPlanExecutions.status, "RUNNING"),
+        eq(agentPlanExecutions.version, current.version),
+      )).returning();
+      if (!updated) throw new Error("AGENT_COMMAND_PLAN_OPTIMISTIC_LOCK");
+      await tx.update(agentCases).set({
+        status: input.status === "SUCCEEDED" ? "ANALYZED" : "BLOCKED",
+        updatedAt: input.occurredAt,
+      }).where(and(
+        eq(agentCases.id, input.caseId),
+        eq(agentCases.tenantId, "demo-tenant-001"),
+        eq(agentCases.projectId, input.projectId),
+        eq(agentCases.ownerUserId, actorUserId),
+      ));
+      await tx.insert(auditLogs).values({
+        id: `audit-${randomUUID()}`,
+        userId: actorUserId,
+        actorDisplayName: input.actorDisplayName,
+        action: input.status === "SUCCEEDED" ? "agent.plan.completed" : "agent.plan.failed",
+        entityType: "AGENT_PLAN_EXECUTION",
+        entityId: input.id,
+        outcome: input.status === "SUCCEEDED" ? "SUCCESS" : "FAILURE",
+        details: {
+          projectId: input.projectId,
+          status: input.status,
+          currentStep: 3,
+          ...(input.safeErrorCode ? { safeErrorCode: input.safeErrorCode } : {}),
+        },
+        occurredAt: input.occurredAt,
+        retentionUntil: oneCalendarYearAfter(input.occurredAt),
+        requestId: input.correlationId,
+      });
+    });
+  }
+
   async createOrGetAgentAssignedTask(
     assignedByUserId: string,
     input: CreateAgentAssignedTaskInput,
@@ -4312,6 +4506,26 @@ function nullableTimestamp(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   const timestamp = value instanceof Date ? value.getTime() : Date.parse(String(value));
   return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
+}
+
+function safeAgentSelection(value: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  const output: Record<string, unknown> = {};
+  for (const key of ["projectId", "specificationId", "positionId", "runId"] as const) {
+    const item = value[key];
+    if (typeof item === "string" && item.trim() && item.length <= 200) output[key] = item.trim();
+  }
+  const period = value.period;
+  if (period && typeof period === "object" && !Array.isArray(period)) {
+    const candidate = period as Record<string, unknown>;
+    if (
+      typeof candidate.from === "string" &&
+      typeof candidate.to === "string" &&
+      Number.isFinite(Date.parse(candidate.from)) &&
+      Number.isFinite(Date.parse(candidate.to)) &&
+      Date.parse(candidate.from) < Date.parse(candidate.to)
+    ) output.period = { from: candidate.from, to: candidate.to };
+  }
+  return output;
 }
 
 function trustedUser(userId: string): void {

@@ -1,11 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { closeDatabase } from "@/adapters/persistence/db";
+import { getDatabase } from "@/adapters/persistence/db";
 import {
   createAgentOrchestratorPersistencePorts,
 } from "@/adapters/persistence/agent-orchestrator-ports";
 import { resetDemoDatabase } from "@/adapters/persistence/bootstrap";
 import { getRepository, type MtrRepository } from "@/adapters/persistence/repository";
+import { agentCases, agentPlanExecutions } from "@/adapters/persistence/schema";
 import type { TrustedRequestContext } from "@/application/authorization-service";
 import { AuditedAgentCommandCapability } from "@/application/agent-orchestrator/audited-command-capability";
 import { createAgentCommandRegistry } from "@/application/agent-orchestrator/command-registry";
@@ -150,6 +152,8 @@ describe.sequential("production-shaped persistence ports МТР-агента", (
     const capability = new AuditedAgentCommandCapability(
       createAgentCommandRegistry(createAgentOrchestratorPersistencePorts(repository)),
       repository,
+      undefined,
+      repository,
     );
     const orchestrator = new MtrAgentOrchestrator({ respond: legacyRespond }, capability);
 
@@ -170,8 +174,37 @@ describe.sequential("production-shaped persistence ports МТР-агента", (
       expect.arrayContaining([
         expect.objectContaining({ action: "agent.command.received", outcome: "SUCCESS" }),
         expect.objectContaining({ action: "agent.command.completed", outcome: "SUCCESS" }),
+        expect.objectContaining({ action: "agent.plan.started", outcome: "SUCCESS" }),
+        expect.objectContaining({ action: "agent.plan.completed", outcome: "SUCCESS" }),
       ]),
     );
+    const database = await getDatabase({ migrations: "skip" });
+    const plans = await database.select().from(agentPlanExecutions);
+    const plan = plans.find((item) => item.correlationId === "natural-command-integration-1");
+    expect(plan).toMatchObject({
+      projectId: "demo-project-001",
+      actorUserId: DEMO_USER_ID,
+      commandKey: "STOCKS",
+      status: "SUCCEEDED",
+      planVersion: "typed-command-plan-v1",
+      currentStep: 3,
+      maxSteps: 3,
+      authorizationVersion: 1,
+      roleAssignmentSnapshot: ["assignment-1"],
+    });
+    expect(plan?.steps).toEqual([
+      { index: 1, key: "VALIDATE_TRUSTED_CONTEXT", status: "SUCCEEDED" },
+      { index: 2, key: "AUTHORIZE_AND_EXECUTE", status: "SUCCEEDED" },
+      { index: 3, key: "PERSIST_PLAN_AUDIT", status: "SUCCEEDED" },
+    ]);
+    const cases = await database.select().from(agentCases);
+    expect(cases.find((item) => item.id === plan?.caseId)).toMatchObject({
+      projectId: "demo-project-001",
+      ownerUserId: DEMO_USER_ID,
+      status: "ANALYZED",
+      contextSnapshot: { projectId: "demo-project-001", specificationId },
+    });
+    expect(JSON.stringify(plan)).not.toContain(materialCode);
   });
 });
 

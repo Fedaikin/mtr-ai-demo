@@ -100,6 +100,8 @@ export function createMtrAgentOrchestrator(
     ? new AuditedAgentCommandCapability(
         createAgentCommandRegistry(createAgentOrchestratorPersistencePorts(repository)),
         repository,
+        undefined,
+        repository,
       )
     : undefined;
   return new MtrAgentOrchestrator(
