@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import type { AgentThreadView } from "@/components/agent-chat";
 import type { AgentContextSelection } from "@/domain/agent/context";
+import { AGENT_CONTEXT_RESET_EVENT } from "@/lib/agent-context-events";
 
 const AgentChat = dynamic(() => import("@/components/agent-chat").then((module) => module.AgentChat), {
   loading: () => <div className="grid h-full place-items-center text-sm text-slate-500">Загружаем интерфейс агента…</div>,
@@ -16,6 +17,15 @@ export function AgentWidget({ displayName, activeProjectId }: { displayName: str
   const [loaded, setLoaded] = useState(false);
   const [threads, setThreads] = useState<AgentThreadView[]>([]);
   const context = useMemo(() => selectionFromPath(pathname, activeProjectId), [activeProjectId, pathname]);
+  useEffect(() => {
+    const reset = () => {
+      setOpen(false);
+      setLoaded(false);
+      setThreads([]);
+    };
+    window.addEventListener(AGENT_CONTEXT_RESET_EVENT, reset);
+    return () => window.removeEventListener(AGENT_CONTEXT_RESET_EVENT, reset);
+  }, []);
   useEffect(() => {
     if (!open || loaded) return;
     let active = true;

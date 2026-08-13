@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { DEMO_PERSONAS, type DemoPersonaLogin } from "@/domain/demo-personas";
+import { resetAgentClientContext } from "@/lib/agent-context-events";
 
 export function RoleSwitcher({ currentLogin }: { currentLogin: string }) {
   const router = useRouter();
@@ -17,6 +18,7 @@ export function RoleSwitcher({ currentLogin }: { currentLogin: string }) {
       const response = await fetch("/api/auth/switch-role", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ login }) });
       const payload = await response.json() as { redirectTo?: string; error?: { message?: string } };
       if (!response.ok || !payload.redirectTo) throw new Error(payload.error?.message ?? "Не удалось переключить роль");
+      resetAgentClientContext();
       setPending(false);
       router.replace(payload.redirectTo);
       router.refresh();
