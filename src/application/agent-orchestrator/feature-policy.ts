@@ -2,6 +2,7 @@ export interface AgentFeaturePolicy {
   readonly orchestratorEnabled: boolean;
   readonly actionsEnabled: boolean;
   readonly eventsEnabled: boolean;
+  readonly universalChatEnabled?: boolean;
   readonly executionAllowed: boolean;
 }
 
@@ -9,6 +10,7 @@ type AgentFeatureEnvironment = Readonly<Partial<Record<
   | "MTR_AGENT_ORCHESTRATOR_ENABLED"
   | "MTR_AGENT_ACTIONS_ENABLED"
   | "MTR_AGENT_EVENTS_ENABLED"
+  | "MTR_AGENT_UNIVERSAL_CHAT_ENABLED"
   | "MTR_AGENT_KILL_SWITCH",
   string
 >>>;
@@ -24,6 +26,12 @@ export function readAgentFeaturePolicy(
     orchestratorEnabled,
     actionsEnabled: executionAllowed && enabled(values.MTR_AGENT_ACTIONS_ENABLED),
     eventsEnabled: executionAllowed && enabled(values.MTR_AGENT_EVENTS_ENABLED),
+    ...(values.MTR_AGENT_UNIVERSAL_CHAT_ENABLED === undefined
+      ? {}
+      : {
+          universalChatEnabled:
+            executionAllowed && enabled(values.MTR_AGENT_UNIVERSAL_CHAT_ENABLED),
+        }),
     executionAllowed,
   });
 }

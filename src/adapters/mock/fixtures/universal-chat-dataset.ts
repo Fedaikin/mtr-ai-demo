@@ -433,7 +433,7 @@ function mapGoldenPositionsToCatalogue(
 function operationalMaterial(
   item: CatalogueItem,
   index: number,
-  balances: readonly { availableQuantity: number; snapshotAt: string }[],
+  balances: readonly { availableQuantity: number; snapshotAt: string; storageLocation: string; plant: string; unit: string }[],
   materialCode: string,
   sapBase: boolean,
   weekStarts: readonly string[],
@@ -450,6 +450,25 @@ function operationalMaterial(
   );
   const averageConsumption = 1 + (index % 9);
   const leadTimeDays = 5 + (index % 28);
+  let remainingReserved = reservedQuantity;
+  let remainingQuarantined = quarantinedQuantity;
+  const warehouseBalances = balances.map((balance) => {
+    const rowReserved = Math.min(balance.availableQuantity, remainingReserved);
+    remainingReserved -= rowReserved;
+    const rowQuarantined = Math.min(
+      balance.availableQuantity - rowReserved,
+      remainingQuarantined,
+    );
+    remainingQuarantined -= rowQuarantined;
+    return {
+      warehouseId: operationalWarehouseId(balance.storageLocation),
+      plant: balance.plant,
+      onHandQuantity: whole(balance.availableQuantity),
+      reservedQuantity: whole(rowReserved),
+      quarantinedQuantity: whole(rowQuarantined),
+      unit: balance.unit,
+    };
+  });
   return {
     materialCode,
     catalogItemCode: item.itemCode,
@@ -469,6 +488,7 @@ function operationalMaterial(
       quarantinedQuantity,
       committedToOtherNeeds: 0,
       unit: item.unit,
+      balances: warehouseBalances,
     },
     inboundSupplies: [
       {
@@ -507,6 +527,13 @@ function operationalMaterial(
       sourceEvidenceIds: [`reliability-${item.id}-history`, `quality-${item.id}-history`],
     },
   };
+}
+
+function operationalWarehouseId(storageLocation: string): string {
+  return {
+    "WH-DEMO-PROJECT": "WH-DEMO-NORTH",
+    "WH-DEMO-MRO": "WH-DEMO-SOUTH",
+  }[storageLocation] ?? storageLocation;
 }
 
 function aggregateRequirements(

@@ -10,6 +10,8 @@ import { NormativeMockAdapter } from "@/adapters/mock/normative-adapter";
 import { SapMockAdapter } from "@/adapters/mock/sap-adapter";
 import { createCatalogRepositoryPort } from "@/adapters/persistence/catalog-port";
 import { createAgentOrchestratorPersistencePorts } from "@/adapters/persistence/agent-orchestrator-ports";
+import { createUniversalAgentReadPort } from "@/adapters/persistence/universal-agent-read-port";
+import { loadUniversalChatMemory } from "@/adapters/persistence/universal-chat-memory";
 import type { MtrRepository } from "@/adapters/persistence/repository";
 import { toPublicAgentDecision } from "@/application/agent-presentation";
 import { AuditedAgentCommandCapability } from "@/application/agent-orchestrator/audited-command-capability";
@@ -17,6 +19,8 @@ import { createAgentCommandRegistry } from "@/application/agent-orchestrator/com
 import { readAgentFeaturePolicy } from "@/application/agent-orchestrator/feature-policy";
 import { createOfflineProviderConformance } from "@/application/agent-orchestrator/provider-conformance";
 import { restorePublicAgentCommandResult } from "@/application/agent-orchestrator/public-projection";
+import { createUniversalReadCapabilityRegistry } from "@/application/agent-orchestrator/universal-chat/read-capabilities";
+import { UniversalChatService } from "@/application/agent-orchestrator/universal-chat/universal-chat-service";
 import {
   agentChatInputSchema,
   MtrAgentOrchestrator,
@@ -111,10 +115,52 @@ export function createMtrAgentOrchestrator(
         repository,
       )
     : undefined;
+  const universalService = policy.universalChatEnabled
+      ? new UniversalChatService(
+        createUniversalReadCapabilityRegistry(
+          createUniversalAgentReadPort(),
+          undefined,
+          {
+            write: async (context, event) => {
+              await repository.writeAudit(context.trusted.subjectId, {
+                actorDisplayName: context.trusted.displayName,
+                action: event.outcome === "SUCCESS"
+                  ? "agent.universal.capability.completed"
+                  : "agent.universal.capability.failed",
+                entityType: "AGENT_CAPABILITY",
+                entityId: event.capabilityKey,
+                outcome: event.outcome,
+                details: {
+                  capabilityKey: event.capabilityKey,
+                  projectId: context.trusted.activeProjectId,
+                  authorizationVersion: context.trusted.authorizationVersion,
+                  durationMs: event.durationMs,
+                  ...(event.safeErrorCode ? { safeErrorCode: event.safeErrorCode } : {}),
+                },
+                requestId: context.correlationId,
+              });
+            },
+          },
+        ),
+      )
+    : undefined;
   return new MtrAgentOrchestrator(
     createAgentRuntime(repository),
     commandCapability,
     events,
+    universalService
+      ? {
+          respond: async (request, context) => universalService.respond({
+            message: request.message,
+            threadId: request.threadId,
+            memory: await loadUniversalChatMemory(
+              repository,
+              context.trusted.subjectId,
+              request.threadId,
+            ),
+          }, context),
+        }
+      : undefined,
   );
 }
 

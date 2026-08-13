@@ -89,6 +89,16 @@ export interface OperationalStockView {
   readonly quarantinedQuantity: number;
   readonly committedToOtherNeeds: number;
   readonly unit: string;
+  readonly balances: readonly OperationalWarehouseBalance[];
+}
+
+export interface OperationalWarehouseBalance {
+  readonly warehouseId: string;
+  readonly plant: string;
+  readonly onHandQuantity: number;
+  readonly reservedQuantity: number;
+  readonly quarantinedQuantity: number;
+  readonly unit: string;
 }
 
 export interface OperationalInboundSupply {

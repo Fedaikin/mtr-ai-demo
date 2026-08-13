@@ -173,6 +173,55 @@ describe("agent messages route canonical context handoff", () => {
     );
   });
 
+  it("сохраняет universal answer без tool internals и с versioned provenance", async () => {
+    mocks.handle.mockResolvedValue({
+      kind: "UNIVERSAL",
+      output: {
+        summary: "Проект: дефицитных позиций 2.",
+        resolvedContext: {},
+        facts: [{ key: "shortages", label: "Дефицитных позиций", value: 2, status: "CRITICAL" }],
+        tables: [],
+        risks: [],
+        compatibility: [],
+        recommendations: [],
+        actions: [],
+        citations: [],
+        missingData: [],
+        confidence: 0.96,
+        requiresHumanReview: true,
+        generatedAt: "2026-08-13T09:15:00.000Z",
+        mode: "DETERMINISTIC_FALLBACK",
+      },
+    });
+
+    const response = await POST(
+      jsonRequest({
+        message: "Какой остаток по трубам?",
+        threadId: "thread-1",
+        selection: { projectId: "project-1" },
+      }),
+      routeContext("thread-1"),
+    );
+
+    expect(response.status).toBe(201);
+    expect(mocks.appendAgentMessage).toHaveBeenLastCalledWith(
+      "subject-1",
+      expect.objectContaining({
+        role: "assistant",
+        content: expect.stringContaining("Дефицитных позиций: 2"),
+        structuredOutput: expect.objectContaining({
+          schemaVersion: "universal-agent-answer-v1",
+          output: expect.objectContaining({ mode: "DETERMINISTIC_FALLBACK" }),
+          learningProvenance: expect.objectContaining({
+            modelVersion: "deterministic-universal-runtime-v1",
+            evidenceVersion: "universal-chat-v1@1.0.0-DEMO",
+          }),
+        }),
+        citations: [],
+      }),
+    );
+  });
+
   it("повторно проверяет сохранённые citations после отзыва permission", async () => {
     mocks.authorization = {
       ...trustedContext(),

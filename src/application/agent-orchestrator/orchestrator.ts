@@ -19,6 +19,10 @@ import {
 } from "@/domain/agent/context";
 import type { GroundedAgentOutput } from "@/domain/models";
 import type {
+  UniversalAgentAnswer,
+  UniversalClarification,
+} from "@/domain/agent/universal-chat/answer";
+import type {
   AgentCommandRequestMap,
   AgentCommandResultMap,
   AgentOrchestratorCommandResult,
@@ -97,7 +101,12 @@ export type AgentCommandOrchestratorResult = Readonly<{
 export type AgentChatOrchestratorResult = Readonly<{
   kind: "CHAT";
   output: GroundedAgentOutput;
-}> | AgentCommandOrchestratorResult;
+}> | AgentCommandOrchestratorResult | UniversalAgentOrchestratorResult;
+
+export type UniversalAgentOrchestratorResult = Readonly<{
+  kind: "UNIVERSAL";
+  output: UniversalAgentAnswer | UniversalClarification;
+}>;
 
 export type AgentEventOrchestratorResult = Readonly<{
   kind: "EVENT";
@@ -127,6 +136,13 @@ export interface AgentEventCapability {
   ): Promise<PublicAgentProactiveInsight>;
 }
 
+export interface UniversalAgentCapability {
+  respond(
+    request: AgentChatOrchestratorRequest,
+    context: AgentExecutionContext,
+  ): Promise<UniversalAgentAnswer | UniversalClarification | null>;
+}
+
 /**
  * Single application seam for every MTR-agent entry channel.
  * All entry channels share this authorization/context boundary. EVENT remains
@@ -137,6 +153,7 @@ export class MtrAgentOrchestrator {
     private readonly legacyChat: LegacyAgentCapability,
     private readonly commands?: AgentCommandCapability,
     private readonly events?: AgentEventCapability,
+    private readonly universalChat?: UniversalAgentCapability,
   ) {}
 
   async handle(
@@ -179,6 +196,11 @@ export class MtrAgentOrchestrator {
     }
 
     requirePermission(authorization, "agent.chat");
+
+    if (this.universalChat) {
+      const universal = await this.universalChat.respond(request, executionContext);
+      if (universal) return Object.freeze({ kind: "UNIVERSAL", output: universal });
+    }
 
     const naturalCommand = this.commands
       ? routeNaturalAgentCommand(request.message, request.selection)

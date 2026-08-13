@@ -3,6 +3,7 @@ import { AuthorizationError } from "@/application/authorization-service";
 import { projectAgentCommandResult } from "@/application/agent-orchestrator/public-projection";
 import { reauthorizeSavedAgentCitations } from "@/application/agent-orchestrator/citation-authorization";
 import { AgentContextError } from "@/domain/agent/context";
+import { composeUniversalChatResult } from "@/application/agent-orchestrator/universal-chat/answer-composer";
 import { ApiError, created, ok, parseJson, toErrorResponse } from "@/lib/api";
 import { requirePermission } from "@/lib/session";
 
@@ -116,7 +117,35 @@ export async function POST(request: Request, { params }: MessagesRouteContext) {
       promptVersion: activePrompt?.promptVersion ?? "mtr-agent-system-v1",
     }, session.authorization);
     const learningProjectId = session.authorization.activeProjectId;
-    const assistant = result.kind === "COMMAND"
+    const assistant = result.kind === "UNIVERSAL"
+      ? (() => {
+          const content = composeUniversalChatResult(result.output);
+          const clarification = "kind" in result.output;
+          return {
+            answer: content,
+            structuredOutput: {
+              schemaVersion: "universal-agent-answer-v1",
+              output: result.output,
+              learningProvenance: {
+                projectId: learningProjectId,
+                caseId: null,
+                modelVersion: "deterministic-universal-runtime-v1",
+                ruleVersions: ["project-material-balance-v1", "technical-compatibility-v1", "reliability-comparison-v1"],
+                evidenceVersion: "universal-chat-v1@1.0.0-DEMO",
+              },
+            } as unknown as Record<string, unknown>,
+            citations: clarification ? [] : result.output.citations.flatMap((citation) => {
+              const sourceSystem = universalCitationSource(citation.sourceSystem);
+              return sourceSystem ? [{
+                sourceSystem,
+                entityId: citation.entityId,
+                versionOrSnapshot: citation.versionOrSnapshot,
+                clauseId: citation.clauseId ?? null,
+              }] : [];
+            }),
+          };
+        })()
+      : result.kind === "COMMAND"
       ? (() => {
           const projection = projectAgentCommandResult(
             result.output,
@@ -189,4 +218,12 @@ export async function POST(request: Request, { params }: MessagesRouteContext) {
     }
     return toErrorResponse(error);
   }
+}
+
+function universalCitationSource(
+  sourceSystem: "APPIUS" | "SAP" | "CATALOG" | "NORMATIVE" | "FORECAST" | "PROCESS",
+) {
+  if (sourceSystem === "FORECAST") return "SAP" as const;
+  if (sourceSystem === "PROCESS") return "PROCESS_ENGINE" as const;
+  return sourceSystem;
 }
