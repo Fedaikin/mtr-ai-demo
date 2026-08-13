@@ -8,10 +8,12 @@
 - Базовая ветка: `origin/main`
 - Merge base: `1855e78f8b6206586fd417cffa27583e78c6a4f4`
 - Проверяемый source SHA: `33dfdf2` (cherry-pick исходного `e944c16` поверх актуального `origin/main`)
-- Финальный HEAD SHA: ожидает evidence-коммит; будет зафиксирован в PR и GitHub checks.
-- Pull Request: ожидает создания
-- Vercel Preview URL: ожидает первого push
-- Vercel deployment ID: ожидает первого push
+- Evidence commit / exact deployed SHA: `c7a9932979cf421c53e005db2bbba3950f05137c`
+- Финальный HEAD SHA: финализирующий documentation-only commit будет зафиксирован в PR metadata; проверяемый и развёрнутый source остаётся `c7a9932…`.
+- Pull Request: [#2](https://github.com/Fedaikin/mtr-ai-demo/pull/2); draft сохранён намеренно, перевод в ready не выполнялся
+- Vercel Preview URL: `https://mtr-ai-demo-byqocl3a4-fedaikin-7533s-projects.vercel.app`
+- Стабильный branch Preview: `https://mtr-ai-demo-git-codex-repository-audit-fedaikin-7533s-projects.vercel.app`
+- Vercel deployment ID: `dpl_D6bxr54KCTuNmURWeSBNjq85mkeY`
 - Дата проверки: 13.08.2026
 - Проверяющий: Codex
 
@@ -33,7 +35,7 @@
 - [x] Cherry-pick завершён без конфликтов; разрешение конфликтов по бизнес-смыслу Н/П — конфликтов не было.
 - [x] Force-push не использовался; `main`, чужие ветки и Production не изменялись.
 - [x] Коммиты разделяют импорт review-процесса и evidence текущей ветки.
-- [ ] Финальный diff против merge base и включение review-файла — ожидают evidence-коммит.
+- [x] `git diff --check origin/main` и `git diff --cached --check` прошли; review-файл входит в отдельный evidence commit `c7a9932…`. Финальный повтор выполняется после этого обновления.
 
 ## 4. Архитектура и границы модулей
 
@@ -62,7 +64,7 @@
 
 ## 10. Privacy, security и аудит
 
-- [x] Контактные данные, закрытые реквизиты, secrets, tokens, cookies, hashes и connection strings отсутствуют в branch diff; итог подтвердит `privacy:scan`.
+- [x] Контактные данные, закрытые реквизиты, secrets, tokens, cookies, hashes и connection strings отсутствуют в branch diff; результат подтверждён `privacy:scan`.
 - [x] Н/П — ownership upload/download, CSRF, IDOR/escalation, cache/RAG leakage, audit atomicity и Production credentials не затронуты documentation-only diff.
 - [x] `pnpm privacy:scan` — повтор с разрешённым локальным IPC прошёл: 318 candidate files checked. Первая sandbox-попытка отдельно зафиксирована как `listen EPERM`, не как результат сканирования.
 
@@ -81,7 +83,8 @@
 ## 12. Производительность и Vercel
 
 - [x] Локальный production build выполнен из изолированного checkout `/private/tmp/mtr-publish`; tracked worktree до evidence-файла был чистым. Webpack fallback использован только из-за sandbox-запрета Turbopack на локальный bind.
-- [ ] Vercel Preview, deployment ID, exact deployed SHA и readiness — ожидают push.
+- [x] Vercel Preview связан с exact `c7a9932979cf421c53e005db2bbba3950f05137c`: GitHub commit status `Vercel=success` ведёт на deployment `D6bxr54KCTuNmURWeSBNjq85mkeY`; `vercel inspect` — target Preview, status Ready, deployment ID `dpl_D6bxr54KCTuNmURWeSBNjq85mkeY`.
+- [x] Readiness smoke защищённого Preview выполнен `vercel curl /api/health --deployment …`: HTTP success, `status=ok`, `check=readiness`, PostgreSQL `status=ok`, seed counts `users=1`, `canonicalPositions=24`, `sapMaterials=30`, `sapBalances=30`, `durationMs=1754.7`.
 - [x] Н/П — отдельные Preview credentials, controlled migration, role smoke, p50/p95 и first UI status не применимы: ветка documentation-only и не использует credentials, migration или новый runtime flow.
 - [x] Н/П — Vercel runtime logs не требуются для documentation-only diff; secrets дополнительно проверит privacy scan.
 - [x] Production deployment/alias/migration не выполнялись и не будут выполняться в рамках аудита.
@@ -91,19 +94,20 @@
 - [x] README/architecture/API/data dictionary/help/operations: Н/П — продуктовые контракты не менялись; добавлены только канонический review checklist, AGENTS rule и PR template.
 - [x] Ограничение зафиксировано: GitHub branch protection не вводится этой веткой; процесс обеспечивается документацией и PR template.
 - [x] Feature flags/migration order: Н/П — отсутствуют. Rollback: revert двух веточных коммитов после merge либо закрытие PR до merge.
-- [ ] Acceptance и P0/P1/P2 — test/build/security gate пройден; ожидают финальный diff и Preview evidence.
+- [x] Acceptance не основан только на наличии документа: приложены Git, full test, security/eval, build, exact deployment и runtime-readiness evidence.
+- [x] В diff-аудите P0/P1 и относящиеся к задаче P2 не выявлены; runtime/RBAC/data contracts не изменены.
 - [x] Внешних блокеров на текущем этапе нет.
 
 ### Итоговое решение
 
-- [ ] ГОТОВО К REVIEW
-- [x] НЕ ГОТОВО — выполняются обязательные проверки и получение Preview evidence.
-- [ ] ЗАБЛОКИРОВАНО ВНЕШНЕЙ ЗАВИСИМОСТЬЮ
+- [x] ГОТОВО К REVIEW — после финального documentation-only evidence commit и push; PR намеренно остаётся draft по требованию publish workflow.
+- [x] Н/П — НЕ ГОТОВО: обязательные доказательства получены.
+- [x] Н/П — ЗАБЛОКИРОВАНО ВНЕШНЕЙ ЗАВИСИМОСТЬЮ: внешних блокеров нет.
 
-Причина решения: evidence-файл создан и заполняется; финальные test/build/Preview/Git доказательства ещё не получены.
+Причина решения: все пункты заполнены; обязательные Git/test/privacy/eval/build/Preview/readiness доказательства получены, а неприменимые пункты объяснены.
 
-Оставшиеся риски: до завершения проверок неизвестны.
+Оставшиеся риски: GitHub branch protection не создаётся этим PR; соблюдение процесса до отдельной настройки branch rules обеспечивают `AGENTS.md`, PR template и review-файл. Стандартный Turbopack build не воспроизводится в sandbox из-за запрета локального bind, но официальный webpack build, PDF assets и Vercel Preview прошли.
 
 Rollback: закрыть PR без merge; после merge — revert commits текущей ветки без переписывания истории.
 
-Следующее действие: выполнить обязательные команды, проверить final diff и получить Vercel Preview для exact проверяемого SHA.
+Следующее действие: после финального metadata update — review draft PR #2; merge и Production остаются отдельными решениями владельца репозитория.
