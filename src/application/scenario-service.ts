@@ -67,8 +67,13 @@ export class ScenarioService {
     const configuredSpecification = stringValue(scenario.configuration.defaultSpecificationId);
     const requestedSpecificationId = input.specificationId ?? configuredSpecification ?? ALL_CURRENT_SPECIFICATIONS;
     const isAllCurrent = requestedSpecificationId === ALL_CURRENT_SPECIFICATIONS;
+    const configuredSpecificationIds = stringArray(
+      scenario.configuration.analysisSpecificationIds,
+    );
     const selected = isAllCurrent
-      ? specifications
+      ? configuredSpecificationIds.length > 0
+        ? specifications.filter((item) => configuredSpecificationIds.includes(item.id))
+        : specifications
       : specifications.filter((item) => item.id === requestedSpecificationId);
     if (selected.length === 0) throw new ScenarioServiceError(404, "SPECIFICATION_NOT_FOUND", "Спецификация не найдена");
 
@@ -568,10 +573,22 @@ export class ScenarioService {
       : undefined;
 
     const ids = stringArray(run.inputSnapshot.specificationIds);
-    const [positions, specifications] = await Promise.all([
-      this.repository.listPositions(userId, { currentOnly: true }),
+    const [positionGroups, specifications] = await Promise.all([
+      ids.length > 0
+        ? Promise.all(
+            ids.map((specificationId) =>
+              this.repository.listPositions(userId, {
+                specificationId,
+                currentOnly: true,
+              }),
+            ),
+          )
+        : this.repository
+            .listPositions(userId, { currentOnly: true })
+            .then((positions) => [positions]),
       this.repository.listSpecifications(userId),
     ]);
+    const positions = positionGroups.flat();
     const selectedPositions = positions.filter((position) => ids.length === 0 || ids.includes(position.specificationId));
     const selectedSpecifications = specifications.filter((item) => ids.length === 0 || ids.includes(item.id));
     const versions = await Promise.all(

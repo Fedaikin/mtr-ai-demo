@@ -283,7 +283,7 @@ Readiness открывает БД без применения DDL, одним т
     "status": "ok",
     "counts": {
       "users": 8,
-      "canonicalPositions": 24,
+      "canonicalPositions": 3584,
       "sapMaterials": 30,
       "sapBalances": 30
     }
@@ -428,7 +428,7 @@ Seeded scenario IDs:
 
 | ID | Scope по умолчанию |
 |---|---|
-| `scenario-full-analysis` | Все 24 актуальные позиции |
+| `scenario-full-analysis` | Эталонные 24 актуальные позиции из трёх базовых спецификаций |
 | `scenario-stock-search-only` | Все 24, сокращённая последовательность |
 | `scenario-sap-failure-manual-import` | `spec-demo-piping-001`, управляемый SAP failure |
 | `scenario-appius-new-version` | `spec-demo-piping-001`, транзакционное переключение current `v3 → v4`, перенос 8 позиций и аудит `NEW_VERSION_PROMOTED` |
@@ -944,7 +944,7 @@ Query:
 {
   "reset": true,
   "counts": {
-    "canonicalPositions": 24,
+    "canonicalPositions": 3584,
     "sapMaterials": 30,
     "sapBalances": 30
   },

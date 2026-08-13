@@ -285,7 +285,7 @@ test.describe("МТР — обязательные сценарии мастер
     await expect(page.getByText("Версия 3 · актуальная для анализа", { exact: true })).toBeVisible();
   });
 
-  test("8. reset восстанавливает 24 позиции Appius и 30 записей SAP", async ({ page }) => {
+  test("8. reset восстанавливает 83 спецификации Appius и 30 записей SAP", async ({ page }) => {
     const request = page.request;
     await setIntegrationState(request, {
       system: "SAP",
@@ -297,7 +297,7 @@ test.describe("МТР — обязательные сценарии мастер
     await page.getByRole("checkbox", { name: /Понимаю, что запуски/ }).check();
     await page.getByRole("button", { name: "Восстановить базовый набор" }).click();
     await expect(page.getByRole("status")).toHaveText(
-      "Готово: Appius — 24, SAP — 30 материалов и 30 остатков.",
+      "Готово: Appius — 3 584, SAP — 30 материалов и 30 остатков.",
       { timeout: resetCompletionTimeout },
     );
 
@@ -313,7 +313,7 @@ test.describe("МТР — обязательные сценарии мастер
       integrations: Array<{ system: string; state: string }>;
     }>(await request.get("/api/admin/integrations"));
 
-    expect(specifications.specifications).toHaveLength(3);
+    expect(specifications.specifications).toHaveLength(83);
     expect(sap.d.__count).toBe("30");
     expect(sap.d.results).toHaveLength(30);
     expect(integrations.integrations.find((item) => item.system === "SAP")?.state).toBe("AVAILABLE");
@@ -333,7 +333,7 @@ test.describe("МТР — обязательные сценарии мастер
     const serialized = JSON.stringify(payload);
 
     expect(payload.isSyntheticDemo).toBe(true);
-    expect(payload.specifications).toHaveLength(3);
+    expect(payload.specifications).toHaveLength(83);
     expect(new Set(payload.specifications.map((item) => item.userId))).toEqual(
       new Set(["demo-user-001"]),
     );

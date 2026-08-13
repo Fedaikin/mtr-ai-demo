@@ -29,7 +29,7 @@ describe("database readiness cache", () => {
     );
     expect(warmSeries.at(-1)?.counts).toMatchObject({
       users: 8,
-      canonicalPositions: 24,
+      canonicalPositions: 3_584,
       sapMaterials: 30,
     });
     expect(execute).toHaveBeenCalledTimes(1);

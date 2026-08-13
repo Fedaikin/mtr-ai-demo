@@ -53,7 +53,7 @@ describe.sequential("ACC-FUNC-006: событие новой версии Appius
     ).resolves.toHaveLength(8);
     await expect(
       (await getRepository()).listPositions(DEMO_USER_ID, { currentOnly: true }),
-    ).resolves.toHaveLength(24);
+    ).resolves.toHaveLength(3_584);
   });
 
   it("возвращает полностью одинаковый результат при replay события без previousVersionId", async () => {

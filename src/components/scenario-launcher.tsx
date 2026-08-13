@@ -173,7 +173,7 @@ export function ScenarioLauncher({
               onChange={(event) => setSpecificationId(event.target.value)}
               className="focus-ring h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm"
             >
-              <option value="ALL_CURRENT_SPECIFICATIONS">Все актуальные · 24 позиции</option>
+              <option value="ALL_CURRENT_SPECIFICATIONS">Эталонный набор · 24 позиции</option>
               {specifications.map((specification) => (
                 <option key={specification.id} value={specification.id}>
                   {specification.projectCode} · {specification.positionCount} поз.

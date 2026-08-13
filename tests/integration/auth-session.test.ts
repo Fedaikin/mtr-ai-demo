@@ -57,8 +57,8 @@ describe.sequential("persistent demo authentication", () => {
       repository.listSpecifications(protectedSession!.user.id),
       repository.listPositions(protectedSession!.user.id, { currentOnly: true }),
     ]);
-    expect(specifications).toHaveLength(3);
-    expect(positions).toHaveLength(24);
+    expect(specifications).toHaveLength(83);
+    expect(positions).toHaveLength(3_584);
   });
 
   it("seeds only a password hash and persists an opaque revocable session", async () => {
@@ -197,7 +197,7 @@ describe.sequential("persistent demo authentication", () => {
 
     const before = await repository.getCounts(DEMO_USER_ID);
     expect(before).toMatchObject({
-      canonicalPositions: 24,
+      canonicalPositions: 3_584,
       sapMaterials: 30,
       sapBalances: 30,
       scenarioRuns: 1,
@@ -253,10 +253,10 @@ describe.sequential("persistent demo authentication", () => {
     });
     await expect(repository.listPositions(DEMO_USER_ID, {
       currentOnly: true,
-    })).resolves.toHaveLength(24);
+    })).resolves.toHaveLength(3_584);
     const after = await repository.getCounts(DEMO_USER_ID);
     expect(after).toMatchObject({
-      canonicalPositions: 24,
+      canonicalPositions: 3_584,
       sapMaterials: 30,
       sapBalances: 30,
       scenarioRuns: 1,

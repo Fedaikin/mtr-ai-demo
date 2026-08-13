@@ -53,7 +53,7 @@ pnpm --version
    node --env-file=.env.local --import tsx scripts/seed.ts
    ```
 
-   Скрипт заменяет demo-scoped runtime-данные. Ожидаемые счётчики: 8 субъектов, 24 позиции Appius, 30 материалов SAP, 30 остатков SAP. Fixture manifests `identity-base-v1`, `appius-base-v1`, `sap-base-v1` и `normative-base-v1` имеют schema `1.0.0`; `scenarios-base-v2` имеет schema `1.1.0` и содержит пять сценариев. Версия сценарного manifest не меняет контрольные counts.
+   Скрипт заменяет demo-scoped runtime-данные. Ожидаемые счётчики: 8 субъектов, 83 спецификации / 3 584 позиции Appius, 30 материалов SAP, 30 остатков SAP. Эталонный сценарий по-прежнему использует исходные 3 спецификации / 24 позиции. Fixture manifests `identity-base-v1`, `appius-base-v1`, `appius-portfolio-v1`, `sap-base-v1` и `normative-base-v1` имеют schema `1.0.0`; `scenarios-base-v2` имеет schema `1.1.0` и содержит пять сценариев. Версия сценарного manifest не меняет контрольные counts.
 
 5. Запустите development server:
 
@@ -166,7 +166,7 @@ curl --fail-with-body -sS \
   --data '{"confirmation":"RESET_DEMO_DATA"}'
 ```
 
-API доступен только при `APP_MODE=demo`. Успешный ответ подтверждает `canonicalPositions: 24`, `sapMaterials: 30`, `sapBalances: 30`.
+API доступен только при `APP_MODE=demo`. Успешный ответ подтверждает `specifications: 83`, `canonicalPositions: 3584`, `sapMaterials: 30`, `sapBalances: 30`.
 
 ### Защита удалённого reset
 

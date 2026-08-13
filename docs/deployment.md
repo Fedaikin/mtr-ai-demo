@@ -44,7 +44,7 @@ Demo-реквизиты выдаются владельцу контура пр�
 - `GET /api/health?check=live` проверяет, что Node.js/Next.js процесс отвечает, и не
   обращается к БД.
 - `GET /api/health?check=ready` проверяет доступ к БД и канонический seed:
-  `users=8`, `Appius=24`, `SAP materials=30`, `SAP balances=30`.
+  `users=8`, `Appius specifications=83`, `Appius positions=3584`, `SAP materials=30`, `SAP balances=30`.
 - Readiness возвращает HTTP `503`, если БД недоступна или контрольные количества не
   совпали. Ответ не содержит connection string, токены или текст внутренней ошибки.
 - Состояния моков Appius/SAP/RAG/LLM не смешиваются с инфраструктурной readiness;

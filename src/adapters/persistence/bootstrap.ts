@@ -1,6 +1,11 @@
 import { and, count, eq, sql } from "drizzle-orm";
 
 import appiusFixture from "@/adapters/mock/fixtures/appius.json";
+import {
+  generateSpecificationPortfolio,
+  SPECIFICATION_PORTFOLIO_MANIFEST,
+  type SpecificationPortfolioFixture,
+} from "@/adapters/mock/fixtures/specification-portfolio";
 import identityFixture from "@/adapters/mock/fixtures/identity.json";
 import normativeFixture from "@/adapters/mock/fixtures/normative.json";
 import sapFixture from "@/adapters/mock/fixtures/sap.json";
@@ -55,9 +60,9 @@ import {
 
 export const EXPECTED_BASE_COUNTS = {
   users: 8,
-  specifications: 3,
-  specificationVersions: 8,
-  canonicalPositions: 24,
+  specifications: 83,
+  specificationVersions: 88,
+  canonicalPositions: 3_584,
   sapMaterials: 30,
   sapBalances: 30,
   normativeDocuments: 4,
@@ -82,6 +87,7 @@ interface DatabaseInitializationResult {
 // boundary; health/count endpoints still query exact data, and reset/seed
 // invalidate this entry immediately.
 const READINESS_CACHE_TTL_MS = 5 * 60_000;
+const FIXTURE_INSERT_BATCH_SIZE = 200;
 const EXACT_BASELINE_COUNT_KEYS = [
   "users",
   "specifications",
@@ -117,6 +123,11 @@ export async function initializeDatabase(): Promise<DatabaseInitializationResult
   const result = await databaseReadinessCache.resolve(db, async () => {
     const current = await getSeedCounts(db, DEMO_USER_ID);
     if (matchesExpectedCounts(current)) return { seeded: false, counts: current };
+    if (matchesLegacySpecificationPortfolioCounts(current)) {
+      await addSpecificationPortfolio(db, DEMO_USER_ID);
+      const upgraded = await getSeedCounts(db, DEMO_USER_ID);
+      if (matchesExpectedCounts(upgraded)) return { seeded: true, counts: upgraded };
+    }
 
     const counts = await seedDatabaseUncached(DEMO_USER_ID, db);
     return { seeded: true, counts };
@@ -250,7 +261,86 @@ function extractExecutedRows(result: unknown): Array<Record<string, unknown>> {
   return [];
 }
 
+async function insertBatches<
+  TTable extends Parameters<Database["insert"]>[0],
+  TRow extends object,
+>(database: Database, table: TTable, rows: readonly TRow[]): Promise<void> {
+  for (let offset = 0; offset < rows.length; offset += FIXTURE_INSERT_BATCH_SIZE) {
+    const batch = rows.slice(offset, offset + FIXTURE_INSERT_BATCH_SIZE);
+    if (batch.length > 0) await database.insert(table).values(batch as never);
+  }
+}
+
+async function addSpecificationPortfolio(db: Database, userId: string): Promise<void> {
+  const rows = buildSpecificationPortfolioRows(generateSpecificationPortfolio(), userId);
+  await db.transaction(async (transaction) => {
+    const tx = transaction as unknown as Database;
+    if (isRemoteDatabaseConfigured()) {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${`mtr-demo-specification-portfolio:${userId}`}))`,
+      );
+    }
+    await tx.insert(specifications).values(rows.specifications);
+    await tx.insert(specificationVersions).values(rows.versions);
+    await insertBatches(tx, specificationPositions, rows.positions);
+  });
+}
+
+function buildSpecificationPortfolioRows(
+  fixture: SpecificationPortfolioFixture,
+  userId: string,
+) {
+  return {
+    specifications: fixture.specifications.map((item) => ({
+      id: item.id,
+      userId,
+      projectCode: item.projectCode,
+      name: item.name,
+      latestVersionId: item.latestVersionId,
+      latestVersionNumber: item.latestVersionNumber,
+      positionCount: item.positionCount,
+      accessAttributes: accessAttributes(item.access),
+      createdBy: userId,
+    })),
+    versions: fixture.specificationVersions.map((item) => ({
+      id: item.id,
+      specificationId: item.specificationId,
+      userId,
+      versionNumber: item.versionNumber,
+      isCurrent: item.isCurrent,
+      status: item.status,
+      effectiveAt: item.effectiveAt,
+      positionCount: item.positionCount,
+      accessAttributes: accessAttributes(item.access),
+      createdBy: userId,
+    })),
+    positions: fixture.positions.map((item) => ({
+      id: item.id,
+      specificationId: item.specificationId,
+      versionId: item.versionId,
+      userId,
+      internalCode: item.internalCode,
+      nameRu: item.nameRu,
+      nameEn: item.nameEn,
+      synonyms: [...item.synonyms],
+      equipmentType: item.equipmentType,
+      standard: item.standard,
+      materialGrade: item.materialGrade,
+      dimensions: scalarRecord(item.dimensions),
+      requiredQuantity: decimal(item.requiredQuantity),
+      unit: item.unit,
+      classification: { ...item.classification },
+      accessAttributes: accessAttributes(item.access),
+      fixtureTags: [...item.fixtureTags],
+      isSyntheticDemo: true,
+      createdBy: userId,
+    })),
+  };
+}
+
 async function insertFixtureRows(db: Database, userId: string): Promise<void> {
+  const portfolioFixture = generateSpecificationPortfolio();
+  const portfolioRows = buildSpecificationPortfolioRows(portfolioFixture, userId);
   const fixtureUser = identityFixture.users[0];
   const userValues = {
     id: userId,
@@ -282,24 +372,27 @@ async function insertFixtureRows(db: Database, userId: string): Promise<void> {
   await seedRbacSubjects(db);
 
   await db.insert(specifications).values(
-    appiusFixture.specifications.map((item) => ({
-      id: item.id,
-      userId,
-      projectCode: item.projectCode,
-      name: item.name,
-      latestVersionId: item.latestVersionId,
-      latestVersionNumber: item.latestVersionNumber,
-      positionCount: item.positionCount,
-      accessAttributes: accessAttributes(item.access),
-      createdBy: userId,
-    })),
+    [
+      ...appiusFixture.specifications.map((item) => ({
+        id: item.id,
+        userId,
+        projectCode: item.projectCode,
+        name: item.name,
+        latestVersionId: item.latestVersionId,
+        latestVersionNumber: item.latestVersionNumber,
+        positionCount: item.positionCount,
+        accessAttributes: accessAttributes(item.access),
+        createdBy: userId,
+      })),
+      ...portfolioRows.specifications,
+    ],
   );
 
   const historicByVersion = new Map(
     appiusFixture.historicSnapshots.map((snapshot) => [snapshot.versionId, asJsonRecord(snapshot)]),
   );
-  await db.insert(specificationVersions).values(
-    appiusFixture.specificationVersions.map((item) => ({
+  await db.insert(specificationVersions).values([
+    ...appiusFixture.specificationVersions.map((item) => ({
       id: item.id,
       specificationId: item.specificationId,
       userId,
@@ -312,30 +405,36 @@ async function insertFixtureRows(db: Database, userId: string): Promise<void> {
       accessAttributes: accessAttributes(item.access),
       createdBy: userId,
     })),
-  );
+    ...portfolioRows.versions,
+  ]);
 
-  await db.insert(specificationPositions).values(
-    appiusFixture.positions.map((item) => ({
-      id: item.id,
-      specificationId: item.specificationId,
-      versionId: item.versionId,
-      userId,
-      internalCode: item.internalCode,
-      nameRu: item.nameRu,
-      nameEn: item.nameEn,
-      synonyms: [...item.synonyms],
-      equipmentType: item.equipmentType,
-      standard: item.standard,
-      materialGrade: item.materialGrade,
-      dimensions: scalarRecord(item.dimensions),
-      requiredQuantity: decimal(item.requiredQuantity),
-      unit: item.unit,
-      classification: { ...item.classification },
-      accessAttributes: accessAttributes(item.access),
-      fixtureTags: [...item.fixtureTags],
-      isSyntheticDemo: true,
-      createdBy: userId,
-    })),
+  await insertBatches(
+    db,
+    specificationPositions,
+    [
+      ...appiusFixture.positions.map((item) => ({
+        id: item.id,
+        specificationId: item.specificationId,
+        versionId: item.versionId,
+        userId,
+        internalCode: item.internalCode,
+        nameRu: item.nameRu,
+        nameEn: item.nameEn,
+        synonyms: [...item.synonyms],
+        equipmentType: item.equipmentType,
+        standard: item.standard,
+        materialGrade: item.materialGrade,
+        dimensions: scalarRecord(item.dimensions),
+        requiredQuantity: decimal(item.requiredQuantity),
+        unit: item.unit,
+        classification: { ...item.classification },
+        accessAttributes: accessAttributes(item.access),
+        fixtureTags: [...item.fixtureTags],
+        isSyntheticDemo: true,
+        createdBy: userId,
+      })),
+      ...portfolioRows.positions,
+    ],
   );
 
   const materialRows = sapFixture.materials.map((item) => ({
@@ -674,6 +773,7 @@ export async function deleteUserScopedRows(
 }
 
 function validateFixtures(): void {
+  const portfolioFixture = generateSpecificationPortfolio();
   const validations: Array<[label: string, actual: number, expected: number]> = [
     ["identity.users", identityFixture.users.length, identityFixture.fixtureManifest.expectedUserCount],
     [
@@ -685,6 +785,21 @@ function validateFixtures(): void {
       "appius.positions",
       appiusFixture.positions.length,
       appiusFixture.fixtureManifest.expectedCanonicalPositionCount,
+    ],
+    [
+      "appiusPortfolio.specifications",
+      portfolioFixture.specifications.length,
+      SPECIFICATION_PORTFOLIO_MANIFEST.expectedSpecificationCount,
+    ],
+    [
+      "appiusPortfolio.versions",
+      portfolioFixture.specificationVersions.length,
+      SPECIFICATION_PORTFOLIO_MANIFEST.expectedVersionCount,
+    ],
+    [
+      "appiusPortfolio.positions",
+      portfolioFixture.positions.length,
+      SPECIFICATION_PORTFOLIO_MANIFEST.expectedPositionCount,
     ],
     ["sap.materials", sapFixture.materials.length, sapFixture.fixtureManifest.expectedMaterialStockRecordCount],
     [
@@ -713,6 +828,9 @@ function validateFixtures(): void {
     ...appiusFixture.specifications.map((item) => item.user_id),
     ...appiusFixture.specificationVersions.map((item) => item.user_id),
     ...appiusFixture.positions.map((item) => item.user_id),
+    ...portfolioFixture.specifications.map((item) => item.user_id),
+    ...portfolioFixture.specificationVersions.map((item) => item.user_id),
+    ...portfolioFixture.positions.map((item) => item.user_id),
     ...sapFixture.materials.map((item) => item.user_id),
     ...normativeFixture.documents.map((item) => item.user_id),
     ...normativeFixture.chunks.map((item) => item.user_id),
@@ -888,6 +1006,22 @@ function matchesExpectedCounts(counts: SeedCounts): boolean {
     (key) => counts[key] >= EXPECTED_BASE_COUNTS[key],
   );
   return exactBaselineIsPresent && mutableRuntimeIsValid;
+}
+
+function matchesLegacySpecificationPortfolioCounts(counts: SeedCounts): boolean {
+  const legacyExactCounts = {
+    ...EXPECTED_BASE_COUNTS,
+    specifications: appiusFixture.fixtureManifest.expectedSpecificationCount,
+    canonicalPositions: appiusFixture.fixtureManifest.expectedCanonicalPositionCount,
+  };
+  const exactLegacyBaselineIsPresent = EXACT_BASELINE_COUNT_KEYS.every(
+    (key) => counts[key] === legacyExactCounts[key],
+  );
+  return (
+    exactLegacyBaselineIsPresent &&
+    counts.specificationVersions >= appiusFixture.specificationVersions.length &&
+    counts.prompts >= EXPECTED_BASE_COUNTS.prompts
+  );
 }
 
 function assertDemoUser(userId: string): asserts userId is typeof DEMO_USER_ID {
