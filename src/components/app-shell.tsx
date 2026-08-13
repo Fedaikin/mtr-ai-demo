@@ -10,13 +10,12 @@ const USER_NAVIGATION = [
   { name: "Обзор", href: "/" },
   { name: "Промышленный каталог", href: "/catalog" },
   { name: "Спецификации", href: "/specifications" },
-  { name: "Моделирование", href: "/modeling" },
   { name: "МТР-анализ", href: "/mtr-analysis" },
   { name: "Пульс МТР", href: "/pulse" },
 ] as const satisfies readonly NavigationItem[];
 
 const ADMIN_NAVIGATION = [
-  { name: "Моделирование", href: "/admin/scenarios" },
+  { name: "Сценарии и запуски", href: "/admin/scenarios" },
   { name: "Интеграции", href: "/admin/integrations" },
   { name: "Промпты", href: "/admin/prompts" },
   { name: "Словари", href: "/admin/dictionaries" },

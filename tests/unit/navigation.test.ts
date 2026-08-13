@@ -11,8 +11,9 @@ describe("resolveActiveNavigationHref", () => {
     ["/materials/SAP-DEMO-0001", "/mtr-analysis"],
     ["/reports/run-demo", "/mtr-analysis"],
     ["/specifications/spec-demo", "/specifications"],
-    ["/runs/run-demo", "/modeling"],
-    ["/modeling", "/modeling"],
+    ["/runs/run-demo", "/admin/scenarios"],
+    ["/modeling", "/admin/scenarios"],
+    ["/admin/scenarios", "/admin/scenarios"],
     ["/pulse", "/pulse"],
   ])("marks the expected section for %s", (pathname, expected) => {
     expect(resolveActiveNavigationHref(pathname)).toBe(expected);

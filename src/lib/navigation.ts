@@ -14,7 +14,9 @@ export function resolveActiveNavigationHref(pathname: string): string {
   if (pathname === "/specifications" || pathname.startsWith("/specifications/")) {
     return "/specifications";
   }
-  if (pathname === "/runs" || pathname.startsWith("/runs/") || pathname.startsWith("/modeling")) return "/modeling";
+  if (pathname === "/runs" || pathname.startsWith("/runs/") || pathname.startsWith("/modeling")) {
+    return "/admin/scenarios";
+  }
   if (pathname.startsWith("/pulse")) return "/pulse";
   if (pathname.startsWith("/admin/agent-logs")) return "/admin/agent-logs";
   if (pathname.startsWith("/admin/scenarios")) return "/admin/scenarios";
