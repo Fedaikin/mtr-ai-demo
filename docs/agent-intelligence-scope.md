@@ -99,5 +99,5 @@
 Gate G0 result: baseline технически зелёный; исходная analytical completeness `FAIL`.
 G1 foundation и детерминированный G2/G3 vertical реализованы локально. Durable
 analytical history/evidence и curated feedback lifecycle также работают. Следующие
-обязательные шаги: outcome/backtesting learning, расширение eval corpus с текущих 91 до 200,
+обязательные шаги: outcome learning, расширение eval corpus с текущих 121 до 200,
 расширенный E2E и строгая Preview-приёмка. Пользователи, RBAC/auth и Production не меняются.
