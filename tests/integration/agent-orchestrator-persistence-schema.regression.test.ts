@@ -78,7 +78,7 @@ describe.sequential("orchestrator durable persistence migration 0006", () => {
     const journal = JSON.parse(await readFile("drizzle/meta/_journal.json", "utf8")) as {
       entries: Array<{ idx: number; tag: string }>;
     };
-    expect(journal.entries.at(-1)).toEqual(
+    expect(journal.entries.find((entry) => entry.idx === 6)).toEqual(
       expect.objectContaining({ idx: 6, tag: "0006_mtr_agent_orchestrator" }),
     );
     expect(journal.entries.filter((entry) => entry.idx === 6)).toHaveLength(1);

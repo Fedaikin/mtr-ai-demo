@@ -93,6 +93,15 @@ describe("agent messages route canonical context handoff", () => {
       "subject-1",
       expect.objectContaining({ role: "user" }),
     );
+    expect(mocks.appendAgentMessage).toHaveBeenLastCalledWith(
+      "subject-1",
+      expect.objectContaining({
+        role: "assistant",
+        structuredOutput: expect.objectContaining({
+          learningProvenance: expect.objectContaining({ projectId: "project-1" }),
+        }),
+      }),
+    );
   });
 
   it("отклоняет поддельную identity до orchestrator", async () => {
@@ -152,6 +161,7 @@ describe("agent messages route canonical context handoff", () => {
           schemaVersion: "mtr-agent-command-public-v1",
           responseLabel: "KPI и SLA",
           technicalContentRemoved: false,
+          learningProvenance: expect.objectContaining({ projectId: "project-1" }),
         }),
         citations: [{
           sourceSystem: "PROCESS_ENGINE",

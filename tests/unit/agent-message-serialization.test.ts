@@ -114,6 +114,11 @@ describe("agent message serialization boundary", () => {
         nextActions: ["Обновить расчёт."],
         technicalTrace: { secret: "must-not-return" },
       },
+      learningProvenance: {
+        projectId: "demo-project-001",
+        modelVersion: "deterministic-runtime-v1",
+        evidenceVersion: "private-evidence-graph",
+      },
       toolCalls: [{ tool: "sap.getMaterialStock", outcome: "OK", durationMs: 10 }],
     };
 
@@ -129,6 +134,6 @@ describe("agent message serialization boundary", () => {
       },
       sources: [],
     });
-    expect(json).not.toMatch(/technicalTrace|must-not-return|toolCalls|sap\.getMaterialStock|closed-material/u);
+    expect(json).not.toMatch(/technicalTrace|must-not-return|toolCalls|sap\.getMaterialStock|closed-material|learningProvenance|private-evidence-graph/u);
   });
 });

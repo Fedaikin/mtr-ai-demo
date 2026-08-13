@@ -115,6 +115,7 @@ export async function POST(request: Request, { params }: MessagesRouteContext) {
       correlationId: `agent-${crypto.randomUUID()}`,
       promptVersion: activePrompt?.promptVersion ?? "mtr-agent-system-v1",
     }, session.authorization);
+    const learningProjectId = session.authorization.activeProjectId;
     const assistant = result.kind === "COMMAND"
       ? (() => {
           const projection = projectAgentCommandResult(
@@ -123,7 +124,20 @@ export async function POST(request: Request, { params }: MessagesRouteContext) {
           );
           return {
             answer: projection.answer,
-            structuredOutput: projection as unknown as Record<string, unknown>,
+            structuredOutput: {
+              ...projection,
+              learningProvenance: {
+                projectId: learningProjectId,
+                caseId: null,
+                modelVersion: "deterministic-runtime-v1",
+                ruleVersions: result.output.responseType === "ANALYSIS"
+                  ? [result.output.analysis.technicalTrace.semanticRegistryVersion]
+                  : [],
+                evidenceVersion: result.output.responseType === "ANALYSIS"
+                  ? result.output.analysis.technicalTrace.evidenceGraphId
+                  : null,
+              },
+            } as unknown as Record<string, unknown>,
             citations: result.output.citations.map((citation) => ({
               sourceSystem: citation.sourceSystem,
               entityId: citation.entityId,
@@ -134,7 +148,16 @@ export async function POST(request: Request, { params }: MessagesRouteContext) {
         })()
       : {
           answer: result.output.answer,
-          structuredOutput: result.output as unknown as Record<string, unknown>,
+          structuredOutput: {
+            ...result.output,
+            learningProvenance: {
+              projectId: learningProjectId,
+              caseId: null,
+              modelVersion: "deterministic-runtime-v1",
+              ruleVersions: [],
+              evidenceVersion: null,
+            },
+          } as unknown as Record<string, unknown>,
           citations: result.output.citations,
         };
     const assistantMessage = await repository.appendAgentMessage(subjectId, {

@@ -28,6 +28,7 @@ import {
   agentCases,
   agentEventInbox,
   agentEvidenceFacts,
+  agentLearningCandidates,
   agentMetricEvents,
   agentMessages,
   agentPlanExecutions,
@@ -735,6 +736,7 @@ export async function deleteUserScopedRows(
 ): Promise<void> {
   // Child-to-parent order keeps the reset portable with FK enforcement on.
   const demoTenantId = "demo-tenant-001";
+  await db.delete(agentLearningCandidates).where(eq(agentLearningCandidates.tenantId, demoTenantId));
   await db.delete(agentActionProposals).where(eq(agentActionProposals.tenantId, demoTenantId));
   await db.delete(agentTasks).where(eq(agentTasks.tenantId, demoTenantId));
   await db.delete(agentProactiveInsights).where(eq(agentProactiveInsights.tenantId, demoTenantId));

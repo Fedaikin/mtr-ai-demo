@@ -332,7 +332,7 @@ export function AgentChat({
             </p>
           </div>
           <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-800">
-            Детерминированный mock
+            Проверяемые источники
           </span>
         </div>
 
@@ -433,7 +433,7 @@ function EmptyConversation({
       </div>
       <h3 className="mt-4 text-lg font-semibold text-slate-950">Вопрос по данным МТР</h3>
       <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-600">
-        Аналитик сначала обращается к мокам Appius, SAP, нормативным правилам или результатам сценария, а затем формирует ответ со ссылками на источники.
+        Аналитик сначала обращается к Appius, SAP, нормативным правилам или результатам сценария, а затем формирует ответ со ссылками на источники.
       </p>
       <div className="mt-6 grid gap-2 text-left sm:grid-cols-2">
         {SUGGESTIONS.map((suggestion) => (
@@ -496,8 +496,76 @@ function AgentMessage({ message }: { message: AgentMessageView }) {
           <Citations citations={message.citations} />
         ) : null}
 
+        {assistant && !message.pending ? <AgentFeedback messageId={message.id} /> : null}
+
       </div>
     </article>
+  );
+}
+
+const FEEDBACK_OPTIONS = [
+  { kind: "USEFUL", label: "Полезно" },
+  { kind: "INCORRECT_FACT", label: "Неверный факт" },
+  { kind: "INCORRECT_CAUSE", label: "Неверная причина" },
+  { kind: "MISSING_FACTOR", label: "Пропущен фактор" },
+  { kind: "INCORRECT_FORECAST", label: "Неверный прогноз" },
+  { kind: "UNSUITABLE_RECOMMENDATION", label: "Не подходит рекомендация" },
+  { kind: "MISSING_SOURCE", label: "Не хватает источника" },
+  { kind: "MISUNDERSTOOD_QUESTION", label: "Неверно понят вопрос" },
+  { kind: "UNSAFE_ACTION", label: "Небезопасное действие" },
+] as const;
+
+function AgentFeedback({ messageId }: { messageId: string }) {
+  const [state, setState] = useState<"IDLE" | "SENDING" | "SAVED" | "ERROR">("IDLE");
+
+  async function submitFeedback(feedbackKind: (typeof FEEDBACK_OPTIONS)[number]["kind"]) {
+    if (state === "SENDING" || state === "SAVED") return;
+    setState("SENDING");
+    try {
+      const response = await fetch(`/api/agent/messages/${encodeURIComponent(messageId)}/feedback`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ feedbackKind }),
+      });
+      await readApiResponse<unknown>(response);
+      setState("SAVED");
+    } catch {
+      setState("ERROR");
+    }
+  }
+
+  return (
+    <div className="mt-4 border-t border-slate-100 pt-3" data-testid="agent-feedback">
+      {state === "SAVED" ? (
+        <p role="status" className="text-xs text-teal-800">
+          Отзыв сохранён для проверки специалистом. Работа агента автоматически не изменилась.
+        </p>
+      ) : (
+        <details>
+          <summary className="focus-ring cursor-pointer text-xs font-medium text-slate-500 hover:text-teal-800">
+            Оценить ответ
+          </summary>
+          <div className="mt-2 flex flex-wrap gap-1.5" aria-label="Тип отзыва">
+            {FEEDBACK_OPTIONS.map((option) => (
+              <button
+                key={option.kind}
+                type="button"
+                disabled={state === "SENDING"}
+                onClick={() => void submitFeedback(option.kind)}
+                className="focus-ring rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] text-slate-600 hover:border-teal-300 hover:bg-teal-50 hover:text-teal-900 disabled:opacity-50"
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </details>
+      )}
+      {state === "ERROR" ? (
+        <p role="alert" className="mt-2 text-xs text-rose-700">
+          Не удалось сохранить отзыв. Обновите диалог и повторите попытку.
+        </p>
+      ) : null}
+    </div>
   );
 }
 

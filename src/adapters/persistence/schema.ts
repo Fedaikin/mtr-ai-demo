@@ -1063,6 +1063,106 @@ export const agentActionProposals = pgTable(
   ],
 );
 
+export const agentLearningCandidates = pgTable(
+  "agent_learning_candidates",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    projectId: text("project_id").notNull(),
+    ownerUserId: text("owner_user_id").notNull().references(() => users.id),
+    responseMessageId: text("response_message_id").notNull().references(() => agentMessages.id),
+    caseId: text("case_id"),
+    feedbackKind: text("feedback_kind").notNull(),
+    status: text("status").notNull().default("QUARANTINED"),
+    sanitizedSummary: text("sanitized_summary"),
+    sourcePromptVersion: text("source_prompt_version").notNull(),
+    sourceModelVersion: text("source_model_version").notNull(),
+    sourceRuleVersions: jsonb("source_rule_versions").$type<string[]>().notNull().default([]),
+    sourceEvidenceVersion: text("source_evidence_version").notNull(),
+    applicability: jsonb("applicability").$type<Record<string, unknown>>(),
+    regressionCaseId: text("regression_case_id"),
+    validationChecksum: text("validation_checksum"),
+    validationSummary: text("validation_summary"),
+    idempotencyKey: text("idempotency_key").notNull(),
+    authorizationVersion: integer("authorization_version").notNull(),
+    roleAssignmentSnapshot: jsonb("role_assignment_snapshot")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    approvedByUserId: text("approved_by_user_id").references(() => users.id),
+    promotedByUserId: text("promoted_by_user_id").references(() => users.id),
+    rejectedByUserId: text("rejected_by_user_id").references(() => users.id),
+    revokedByUserId: text("revoked_by_user_id").references(() => users.id),
+    approvedAt: timestamp("approved_at", { withTimezone: true, mode: "string" }),
+    promotedAt: timestamp("promoted_at", { withTimezone: true, mode: "string" }),
+    rejectedAt: timestamp("rejected_at", { withTimezone: true, mode: "string" }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true, mode: "string" }),
+    ...durableAgentColumns,
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.caseId, table.tenantId, table.projectId],
+      foreignColumns: [agentCases.id, agentCases.tenantId, agentCases.projectId],
+      name: "agent_learning_case_scope_fk",
+    }),
+    uniqueIndex("agent_learning_idempotency_uq").on(
+      table.tenantId,
+      table.projectId,
+      table.idempotencyKey,
+    ),
+    uniqueIndex("agent_learning_owner_message_uq").on(
+      table.tenantId,
+      table.projectId,
+      table.ownerUserId,
+      table.responseMessageId,
+    ),
+    index("agent_learning_project_status_idx").on(
+      table.tenantId,
+      table.projectId,
+      table.status,
+      table.updatedAt,
+    ),
+    index("agent_learning_owner_created_idx").on(
+      table.ownerUserId,
+      table.createdAt,
+    ),
+    index("agent_learning_retention_idx").on(table.retentionUntil),
+    check(
+      "agent_learning_feedback_kind_check",
+      sql`${table.feedbackKind} in ('USEFUL','INCORRECT_FACT','INCORRECT_CAUSE','MISSING_FACTOR','INCORRECT_FORECAST','UNSUITABLE_RECOMMENDATION','MISSING_SOURCE','MISUNDERSTOOD_QUESTION','UNSAFE_ACTION')`,
+    ),
+    check(
+      "agent_learning_status_check",
+      sql`${table.status} in ('QUARANTINED','APPROVED','PROMOTED','REJECTED','REVOKED')`,
+    ),
+    check("agent_learning_auth_version_check", sql`${table.authorizationVersion} > 0`),
+    check(
+      "agent_learning_rules_json_check",
+      sql`jsonb_typeof(${table.sourceRuleVersions}) = 'array'`,
+    ),
+    check(
+      "agent_learning_role_snapshot_json_check",
+      sql`jsonb_typeof(${table.roleAssignmentSnapshot}) = 'array'`,
+    ),
+    check(
+      "agent_learning_applicability_json_check",
+      sql`${table.applicability} is null or jsonb_typeof(${table.applicability}) = 'object'`,
+    ),
+    check(
+      "agent_learning_approval_bundle_check",
+      sql`${table.status} in ('QUARANTINED','REJECTED') or (${table.applicability} is not null and ${table.regressionCaseId} is not null and ${table.validationChecksum} ~ '^[a-f0-9]{64}$' and ${table.approvedByUserId} is not null and ${table.approvedAt} is not null)`,
+    ),
+    check(
+      "agent_learning_promotion_check",
+      sql`${table.status} not in ('PROMOTED','REVOKED') or (${table.promotedByUserId} is not null and ${table.promotedAt} is not null)`,
+    ),
+    check(
+      "agent_learning_retention_check",
+      sql`${table.retentionUntil} >= ${table.createdAt} + interval '1 year'`,
+    ),
+  ],
+);
+
 export const agentEventInbox = pgTable(
   "agent_event_inbox",
   {
@@ -1478,6 +1578,7 @@ export const schema = {
   agentPlanExecutions,
   agentTasks,
   agentActionProposals,
+  agentLearningCandidates,
   agentEventInbox,
   agentProactiveInsights,
   agentMetricEvents,
