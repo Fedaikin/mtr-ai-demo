@@ -54,4 +54,58 @@ describe("user agent chat surface", () => {
     expect(html).not.toContain("Технический результат");
     expect(html).not.toContain("Вызовы инструментов");
   });
+
+  it("renders a saved analytical command as the same rich public card", () => {
+    const html = renderToStaticMarkup(
+      <AgentChat
+        displayName="Демо-пользователь 1"
+        initialThreads={[]}
+        initialThreadId="thread-analysis"
+        initialMessages={[{
+          id: "message-analysis",
+          threadId: "thread-analysis",
+          role: "assistant",
+          content: "Остаточный дефицит 12 EA.",
+          structuredOutput: {
+            schemaVersion: "mtr-agent-command-public-v1",
+            messageId: "analysis-1",
+            responseLabel: "Анализ позиции",
+            statusLabel: "Доступен частичный результат",
+            answer: "Остаточный дефицит 12 EA.",
+            riskLabel: null,
+            confidence: 0.9,
+            requiresHumanReview: true,
+            technicalContentRemoved: false,
+            generatedAt: "2026-08-13T10:00:00.000Z",
+            sources: [],
+            analysis: {
+              executiveSummary: "Остаточный дефицит 12 EA.",
+              facts: ["Потребность: 20 EA."],
+              findings: ["Доступно: 8 EA."],
+              drivers: [],
+              forecast: null,
+              scenarios: [{
+                kind: "Проект закупки",
+                score: 85,
+                feasible: true,
+                coveredQuantity: 20,
+                remainingShortage: 0,
+              }],
+              recommendation: "Передать вариант специалисту.",
+              limitations: ["Синтетический набор."],
+              nextActions: ["Обновить расчёт."],
+            },
+          },
+          createdAt: "2026-08-13T10:00:00.000Z",
+          citations: [],
+        }]}
+      />,
+    );
+    const text = html.replace(/<[^>]*>/gu, " ").replace(/\s+/gu, " ");
+
+    expect(text).toContain("Подтверждённые факты");
+    expect(text).toContain("Сравнение вариантов");
+    expect(text).toContain("Проект закупки");
+    expect(text).toContain("Передать вариант специалисту");
+  });
 });

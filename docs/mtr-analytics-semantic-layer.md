@@ -372,8 +372,9 @@ Route возвращает:
 ## Ограничения текущей итерации
 
 - Dataset является детерминированным synthetic model port, а не live SAP/Appius retrieval.
-- Full analytical graph и rich public answer пока не сохраняются как отдельная durable history-запись; command audit и bounded plan сохраняются.
-- Детальная analytical projection доступна в текущем command response; восстановление того же rich-представления из истории сообщений ещё не завершено.
+- Rich public projection сохраняется в существующем `agent_messages.structured_output` и повторно проходит fail-closed projection при чтении; новая migration для истории сообщений не требуется.
+- Full analytical graph пока не сохраняется как отдельная versioned evidence-history запись; command audit и bounded plan сохраняются.
+- Сохранённые source citations повторно авторизуются. Model-only SAP/normative references, которых нет в canonical persistence, fail-closed исключаются из истории до появления production-shaped source adapter.
 - Eval gate из мастер-промпта не закрыт: legacy corpus содержит 34 кейса, а целевой набор требует не менее 200 production-shaped eval.
 - Ни один сценарий не выполняет SAP/Appius write и не принимает экспертное решение.
 

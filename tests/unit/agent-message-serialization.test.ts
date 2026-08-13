@@ -67,4 +67,68 @@ describe("agent message serialization boundary", () => {
     expect(isUserVisibleAgentMessage(bundle("system"))).toBe(false);
     expect(isUserVisibleAgentMessage(bundle("tool"))).toBe(false);
   });
+
+  it("restores a saved public analytical command without restoring technical payload", () => {
+    const saved = bundle();
+    (saved.message as { structuredOutput: Record<string, unknown> | null }).structuredOutput = {
+      schemaVersion: "mtr-agent-command-public-v1",
+      messageId: "analysis-1",
+      responseLabel: "Анализ позиции",
+      statusLabel: "Доступен частичный результат",
+      answer: "Остаточный дефицит 12 EA.",
+      riskLabel: null,
+      confidence: 0.9,
+      requiresHumanReview: true,
+      technicalContentRemoved: false,
+      generatedAt: "2026-08-13T10:00:00.000Z",
+      sources: [{
+        sourceLabel: "SAP S/4HANA",
+        entityId: "closed-material",
+        versionOrSnapshot: "closed-snapshot",
+        clauseId: null,
+        freshnessLabel: "Актуальные данные",
+        availabilityLabel: "Доступно",
+        href: "/materials/closed-material",
+        canOpen: true,
+      }],
+      analysis: {
+        executiveSummary: "Остаточный дефицит 12 EA.",
+        facts: ["Потребность: 20 EA."],
+        findings: ["Доступно: 8 EA."],
+        drivers: [{
+          title: "Рост расхода",
+          status: "Поддержана данными",
+          relationship: "Связанный фактор",
+          contributionPercent: 72,
+        }],
+        forecast: null,
+        scenarios: [{
+          kind: "Проект закупки",
+          score: 85,
+          feasible: true,
+          coveredQuantity: 20,
+          remainingShortage: 0,
+        }],
+        recommendation: "Передать вариант специалисту.",
+        limitations: ["Синтетический набор."],
+        nextActions: ["Обновить расчёт."],
+        technicalTrace: { secret: "must-not-return" },
+      },
+      toolCalls: [{ tool: "sap.getMaterialStock", outcome: "OK", durationMs: 10 }],
+    };
+
+    const serialized = serializeAgentMessage(saved, []);
+    const json = JSON.stringify(serialized);
+
+    expect(serialized.structuredOutput).toMatchObject({
+      schemaVersion: "mtr-agent-command-public-v1",
+      responseLabel: "Анализ позиции",
+      analysis: {
+        facts: ["Потребность: 20 EA."],
+        scenarios: [expect.objectContaining({ kind: "Проект закупки" })],
+      },
+      sources: [],
+    });
+    expect(json).not.toMatch(/technicalTrace|must-not-return|toolCalls|sap\.getMaterialStock|closed-material/u);
+  });
 });

@@ -4,7 +4,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, KeyboardEvent, useEffect, useRef, useState, useTransition } from "react";
 import { AgentCommandResult } from "@/components/agent-command-result";
-import type { PublicAgentCommandResult } from "@/application/agent-orchestrator/public-projection";
+import {
+  restorePublicAgentCommandResult,
+  type PublicAgentCommandResult,
+} from "@/application/agent-orchestrator/public-projection";
 import type { AgentCommandKey } from "@/domain/agent/commands";
 import type { AgentContextSelection } from "@/domain/agent/context";
 
@@ -451,6 +454,9 @@ function EmptyConversation({
 
 function AgentMessage({ message }: { message: AgentMessageView }) {
   const assistant = message.role === "assistant";
+  const commandResult = assistant
+    ? restorePublicAgentCommandResult(message.structuredOutput)
+    : null;
   const output = parseStructuredOutput(message.structuredOutput);
   return (
     <article
@@ -474,15 +480,19 @@ function AgentMessage({ message }: { message: AgentMessageView }) {
           </time>
           {message.pending ? <span className="text-teal-100">сохраняю…</span> : null}
         </div>
-        <p className="whitespace-pre-wrap text-sm leading-6">{message.content}</p>
+        {commandResult ? (
+          <AgentCommandResult result={commandResult} />
+        ) : (
+          <p className="whitespace-pre-wrap text-sm leading-6">{message.content}</p>
+        )}
 
-        {assistant && output ? (
+        {assistant && !commandResult && output ? (
           <div className="mt-4 border-t border-slate-100 pt-4">
             <AgentDecisionMeta output={output} />
           </div>
         ) : null}
 
-        {assistant && message.citations.length > 0 ? (
+        {assistant && !commandResult && message.citations.length > 0 ? (
           <Citations citations={message.citations} />
         ) : null}
 

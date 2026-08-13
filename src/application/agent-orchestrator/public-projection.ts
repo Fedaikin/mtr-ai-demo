@@ -151,6 +151,13 @@ export interface PublicAgentAnalysisSummary {
   readonly nextActions: readonly string[];
 }
 
+export interface ReauthorizedAgentCitation {
+  readonly sourceSystem: string;
+  readonly entityId: string;
+  readonly versionOrSnapshot: string;
+  readonly clauseId: string | null;
+}
+
 export function responseTypeLabel(value: unknown): string {
   return knownLabel(RESPONSE_TYPE_LABELS, value, "Результат МТР-агента");
 }
@@ -203,6 +210,54 @@ export function toPublicAgentCommandResult(input: unknown): PublicAgentCommandRe
     generatedAt: safeIsoTimestamp(record?.generatedAt),
     sources: Object.freeze(projectSources(record?.sources)),
     analysis: projectAnalysis(record?.analysis),
+  });
+}
+
+/**
+ * Rebuilds a persisted public command result at the read boundary. The saved
+ * JSON is treated as untrusted and its sources are replaced with citations
+ * authorized for the current request when that list is supplied.
+ */
+export function restorePublicAgentCommandResult(
+  input: unknown,
+  authorizedCitations?: readonly ReauthorizedAgentCitation[],
+): PublicAgentCommandResult | null {
+  const record = asRecord(input);
+  if (record?.schemaVersion !== "mtr-agent-command-public-v1") return null;
+  const answer = safeDisplayText(record.answer, 8_000);
+  const technicalContentRemoved = record.technicalContentRemoved === true || answer === null;
+  const sources = authorizedCitations === undefined
+    ? restoreStoredSources(record.sources)
+    : authorizedCitations.map(projectReauthorizedSource);
+
+  return Object.freeze({
+    schemaVersion: "mtr-agent-command-public-v1",
+    messageId: safeIdentifier(record.messageId),
+    responseLabel: allowedLabel(
+      record.responseLabel,
+      Object.values(RESPONSE_TYPE_LABELS),
+      "Результат МТР-агента",
+    ),
+    statusLabel: allowedLabel(
+      record.statusLabel,
+      Object.values(STATUS_LABELS),
+      "Статус не определён",
+    ),
+    answer: technicalContentRemoved ? SAFE_HIDDEN_ANSWER : answer,
+    riskLabel:
+      record.riskLabel === null
+        ? null
+        : allowedLabel(
+            record.riskLabel,
+            Object.values(RISK_LEVEL_LABELS),
+            "Уровень риска не определён",
+          ),
+    confidence: safeConfidence(record.confidence),
+    requiresHumanReview: technicalContentRemoved || record.requiresHumanReview !== false,
+    technicalContentRemoved,
+    generatedAt: safeIsoTimestamp(record.generatedAt),
+    sources: Object.freeze(sources),
+    analysis: technicalContentRemoved ? null : restorePublicAnalysis(record.analysis),
   });
 }
 
@@ -338,6 +393,128 @@ function projectSource(value: unknown): PublicAgentSource {
   });
 }
 
+function projectReauthorizedSource(citation: ReauthorizedAgentCitation): PublicAgentSource {
+  const entityId = safeDisplayText(citation.entityId, 300);
+  const versionOrSnapshot = safeDisplayText(citation.versionOrSnapshot, 300);
+  const clauseId = safeDisplayText(citation.clauseId, 200);
+  const href = entityId === null ? null : citationHref(citation.sourceSystem, entityId);
+  return Object.freeze({
+    sourceLabel: sourceSystemLabel(citation.sourceSystem),
+    entityId,
+    versionOrSnapshot,
+    clauseId,
+    freshnessLabel: freshnessLabel("UNKNOWN"),
+    availabilityLabel: availabilityLabel("AVAILABLE"),
+    href,
+    canOpen: href !== null,
+  });
+}
+
+function restoreStoredSources(value: unknown): PublicAgentSource[] {
+  return arrayOfRecords(value).slice(0, 50).map((record) => {
+    const href = record.canOpen === true ? safeInternalHref(record.href) : null;
+    return Object.freeze({
+      sourceLabel: allowedLabel(
+        record.sourceLabel,
+        Object.values(SOURCE_SYSTEM_LABELS),
+        "Источник данных",
+      ),
+      entityId: safeDisplayText(record.entityId, 300),
+      versionOrSnapshot: safeDisplayText(record.versionOrSnapshot, 300),
+      clauseId: safeDisplayText(record.clauseId, 200),
+      freshnessLabel: allowedLabel(
+        record.freshnessLabel,
+        Object.values(FRESHNESS_LABELS),
+        "Актуальность не подтверждена",
+      ),
+      availabilityLabel: allowedLabel(
+        record.availabilityLabel,
+        Object.values(AVAILABILITY_LABELS),
+        "Доступность не определена",
+      ),
+      href,
+      canOpen: href !== null,
+    });
+  });
+}
+
+function restorePublicAnalysis(value: unknown): PublicAgentAnalysisSummary | null {
+  const record = asRecord(value);
+  const executiveSummary = safeDisplayText(record?.executiveSummary, 2_000);
+  if (!record || !executiveSummary) return null;
+  const forecastRecord = asRecord(record.forecast);
+  const model = safeDisplayText(forecastRecord?.model, 200);
+  const forecast = forecastRecord && model
+    ? {
+        model,
+        horizonWeeks: safeInteger(forecastRecord.horizonWeeks, 1, 26),
+        mae: safeNumber(forecastRecord.mae),
+        wapePercent: boundedNumber(forecastRecord.wapePercent, 0, 100),
+        bias: safeNumber(forecastRecord.bias),
+        interval: arrayOfRecords(forecastRecord.interval).slice(0, 26).flatMap((point) => {
+          const week = safeIsoTimestamp(point.week);
+          return week === null
+            ? []
+            : [{
+                week,
+                lower: safeNumber(point.lower),
+                point: safeNumber(point.point),
+                upper: safeNumber(point.upper),
+              }];
+        }),
+      }
+    : null;
+
+  return Object.freeze({
+    executiveSummary,
+    facts: arrayOfStrings(record.facts, 10, 500),
+    findings: arrayOfStrings(record.findings, 10, 500),
+    drivers: arrayOfRecords(record.drivers).slice(0, 5).flatMap((driver) => {
+      const title = safeDisplayText(driver.title, 300);
+      if (!title) return [];
+      return [{
+        title,
+        status: allowedLabel(
+          driver.status,
+          ["Не проверена", "Поддержана данными", "Опровергнута", "Недостаточно данных"],
+          "Статус не определён",
+        ),
+        relationship: allowedLabel(
+          driver.relationship,
+          [
+            "Подтверждённая причина",
+            "Связанный фактор",
+            "Связь не подтверждена",
+            "Характер связи не определён",
+          ],
+          "Характер связи не определён",
+        ),
+        contributionPercent: boundedNumber(driver.contributionPercent, 0, 100),
+      }];
+    }),
+    forecast,
+    scenarios: arrayOfRecords(record.scenarios).slice(0, 3).map((scenario) => ({
+      kind: allowedLabel(
+        scenario.kind,
+        [
+          "Прямой остаток",
+          "Один нормативный аналог",
+          "Комбинация нормативных аналогов",
+          "Проект закупки",
+        ],
+        "Вариант",
+      ),
+      score: safeNumber(scenario.score),
+      feasible: scenario.feasible === true,
+      coveredQuantity: nonNegativeNumber(scenario.coveredQuantity),
+      remainingShortage: nonNegativeNumber(scenario.remainingShortage),
+    })),
+    recommendation: safeDisplayText(record.recommendation, 500),
+    limitations: arrayOfStrings(record.limitations, 10, 500),
+    nextActions: arrayOfStrings(record.nextActions, 5, 500),
+  });
+}
+
 function knownLabel(
   labels: Readonly<Record<string, string>>,
   value: unknown,
@@ -345,6 +522,15 @@ function knownLabel(
 ): string {
   if (typeof value !== "string") return fallback;
   return labels[value.toLocaleUpperCase("en-US")] ?? fallback;
+}
+
+function allowedLabel(
+  value: unknown,
+  allowed: readonly string[],
+  fallback: string,
+): string {
+  const text = safeDisplayText(value, 300);
+  return text !== null && allowed.includes(text) ? text : fallback;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -369,6 +555,14 @@ function arrayOfStrings(value: unknown, maxItems: number, maxLength: number): st
 
 function safeNumber(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function nonNegativeNumber(value: unknown): number {
+  return Math.max(0, safeNumber(value));
+}
+
+function boundedNumber(value: unknown, minimum: number, maximum: number): number {
+  return Math.min(maximum, Math.max(minimum, safeNumber(value)));
 }
 
 function safeInteger(value: unknown, minimum: number, maximum: number): number {

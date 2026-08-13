@@ -37,7 +37,7 @@ Base: `70543c6c34d6778695a07a5400006742ed5e3a21`
 - [x] G0 baseline/coverage: technical PASS, analytical completeness FAIL с точными denominators.
 - [x] G1 semantic/data/evidence foundation.
 - [ ] G2 engines реализованы и unit/integration green; oracle/eval gate ещё не достигнут.
-- [ ] G3 unified `ANALYSIS` runtime/verifier/public UX реализован; durable rich history и citation reauthorization ещё открыты.
+- [ ] G3 unified `ANALYSIS` runtime/verifier/public UX и safe rich message history реализованы; durable evidence lineage и model-source citation adapter ещё открыты.
 - [ ] G4 recommendation/autonomy/feedback.
 - [ ] ≥200 eval, ≥40 E2E, held-out/adversarial/backtesting/scale.
 - [ ] Clean full gate, strict acceptance и scoped fix-loop.

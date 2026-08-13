@@ -15,6 +15,7 @@ import { toPublicAgentDecision } from "@/application/agent-presentation";
 import { AuditedAgentCommandCapability } from "@/application/agent-orchestrator/audited-command-capability";
 import { createAgentCommandRegistry } from "@/application/agent-orchestrator/command-registry";
 import { readAgentFeaturePolicy } from "@/application/agent-orchestrator/feature-policy";
+import { restorePublicAgentCommandResult } from "@/application/agent-orchestrator/public-projection";
 import {
   agentChatInputSchema,
   MtrAgentOrchestrator,
@@ -138,6 +139,9 @@ export function serializeAgentMessage(
   authorizedCitations: MessageBundle["citations"] = bundle.citations,
 ) {
   const assistant = bundle.message.role === "assistant";
+  const commandResult = assistant
+    ? restorePublicAgentCommandResult(bundle.message.structuredOutput, authorizedCitations)
+    : null;
   const decision = assistant
     ? toPublicAgentDecision(bundle.message.content, bundle.message.structuredOutput)
     : null;
@@ -145,15 +149,15 @@ export function serializeAgentMessage(
     id: bundle.message.id,
     threadId: bundle.message.threadId,
     role: bundle.message.role,
-    content: decision?.answer ?? bundle.message.content,
-    structuredOutput: decision
+    content: commandResult?.answer ?? decision?.answer ?? bundle.message.content,
+    structuredOutput: commandResult ?? (decision
       ? {
           ...(decision.confidence === undefined ? {} : { confidence: decision.confidence }),
           ...(decision.requiresHumanReview === undefined
             ? {}
             : { requiresHumanReview: decision.requiresHumanReview }),
         }
-      : null,
+      : null),
     createdAt: bundle.message.createdAt,
     citations: authorizedCitations.map((citation) => ({
       sourceSystem: citation.sourceSystem,
