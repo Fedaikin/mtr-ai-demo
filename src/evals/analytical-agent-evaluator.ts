@@ -14,7 +14,7 @@ import type { PermissionKey } from "@/domain/rbac";
 import type { AgentOrchestratorPorts } from "@/ports/agent-orchestrator";
 import { z } from "zod";
 
-export const EXPECTED_ANALYTICAL_AGENT_EVAL_CASES = 20;
+export const EXPECTED_ANALYTICAL_AGENT_EVAL_CASES = 50;
 
 const filtersSchema = z
   .object({
@@ -26,7 +26,7 @@ const filtersSchema = z
 
 const analyticalEvalCaseSchema = z.object({
   id: z.string().min(1),
-  split: z.enum(["calibration", "validation", "adversarial"]),
+  split: z.enum(["calibration", "validation", "held-out", "adversarial"]),
   category: z.string().min(1),
   input: z.object({
     channel: z.enum(["COMMAND", "CHAT"]),
@@ -47,6 +47,28 @@ const analyticalEvalCaseSchema = z.object({
     confidenceMin: z.number().min(0).max(1).optional(),
     confidenceMax: z.number().min(0).max(1).optional(),
     answerIncludes: z.array(z.string()).optional(),
+    selectedModel: z.enum(["NAIVE_LAST", "MOVING_AVERAGE_4", "LINEAR_TREND"]).optional(),
+    backtestOriginCount: z.number().int().nonnegative().optional(),
+    assessedModelCount: z.number().int().nonnegative().optional(),
+    intervalsValid: z.boolean().optional(),
+    trendDirection: z.enum(["UP", "DOWN", "STABLE", "UNKNOWN"]).optional(),
+    driverExpectations: z.array(z.object({
+      id: z.string().min(1),
+      status: z.enum(["UNTESTED", "SUPPORTED", "REFUTED", "UNKNOWN"]),
+      relationship: z.enum(["CAUSAL", "ASSOCIATED", "NONE", "UNKNOWN"]),
+    }).strict()).optional(),
+    scenarioOrder: z.array(z.enum([
+      "DIRECT",
+      "SINGLE_SUBSTITUTE",
+      "COMPOSITE_SUBSTITUTE",
+      "PROCUREMENT",
+    ])).optional(),
+    recommendedScenarioKind: z.enum([
+      "DIRECT",
+      "SINGLE_SUBSTITUTE",
+      "COMPOSITE_SUBSTITUTE",
+      "PROCUREMENT",
+    ]).optional(),
     maxDurationMs: z.number().positive().max(10_000),
   }).strict(),
 }).strict();
@@ -94,10 +116,13 @@ export async function loadAnalyticalAgentEvalCases(
   const splitCounts = countBy(cases, (item) => item.split);
   if (
     splitCounts.calibration !== 4 ||
-    splitCounts.validation !== 14 ||
+    splitCounts.validation !== 24 ||
+    splitCounts["held-out"] !== 20 ||
     splitCounts.adversarial !== 2
   ) {
-    throw new Error("Analytical eval должен содержать 4 calibration, 14 validation и 2 adversarial кейса.");
+    throw new Error(
+      "Analytical eval должен содержать 4 calibration, 24 validation, 20 held-out и 2 adversarial кейса.",
+    );
   }
   return cases;
 }
@@ -216,6 +241,63 @@ function verifyAnswer(
   for (const fragment of expected.answerIncludes ?? []) {
     if (!answer.executiveSummary.toLocaleLowerCase("ru-RU").includes(fragment.toLocaleLowerCase("ru-RU"))) {
       failures.push(`Executive summary не содержит «${fragment}».`);
+    }
+  }
+  if (expected.selectedModel && answer.forecast?.selectedModel?.modelKey !== expected.selectedModel) {
+    failures.push(
+      `Ожидалась модель ${expected.selectedModel}, получена ${answer.forecast?.selectedModel?.modelKey ?? "none"}.`,
+    );
+  }
+  if (
+    expected.backtestOriginCount !== undefined &&
+    answer.forecast?.selectedModel?.metrics.originCount !== expected.backtestOriginCount
+  ) {
+    failures.push(
+      `Ожидалось rolling origins ${expected.backtestOriginCount}, получено ${answer.forecast?.selectedModel?.metrics.originCount ?? "none"}.`,
+    );
+  }
+  if (
+    expected.assessedModelCount !== undefined &&
+    answer.forecast?.assessedModels.length !== expected.assessedModelCount
+  ) {
+    failures.push(
+      `Ожидалось моделей ${expected.assessedModelCount}, получено ${answer.forecast?.assessedModels.length ?? "none"}.`,
+    );
+  }
+  if (expected.intervalsValid) {
+    if (!answer.forecast || answer.forecast.points.length !== answer.forecast.horizonWeeks) {
+      failures.push("Forecast не содержит точку на каждый шаг горизонта.");
+    } else if (answer.forecast.points.some((point) => point.lower > point.point || point.point > point.upper)) {
+      failures.push("Forecast interval не содержит point estimate.");
+    }
+  }
+  if (expected.trendDirection && answer.trend?.direction !== expected.trendDirection) {
+    failures.push(
+      `Ожидался тренд ${expected.trendDirection}, получен ${answer.trend?.direction ?? "none"}.`,
+    );
+  }
+  for (const oracle of expected.driverExpectations ?? []) {
+    const driver = answer.drivers.find((item) => item.id === oracle.id);
+    if (!driver || driver.status !== oracle.status || driver.relationship !== oracle.relationship) {
+      failures.push(
+        `Driver ${oracle.id} не совпадает с oracle ${oracle.status}/${oracle.relationship}.`,
+      );
+    }
+  }
+  if (expected.scenarioOrder) {
+    const actual = answer.scenarios.map((item) => item.kind);
+    if (JSON.stringify(actual) !== JSON.stringify(expected.scenarioOrder)) {
+      failures.push(`Порядок сценариев ${actual.join(",")} не совпадает с oracle.`);
+    }
+  }
+  if (expected.recommendedScenarioKind) {
+    const recommended = answer.scenarios.find(
+      (scenario) => scenario.id === answer.recommendation?.optionId,
+    );
+    if (recommended?.kind !== expected.recommendedScenarioKind) {
+      failures.push(
+        `Ожидалась рекомендация ${expected.recommendedScenarioKind}, получена ${recommended?.kind ?? "none"}.`,
+      );
     }
   }
   if (answer.requiresHumanReview !== true) failures.push("Domain answer не требует human review.");
