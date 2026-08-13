@@ -44,11 +44,20 @@ export async function POST(request: Request) {
       try {
         await writeLoginAudit(correlationId, { errorCode: authenticationErrorCode(error) });
       } catch (auditError) {
-        return toErrorResponse(auditError);
+        console.error("Login audit failed after authentication error", {
+          correlationId,
+          authenticationError: safeErrorMessage(error),
+          auditError: safeErrorMessage(auditError),
+        });
       }
     }
+    console.error("Authentication request failed", { correlationId, error: safeErrorMessage(error) });
     return toErrorResponse(error);
   }
+}
+
+function safeErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message.slice(0, 500) : "Non-error failure";
 }
 
 async function writeLoginAudit(
