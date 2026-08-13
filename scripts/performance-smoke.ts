@@ -3,6 +3,8 @@ import { chromium, type Page } from "@playwright/test";
 const baseUrl = (process.env.PERF_BASE_URL ?? "http://127.0.0.1:3100").replace(/\/$/u, "");
 const iterations = positiveInteger(process.env.PERF_ITERATIONS, 20);
 const bypass = process.env.VERCEL_AUTOMATION_BYPASS_SECRET?.trim();
+const demoLogin = process.env.E2E_DEMO_LOGIN ?? "demo";
+const demoPassword = process.env.PERF_DEMO_PASSWORD ?? process.env.E2E_DEMO_PASSWORD;
 
 const routes = [
   "/",
@@ -80,8 +82,11 @@ async function installLongTaskObserver(page: Page): Promise<void> {
 }
 
 async function login(page: Page): Promise<void> {
+  if (!demoPassword) {
+    throw new Error("PERF_DEMO_PASSWORD or E2E_DEMO_PASSWORD is required.");
+  }
   const response = await page.request.post(`${baseUrl}/api/auth/login`, {
-    data: { login: "demo", password: "Demo2026!" },
+    data: { login: demoLogin, password: demoPassword },
   });
   if (!response.ok()) {
     throw new Error(`Performance login failed with HTTP ${response.status()}.`);

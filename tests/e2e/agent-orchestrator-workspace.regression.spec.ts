@@ -1,8 +1,10 @@
 import { expect, test } from "@playwright/test";
 
+import { E2E_DEMO_LOGIN, E2E_DEMO_PASSWORD } from "./demo-auth";
+
 test.beforeEach(async ({ page }) => {
   const response = await page.request.post("/api/auth/login", {
-    data: { login: "demo", password: "Demo2026!" },
+    data: { login: E2E_DEMO_LOGIN, password: E2E_DEMO_PASSWORD },
   });
   expect(response.ok()).toBe(true);
 });
@@ -56,6 +58,19 @@ test("mobile: workspace не создаёт горизонтальный overflo
   await expect(workspace.getByTestId("agent-input")).toBeVisible();
   await expect(workspace.getByRole("button", { name: /Кейсы/u })).toBeVisible();
   await expect(workspace.getByRole("button", { name: /Действия/u })).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+  const overflow = await page.evaluate(() => {
+    const viewportWidth = document.documentElement.clientWidth;
+    return {
+      delta: document.documentElement.scrollWidth - viewportWidth,
+      offenders: [...document.querySelectorAll<HTMLElement>("body *")]
+        .map((element) => ({
+          name: `${element.tagName.toLocaleLowerCase("en-US")}.${element.className}`,
+          right: Math.ceil(element.getBoundingClientRect().right),
+        }))
+        .filter((item) => item.right > viewportWidth + 1)
+        .slice(-5),
+    };
+  });
+  expect(overflow.delta, JSON.stringify(overflow.offenders)).toBe(0);
   await page.screenshot({ path: "/tmp/mtr-agent-orchestrator-workspace-mobile.png", fullPage: true });
 });

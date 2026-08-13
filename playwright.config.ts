@@ -35,6 +35,10 @@ export default defineConfig({
           PGLITE_DATA_DIR: "memory://",
           APP_MODE: "demo",
           LLM_PROVIDER: "mock",
+          MTR_AGENT_ORCHESTRATOR_ENABLED: "true",
+          MTR_AGENT_ACTIONS_ENABLED: "true",
+          // Public local-test hash for MtrLocalTestOnly!; remote E2E must pass E2E_DEMO_PASSWORD.
+          DEMO_PASSWORD_HASH: "scrypt$16384$8$1$5Qr53Li_UbDOnhJzIumUzw$OnJc6NYv7o1rF5xkdJKUCPb_QbSc9Yeuc-GaCB_KVuABn4SxmUKk2qYt0S3tNsUtAOQPHhIIkyVKn3l-leakrg",
         },
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,

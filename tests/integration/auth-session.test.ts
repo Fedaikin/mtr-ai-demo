@@ -16,7 +16,7 @@ import { POST as logout } from "@/app/api/auth/logout/route";
 import { POST as switchRole } from "@/app/api/auth/switch-role/route";
 import { DEMO_USER_ID } from "@/domain/models";
 import { SESSION_COOKIE_NAME } from "@/lib/auth-config";
-import { hashPassword } from "@/lib/password";
+import { hashPassword, verifyPassword } from "@/lib/password";
 import {
   authenticateDemoCredentials,
   resolveDemoSession,
@@ -42,7 +42,7 @@ describe.sequential("persistent demo authentication", () => {
     const response = await login(
       jsonRequest("http://localhost/api/auth/login", {
         login: "demo",
-        password: "Demo2026!",
+        password: "MtrLocalTestOnly!",
       }),
     );
     expect(response.status).toBe(200);
@@ -71,9 +71,10 @@ describe.sequential("persistent demo authentication", () => {
       roles: ["USER", "ADMIN"],
     });
     expect(user?.passwordHash).toMatch(/^scrypt\$/);
-    expect(user?.passwordHash).not.toContain("Demo2026!");
+    expect(user?.passwordHash).not.toContain("MtrLocalTestOnly!");
+    await expect(verifyPassword("Demo2026!", user!.passwordHash!)).resolves.toBe(false);
 
-    const created = await authenticateDemoCredentials("demo", "Demo2026!");
+    const created = await authenticateDemoCredentials("demo", "MtrLocalTestOnly!");
     expect(created?.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect((await resolveDemoSession(created?.token))?.user.displayName).toBe("Демо-пользователь 1");
 
@@ -90,7 +91,7 @@ describe.sequential("persistent demo authentication", () => {
     const rotatedPassword = "Rotated-test-only-password!";
     process.env.DEMO_PASSWORD_HASH = await hashPassword(rotatedPassword);
     try {
-      await expect(authenticateDemoCredentials("demo", "Demo2026!")).resolves.toBeNull();
+      await expect(authenticateDemoCredentials("demo", "MtrLocalTestOnly!")).resolves.toBeNull();
       const created = await authenticateDemoCredentials("demo", rotatedPassword);
       expect(created?.user.id).toBe("demo-user-001");
       await expect(resolveDemoSession(created?.token)).resolves.not.toBeNull();
@@ -113,14 +114,14 @@ describe.sequential("persistent demo authentication", () => {
     const spoof = await login(
       jsonRequest("http://localhost/api/auth/login", {
         login: "demo",
-        password: "Demo2026!",
+        password: "MtrLocalTestOnly!",
         user_id: "other-user",
       }),
     );
     expect(spoof.status).toBe(400);
 
     const response = await login(
-      jsonRequest("http://localhost/api/auth/login", { login: "demo", password: "Demo2026!" }),
+      jsonRequest("http://localhost/api/auth/login", { login: "demo", password: "MtrLocalTestOnly!" }),
     );
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
@@ -210,7 +211,7 @@ describe.sequential("persistent demo authentication", () => {
     const loggedIn = await login(
       jsonRequest("http://localhost/api/auth/login", {
         login: "demo",
-        password: "Demo2026!",
+        password: "MtrLocalTestOnly!",
       }),
     );
     expect(loggedIn.status).toBe(200);
@@ -277,7 +278,7 @@ describe.sequential("persistent demo authentication", () => {
     expect(apiResponse.status).toBe(401);
     expect(await apiResponse.json()).toMatchObject({ error: { code: "UNAUTHORIZED" } });
 
-    const session = await authenticateDemoCredentials("demo", "Demo2026!");
+    const session = await authenticateDemoCredentials("demo", "MtrLocalTestOnly!");
     expect(session).not.toBeNull();
     const authenticated = (path: string) =>
       new NextRequest(`http://localhost${path}`, {
@@ -296,7 +297,7 @@ describe.sequential("persistent demo authentication", () => {
   });
 
   it("blocks cross-origin protected mutations without affecting trusted operational clients", async () => {
-    const session = await authenticateDemoCredentials("demo", "Demo2026!");
+    const session = await authenticateDemoCredentials("demo", "MtrLocalTestOnly!");
     expect(session).not.toBeNull();
 
     const protectedMutations = [
@@ -354,7 +355,7 @@ describe.sequential("persistent demo authentication", () => {
     const previousFlag = process.env.DEMO_ROLE_SELECTOR;
     process.env.DEMO_ROLE_SELECTOR = "true";
     try {
-      const viewer = await authenticateDemoCredentials("viewer", "Demo2026!");
+      const viewer = await authenticateDemoCredentials("viewer", "MtrLocalTestOnly!");
       expect(viewer).not.toBeNull();
       const response = await switchRole(new Request("http://localhost/api/auth/switch-role", {
         method: "POST",

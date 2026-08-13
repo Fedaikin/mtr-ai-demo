@@ -31,7 +31,7 @@ describe.sequential("authentication audit", () => {
 
     const succeeded = await login(
       jsonRequest(
-        { login: "demo", password: "Demo2026!" },
+        { login: "demo", password: "MtrLocalTestOnly!" },
         { "x-request-id": "caller-controlled-success" },
       ),
     );
@@ -98,7 +98,7 @@ describe.sequential("authentication audit", () => {
 
     const serialized = JSON.stringify([loginFailure, loginSuccess, logoutSuccess]);
     expect(serialized).not.toContain(invalidPassword);
-    expect(serialized).not.toContain("Demo2026!");
+    expect(serialized).not.toContain("MtrLocalTestOnly!");
     expect(serialized).not.toContain(token);
     expect(serialized).not.toContain("caller-controlled-success");
   });

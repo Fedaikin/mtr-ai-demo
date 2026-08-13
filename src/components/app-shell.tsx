@@ -79,7 +79,7 @@ export function AppShell({ children, displayName, login, subjectId, authorizatio
               <LogoutButton className="focus-ring rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60" />
             </div>
           </header>
-          <main id="main-content" className="px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+          <main id="main-content" className="min-w-0 max-w-full overflow-x-clip px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
             {children}
           </main>
         </div>

@@ -6,6 +6,7 @@ import {
   type Page,
 } from "@playwright/test";
 
+import { E2E_DEMO_LOGIN, E2E_DEMO_PASSWORD } from "./demo-auth";
 import { RAW_USER_ENUM_PATTERN } from "./ui-contract";
 
 interface RunView {
@@ -173,7 +174,7 @@ async function readAgentLayout(page: Page) {
 async function loginDemoUser(request: APIRequestContext): Promise<void> {
   await responseJson(
     await request.post("/api/auth/login", {
-      data: { login: "demo", password: "Demo2026!" },
+      data: { login: E2E_DEMO_LOGIN, password: E2E_DEMO_PASSWORD },
     }),
   );
 }

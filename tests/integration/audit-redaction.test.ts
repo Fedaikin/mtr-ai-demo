@@ -28,7 +28,7 @@ describe.sequential("audit persistence redaction boundary", () => {
       requestId: "agent-redaction-proof",
       details: {
         tool: "sap.getState",
-        arguments: { password: "Demo2026!", cookie: "session=unsafe" },
+        arguments: { password: "MtrLocalTestOnly!", cookie: "session=unsafe" },
         result: { count: 1 },
         documentContent: "full confidential document",
       },
@@ -42,7 +42,7 @@ describe.sequential("audit persistence redaction boundary", () => {
 
     expect(saved?.requestId).toBe("agent-redaction-proof");
     expect(serialized).toContain("[СКРЫТО]");
-    expect(serialized).not.toContain("Demo2026!");
+    expect(serialized).not.toContain("MtrLocalTestOnly!");
     expect(serialized).not.toContain("session=unsafe");
     expect(serialized).not.toContain("full confidential document");
   });

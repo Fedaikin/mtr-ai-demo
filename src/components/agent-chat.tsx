@@ -270,7 +270,7 @@ export function AgentChat({
   return (
     <section
       aria-label="Диалог с МТР-аналитиком"
-      className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm lg:grid lg:grid-cols-[260px_minmax(0,1fr)]"
+      className="flex h-full min-h-0 min-w-0 max-w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm lg:grid lg:grid-cols-[260px_minmax(0,1fr)]"
     >
       <aside className="shrink-0 border-b border-slate-200 bg-slate-50/70 lg:flex lg:min-h-0 lg:flex-col lg:border-b-0 lg:border-r">
         <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
@@ -333,7 +333,7 @@ export function AgentChat({
         </div>
 
         <div className="shrink-0 border-b border-slate-100 bg-white px-4 py-2 sm:px-5" aria-label="Быстрые команды МТР-агента">
-          <div className="flex gap-2 overflow-x-auto pb-1">
+          <div className="flex max-w-full gap-2 overflow-x-auto pb-1">
             {QUICK_COMMANDS.map((command) => (
               <button key={command.key} type="button" disabled={isPending} onClick={() => runQuickCommand(command.key)} className="focus-ring shrink-0 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-teal-300 hover:bg-teal-50 hover:text-teal-900 disabled:opacity-50">
                 {command.label}

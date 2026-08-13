@@ -11,20 +11,20 @@ import { hashPassword, verifyPassword } from "@/lib/password";
 
 describe("demo authentication primitives", () => {
   it("stores passwords as salted scrypt hashes and compares them safely", async () => {
-    const first = await hashPassword("Demo2026!");
-    const second = await hashPassword("Demo2026!");
+    const first = await hashPassword("MtrLocalTestOnly!");
+    const second = await hashPassword("MtrLocalTestOnly!");
 
     expect(first).toMatch(/^scrypt\$16384\$8\$1\$/);
-    expect(first).not.toContain("Demo2026!");
+    expect(first).not.toContain("MtrLocalTestOnly!");
     expect(first).not.toBe(second);
-    await expect(verifyPassword("Demo2026!", first)).resolves.toBe(true);
+    await expect(verifyPassword("MtrLocalTestOnly!", first)).resolves.toBe(true);
     await expect(verifyPassword("wrong", first)).resolves.toBe(false);
     await expect(verifyPassword("Demo2026!", "malformed")).resolves.toBe(false);
   });
 
   it("rejects user_id spoofing and unsafe return paths", () => {
     expect(() =>
-      loginInputSchema.parse({ login: "demo", password: "Demo2026!", user_id: "victim" }),
+      loginInputSchema.parse({ login: "demo", password: "MtrLocalTestOnly!", user_id: "victim" }),
     ).toThrow();
     expect(safeReturnPath("/reports/run-1?tab=agent")).toBe("/reports/run-1?tab=agent");
     expect(safeReturnPath("https://attacker.example")).toBe("/");

@@ -511,8 +511,11 @@ async function insertFixtureRows(db: Database, userId: string): Promise<void> {
 }
 
 async function seedRbacSubjects(db: Database): Promise<void> {
-  const fixtureHash = "scrypt$16384$8$1$bXRyLWRlbW8tYXV0aC12MQ$GcR_B-AFou6BJpPfLHVa0afwkfnOh5_ehbSyTSL2TFn7UARDrszHNcwtC19lk40LVfg7sGA_roL4NX7hUkexBA";
-  await db.execute(sql`update users set password_hash=coalesce(password_hash,${fixtureHash}), account_type=coalesce(account_type,'HUMAN'), auth_source=coalesce(auth_source,'DEMO') where id='demo-user-001'`);
+  const fixtureHash = process.env.DEMO_PASSWORD_HASH?.trim();
+  if (!fixtureHash?.startsWith("scrypt$")) {
+    throw new Error("DEMO_PASSWORD_HASH обязателен для создания demo-персон");
+  }
+  await db.execute(sql`update users set password_hash=${fixtureHash}, account_type=coalesce(account_type,'HUMAN'), auth_source=coalesce(auth_source,'DEMO') where id='demo-user-001'`);
   await db.execute(sql`insert into users (id,user_id,login,password_hash,display_name,roles,locale,is_synthetic_demo,created_by,status,account_type,auth_source) values
     ('demo-viewer-001','demo-viewer-001','viewer',${fixtureHash},'Наблюдатель проекта','["USER"]'::jsonb,'ru-RU',true,'demo-user-001','ACTIVE','HUMAN','DEMO'),
     ('demo-analyst-001','demo-analyst-001','analyst',${fixtureHash},'Аналитик МТР','["USER"]'::jsonb,'ru-RU',true,'demo-user-001','ACTIVE','HUMAN','DEMO'),
@@ -521,7 +524,7 @@ async function seedRbacSubjects(db: Database): Promise<void> {
     ('demo-admin-001','demo-admin-001','admin',${fixtureHash},'Системный администратор','["ADMIN"]'::jsonb,'ru-RU',true,'demo-user-001','ACTIVE','HUMAN','DEMO'),
     ('demo-auditor-001','demo-auditor-001','auditor',${fixtureHash},'Аудитор','["ADMIN"]'::jsonb,'ru-RU',true,'demo-user-001','ACTIVE','HUMAN','DEMO'),
     ('demo-service-001','demo-service-001','integration-service',${fixtureHash},'Интеграционная служба','[]'::jsonb,'ru-RU',true,'demo-user-001','ACTIVE','SERVICE_ACCOUNT','DEMO')
-    on conflict (id) do nothing`);
+    on conflict (id) do update set password_hash=excluded.password_hash`);
   await db.execute(sql`insert into project_memberships (project_id,user_id,status,added_by) values
     ('demo-project-001','demo-user-001','ACTIVE','demo-user-001'),('demo-project-001','demo-viewer-001','ACTIVE','demo-user-001'),('demo-project-001','demo-analyst-001','ACTIVE','demo-user-001'),('demo-project-001','demo-expert-001','ACTIVE','demo-user-001'),('demo-project-001','demo-director-001','ACTIVE','demo-user-001'),('demo-project-001','demo-auditor-001','ACTIVE','demo-user-001') on conflict do nothing`);
   await db.execute(sql`insert into role_assignments (id,user_id,role_id,scope_type,project_id,status,assigned_by) values
