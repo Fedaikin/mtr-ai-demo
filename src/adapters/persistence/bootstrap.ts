@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import { and, count, eq, sql } from "drizzle-orm";
 
 import appiusFixture from "@/adapters/mock/fixtures/appius.json";
@@ -8,6 +6,14 @@ import normativeFixture from "@/adapters/mock/fixtures/normative.json";
 import sapFixture from "@/adapters/mock/fixtures/sap.json";
 import scenariosFixture from "@/adapters/mock/fixtures/scenarios.json";
 import { DEMO_USER_ID } from "@/domain/models";
+import {
+  MTR_AGENT_ORCHESTRATOR_PROMPT,
+  MTR_AGENT_ORCHESTRATOR_VERSION,
+  MTR_AGENT_PROMPT_NAME,
+  MTR_AGENT_ROLLBACK_PROMPT,
+  MTR_AGENT_ROLLBACK_VERSION,
+  promptChecksum,
+} from "@/application/agent-orchestrator/system-prompt";
 
 import { type Database, getDatabase, isRemoteDatabaseConfigured } from "./db";
 import { createReadinessCache } from "./readiness-cache";
@@ -51,7 +57,7 @@ export const EXPECTED_BASE_COUNTS = {
   analogueRules: 3,
   integrations: 4,
   scenarios: 5,
-  prompts: 1,
+  prompts: 2,
   dictionaries: 7,
 } as const;
 
@@ -93,12 +99,7 @@ const bootstrapGlobal = globalThis as typeof globalThis & {
 const databaseReadinessCache = (bootstrapGlobal.__mtrDatabaseReadinessCache ??=
   createReadinessCache<DatabaseInitializationResult>({ ttlMs: READINESS_CACHE_TTL_MS }));
 
-export const INITIAL_AGENT_PROMPT = [
-  "Ты — проектный AI-агент прототипа анализа МТР.",
-  "Используй только факты, полученные через серверные инструменты Appius, SAP и нормативного поиска.",
-  "Не придумывай остатки, версии, нормативные пункты или персональные данные.",
-  "Каждый существенный вывод сопровождай ссылкой на источник и явно отмечай необходимость экспертной проверки.",
-].join("\n");
+export const INITIAL_AGENT_PROMPT = MTR_AGENT_ROLLBACK_PROMPT;
 
 /** Login/CLI bootstrap boundary: migrates and repairs a missing canonical seed. */
 export async function initializeDatabase(): Promise<DatabaseInitializationResult> {
@@ -462,16 +463,28 @@ async function insertFixtureRows(db: Database, userId: string): Promise<void> {
     })),
   );
 
-  await db.insert(promptVersions).values({
-    id: "prompt-mtr-agent-001",
-    userId,
-    name: "mtr-project-agent",
-    promptVersion: "1.0.0",
-    content: INITIAL_AGENT_PROMPT,
-    active: true,
-    checksum: createHash("sha256").update(INITIAL_AGENT_PROMPT, "utf8").digest("hex"),
-    createdBy: userId,
-  });
+  await db.insert(promptVersions).values([
+    {
+      id: "prompt-mtr-agent-001",
+      userId,
+      name: MTR_AGENT_PROMPT_NAME,
+      promptVersion: MTR_AGENT_ROLLBACK_VERSION,
+      content: MTR_AGENT_ROLLBACK_PROMPT,
+      active: false,
+      checksum: promptChecksum(MTR_AGENT_ROLLBACK_PROMPT),
+      createdBy: userId,
+    },
+    {
+      id: "prompt-mtr-agent-003",
+      userId,
+      name: MTR_AGENT_PROMPT_NAME,
+      promptVersion: MTR_AGENT_ORCHESTRATOR_VERSION,
+      content: MTR_AGENT_ORCHESTRATOR_PROMPT,
+      active: true,
+      checksum: promptChecksum(MTR_AGENT_ORCHESTRATOR_PROMPT),
+      createdBy: userId,
+    },
+  ]);
 
   await db.insert(dictionaries).values(
     normativeFixture.searchDictionary.map((item, index) => ({
