@@ -10,8 +10,14 @@ import { SapMockAdapter } from "@/adapters/mock/sap-adapter";
 import { createCatalogRepositoryPort } from "@/adapters/persistence/catalog-port";
 import type { MtrRepository } from "@/adapters/persistence/repository";
 import { toPublicAgentDecision } from "@/application/agent-presentation";
+import {
+  agentChatInputSchema,
+  MtrAgentOrchestrator,
+} from "@/application/agent-orchestrator/orchestrator";
 import { createAgentService, type AgentService } from "@/application/agent-service";
 import type { PositionAnalysisResult, ReportSummary } from "@/domain/models";
+
+export { agentChatInputSchema };
 
 export const createThreadInputSchema = z
   .object({
@@ -78,6 +84,10 @@ export function createAgentRuntime(repository: MtrRepository): AgentService {
       },
     },
   });
+}
+
+export function createMtrAgentOrchestrator(repository: MtrRepository): MtrAgentOrchestrator {
+  return new MtrAgentOrchestrator(createAgentRuntime(repository));
 }
 
 export async function requireOwnedAgentThread(

@@ -1,10 +1,12 @@
 import { getRepository } from "@/adapters/persistence/repository";
-import { agentInputSchema } from "@/application/agent-service";
+import { AuthorizationError } from "@/application/authorization-service";
+import { AgentContextError } from "@/domain/agent/context";
 import { ApiError, created, ok, parseJson, toErrorResponse } from "@/lib/api";
 import { requirePermission } from "@/lib/session";
 
 import {
-  createAgentRuntime,
+  agentChatInputSchema,
+  createMtrAgentOrchestrator,
   isUserVisibleAgentMessage,
   requireOwnedAgentThread,
   serializeAgentMessage,
@@ -56,7 +58,7 @@ export async function POST(request: Request, { params }: MessagesRouteContext) {
       bodyPromise,
     ]);
 
-    const input = agentInputSchema.parse(body);
+    const input = agentChatInputSchema.parse(body);
     if (!input.threadId || input.threadId !== threadId) {
       throw new ApiError(
         400,
@@ -65,28 +67,32 @@ export async function POST(request: Request, { params }: MessagesRouteContext) {
       );
     }
 
-    const thread = await requireOwnedAgentThread(repository, session.user.id, threadId);
+    const subjectId = session.authorization.subjectId;
+    const thread = await requireOwnedAgentThread(repository, subjectId, threadId);
     if (!thread) {
       throw new ApiError(404, "AGENT_THREAD_NOT_FOUND", "Диалог агента не найден");
     }
 
     const [userMessage, activePrompt] = await Promise.all([
-      repository.appendAgentMessage(session.user.id, {
+      repository.appendAgentMessage(subjectId, {
         threadId,
         role: "user",
         content: input.message,
       }),
-      repository.getActivePrompt(session.user.id),
+      repository.getActivePrompt(subjectId),
     ]);
 
-    const service = createAgentRuntime(repository);
-    const output = await service.respond({
-      ...input,
-      userId: session.user.id,
+    const orchestrator = createMtrAgentOrchestrator(repository);
+    const result = await orchestrator.handle({
+      kind: "CHAT",
+      message: input.message,
+      threadId,
+      ...(input.selection === undefined ? {} : { selection: input.selection }),
       correlationId: `agent-${crypto.randomUUID()}`,
       promptVersion: activePrompt?.promptVersion ?? "mtr-agent-system-v1",
-    });
-    const assistantMessage = await repository.appendAgentMessage(session.user.id, {
+    }, session.authorization);
+    const output = result.output;
+    const assistantMessage = await repository.appendAgentMessage(subjectId, {
       threadId,
       role: "assistant",
       content: output.answer,
@@ -99,6 +105,12 @@ export async function POST(request: Request, { params }: MessagesRouteContext) {
       items: [serializeAgentMessage(userMessage), serializeAgentMessage(assistantMessage)],
     });
   } catch (error) {
+    if (error instanceof AgentContextError) {
+      return toErrorResponse(new ApiError(403, error.code, error.message));
+    }
+    if (error instanceof AuthorizationError) {
+      return toErrorResponse(new ApiError(403, "AGENT_PERMISSION_DENIED", error.message));
+    }
     return toErrorResponse(error);
   }
 }
