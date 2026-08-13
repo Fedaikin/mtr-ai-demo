@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
 import { getRepository } from "@/adapters/persistence/repository";
 import { deterministicInventoryForecast } from "@/domain/inventory-forecast";
@@ -11,12 +12,19 @@ import {
   roleLabel,
   scenarioLabel,
 } from "@/lib/localization";
-import { requireDemoRole } from "@/lib/session";
+import { getDemoSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const [{ user }, repository] = await Promise.all([requireDemoRole("USER"), getRepository()]);
+  const session = await getDemoSession();
+  if (!session.authorization.permissionKeys.has("project.read")) {
+    if (session.authorization.permissionKeys.has("user.manage")) redirect("/admin/users");
+    if (session.authorization.permissionKeys.has("audit.read.global")) redirect("/admin/audit");
+    redirect("/forbidden");
+  }
+  const { user } = session;
+  const repository = await getRepository();
   const [specifications, runs, completedRuns, integrations, counts, catalog, forecastCandidates] = await Promise.all([
     repository.listSpecifications(user.id),
     repository.listRuns(user.id, { limit: 10, includeSteps: false }),
