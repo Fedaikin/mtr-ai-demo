@@ -236,6 +236,8 @@ Lifecycle закрыт состояниями `QUARANTINED → APPROVED → PROM
 
 Отдельный integration-набор `tests/integration/normative-agent-runtime.test.ts` проверяет bilingual hybrid retrieval, влияние активного admin-словаря, точные `RAG_*`/`LLM_*` коды, audit и сохранение citations при отказе LLM. `tests/unit/agent-provider-conformance.test.ts` отдельно закрепляет redaction-before-provider, kill switch, rate/token/output limits, timeout/cancel и strict structured output.
 
+Versioned `evals/mtr-agent-provider-cases.jsonl` добавляет 20 исполняемых provider-boundary кейсов: 4 validation, 4 held-out и 12 adversarial. Они не дублируют общие unit assertions, а проверяют data-driven oracle для redaction, изоляции rate window, kill switch, token/cost budgets, timeout/cancel, unsafe data policy и невалидных ответов. Запуск: `pnpm eval:agent:provider`.
+
 ## Ограничения прототипа
 
 - Intent routing и извлечение идентификаторов детерминированы и рассчитаны на демонстрационные формулировки.

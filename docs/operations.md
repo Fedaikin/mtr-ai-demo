@@ -192,7 +192,7 @@ ALLOW_REMOTE_RESET=true node --env-file=.env.local --import tsx scripts/reset.ts
 pnpm check
 ```
 
-Фактическая последовательность: ESLint, Next route type generation + TypeScript, все Vitest-тесты, privacy scan, 34 legacy eval-кейса, 20 production-shaped analytical eval-кейсов, 17 learning lifecycle eval-кейсов и production build.
+Фактическая последовательность: ESLint, Next route type generation + TypeScript, все Vitest-тесты, privacy scan, 34 legacy eval-кейса, 20 production-shaped analytical eval-кейсов, 17 learning lifecycle eval-кейсов, 20 provider-boundary eval-кейсов и production build.
 
 ### Полный release gate
 
@@ -205,6 +205,7 @@ pnpm privacy:scan
 pnpm eval:agent
 pnpm eval:agent:analytical
 pnpm eval:agent:learning
+pnpm eval:agent:provider
 pnpm build
 pnpm test:e2e
 ```
