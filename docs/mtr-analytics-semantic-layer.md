@@ -352,7 +352,7 @@ Route возвращает:
 }
 ```
 
-Публичная проекция не включает `technicalTrace`, internal evidence node IDs, tool calls, chain-of-thought, raw JSON и закрытые filters. Source card пропускает только allowlisted поля и безопасную внутреннюю ссылку; повторная авторизация сохранённой аналитической citation остаётся отдельным открытым gate текущей итерации.
+Публичная проекция не включает `technicalTrace`, internal evidence node IDs, tool calls, chain-of-thought, raw JSON и закрытые filters. Source card пропускает только allowlisted поля и безопасную внутреннюю ссылку. Для каждого завершённого `ANALYSIS` bounded plan сохраняет отдельный case snapshot и четыре scoped evidence facts; при чтении права на Appius/SAP/catalog/normative проверяются заново.
 
 ## Ошибки
 
@@ -374,9 +374,9 @@ Route возвращает:
 - Dataset является детерминированным synthetic model port, а не live SAP/Appius retrieval.
 - Rich public projection сохраняется в существующем `agent_messages.structured_output` и повторно проходит fail-closed projection при чтении; новая migration для истории сообщений не требуется.
 - Owner-only feedback сохраняется отдельной additive migration `0007_mtr_agent_learning` как quarantined candidate с prompt/model/rule/evidence provenance. Он не влияет на runtime автоматически; approval/promotion/revoke требуют human permissions, regression case, validation checksum и audit.
-- Full analytical graph пока не сохраняется как отдельная versioned evidence-history запись; command audit и bounded plan сохраняются.
-- Сохранённые source citations повторно авторизуются. Model-only SAP/normative references, которых нет в canonical persistence, fail-closed исключаются из истории до появления production-shaped source adapter.
-- Eval gate из мастер-промпта не закрыт: legacy corpus содержит 34 кейса, отдельный current-runtime analytical corpus — 20 кейсов, а целевой набор требует не менее 200 production-shaped eval.
+- Analytical history переиспользует durable cases/evidence/plans из `0006`: хранит dataset/semantic/forecast versions, вывод, рекомендацию и source snapshots, связывает предыдущий расчёт той же позиции и отмечает изменение вывода. Internal conclusion fingerprint остаётся только в persistence.
+- Сохранённые source citations повторно авторизуются; отозванный источник скрывается и увеличивает `revokedEvidenceCount`.
+- Eval gate из мастер-промпта не закрыт: выполнены 34 legacy, 20 current-runtime analytical и 17 learning lifecycle cases (71 всего), а целевой набор требует не менее 200 production-shaped eval.
 - Ни один сценарий не выполняет SAP/Appius write и не принимает экспертное решение.
 
 ## Связанные документы

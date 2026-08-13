@@ -29,7 +29,7 @@ Base: `70543c6c34d6778695a07a5400006742ed5e3a21`
 - [x] Action использует proposal → confirm → reauthorization → idempotency → audit.
 - [x] Feedback не меняет online behavior.
 - [x] LearningCandidate quarantined и требует human approval, regression case и validation checksum.
-- [ ] Role switch/revoke очищает или повторно авторизует context/history.
+- [x] Role switch/revoke очищает widget context; case/evidence history повторно авторизуется при чтении.
 - [x] SAP/Appius write отсутствует.
 
 ## Gates
@@ -37,8 +37,8 @@ Base: `70543c6c34d6778695a07a5400006742ed5e3a21`
 - [x] G0 baseline/coverage: technical PASS, analytical completeness FAIL с точными denominators.
 - [x] G1 semantic/data/evidence foundation.
 - [x] G2 engines реализованы и unit/integration green; полный target curriculum ещё не достигнут.
-- [x] G3 unified `ANALYSIS` runtime/verifier/public UX и safe rich message history реализованы; durable evidence lineage и model-source citation adapter ещё открыты.
-- [ ] G4 частично: recommendation, A3 proposal/confirm и curated feedback lifecycle реализованы; полная analytical history, outcome learning и proactive acceptance ещё открыты.
+- [x] G3 unified `ANALYSIS` runtime/verifier/public UX, rich message history и durable reauthorized analytical evidence lineage реализованы.
+- [ ] G4 частично: recommendation, A3 proposal/confirm, analytical history и curated feedback lifecycle реализованы; outcome learning и proactive acceptance ещё открыты.
 - [ ] ≥200 eval, ≥40 E2E, held-out/adversarial/backtesting/scale; сейчас 34 legacy + 20 current-runtime analytical + 17 versioned learning lifecycle eval.
 - [ ] Clean full gate, strict acceptance и scoped fix-loop.
 - [ ] Draft PR и Preview exact SHA; Production не затронут.

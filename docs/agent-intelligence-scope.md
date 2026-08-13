@@ -96,6 +96,7 @@
 - [x] Branch review checklist обновлён фактическими evidence.
 
 Gate G0 result: baseline технически зелёный; исходная analytical completeness `FAIL`.
-G1 foundation и детерминированный G2/G3 vertical реализованы локально. Следующие
-обязательные шаги: durable analytical history/evidence, расширение production-shaped eval corpus,
+G1 foundation и детерминированный G2/G3 vertical реализованы локально. Durable
+analytical history/evidence и curated feedback lifecycle также работают. Следующие
+обязательные шаги: outcome/backtesting learning, расширение production-shaped eval corpus,
 расширенный E2E и строгая Preview-приёмка. Пользователи, RBAC/auth и Production не меняются.

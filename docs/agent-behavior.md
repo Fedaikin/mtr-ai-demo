@@ -196,6 +196,12 @@ Repository-фильтры `/admin/agent-logs` применяются в пара
 
 Запись `agent_learning_candidates` связывает отзыв с assistant message, проектом, владельцем, prompt/model/rule/evidence versions и audit. Повторный отзыв на тот же ответ не создаёт второй кандидат. Свободный комментарий проходит redaction и не становится prompt, rule или knowledge автоматически.
 
+Каждый завершённый аналитический расчёт также создаёт личный durable case. В нём
+сохраняются версии dataset/semantic/forecast, краткий вывод, рекомендация и отдельные
+evidence facts. Повторный расчёт той же позиции сравнивается с предыдущим и показывает,
+изменился ли вывод. При каждом чтении источники авторизуются заново; потерявший доступ
+пользователь увидит число скрытых источников, но не их содержимое.
+
 Lifecycle закрыт состояниями `QUARANTINED → APPROVED → PROMOTED → REVOKED` либо `REJECTED`. Approval требует applicability, отдельный regression case и SHA-256 checksum validation; promotion и rollback проходят отдельную авторизацию и атомарный audit. Личные чаты не становятся общей памятью, а promoted-кандидат сам по себе не изменяет веса модели или operational state.
 
 ## Prompt injection и privacy

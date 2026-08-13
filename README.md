@@ -15,7 +15,7 @@
 | Сценарии | Серверный bounded runner после create/retry/manual import; UI только опрашивает состояние; работают cancel, совместимый `advance` и фактический snapshot файла (`sourceKind: UPLOADED_FILE`) |
 | Ручной импорт | Appius принимает CSV/XLS/XLSX, размеченный текст и позиционные TXT/DOCX/text-PDF ровно из четырёх полей `код / наименование / количество / единица`; смесь допустимых и отклонённых строк блокируется как `REVIEW_REQUIRED`; известный demo-image даёт фиксированный OCR, остальные изображения и scan-PDF требуют проверки. SAP fallback поддерживает только CSV/XLS/XLSX |
 | Отчёты | Интерактивный отчёт, версионное решение эксперта и экспорт JSON, XLSX, PDF |
-| МТР-агент | Единый runtime `CHAT / COMMAND / EVENT`, шесть команд, включая проверяемый анализ позиции с forecast/backtest и scenario comparison; bounded планы, кейсы, evidence, недельная сводка, proactive-сигналы, подтверждаемые действия и owner-only feedback в карантин без online learning |
+| МТР-агент | Единый runtime `CHAT / COMMAND / EVENT`, шесть команд, включая проверяемый анализ позиции с forecast/backtest и scenario comparison; bounded планы, повторно авторизуемая история выводов и evidence, недельная сводка, proactive-сигналы, подтверждаемые действия и owner-only feedback в карантин без online learning |
 | Администрирование | Исполняемые состояния Appius, SAP, RAG и LLM, сценарии, промпты, словари, логи агента, аудит, demo-reset |
 | Хранилище | PGlite локально; PostgreSQL при заданном `DATABASE_URL`; Blob для загрузок на Vercel |
 

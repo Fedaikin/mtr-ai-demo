@@ -7,7 +7,7 @@
 | G-01…G-19 | `РЕАЛИЗОВАНО ЛОКАЛЬНО` | Единый runtime, canonical context, scoped ports, durable `0006`, commands/cases/evidence/plans/tasks/actions/events/metrics, public projection, citation reauth и persisted observability покрыты unit/integration/E2E regressions |
 | G-20 | `ЧАСТИЧНО` | Legacy eval `34/34`, production-shaped analytical `20/20` и versioned learning lifecycle `17/17`; целевой curriculum 200 случаев ещё не набран |
 | G-21 | `ЧАСТИЧНО` | Новый desktop/mobile workspace E2E зелёный; целевая матрица ≥27 orchestrator-сценариев не набрана |
-| G-22 | `ЛОКАЛЬНО PASS / PREVIEW BLOCKED` | Эквивалент полного `pnpm check`: 126 файлов/515 тестов, privacy 453, eval 34/34 + 20/20 + 17/17, build/PDF assets PASS; push, PR и exact-SHA Preview невозможны без remote/upstream/Vercel credentials |
+| G-22 | `ЛОКАЛЬНО PASS / PREVIEW BLOCKED` | Эквивалент полного `pnpm check`: 127 файлов/517 тестов, privacy 454, eval 34/34 + 20/20 + 17/17, build/PDF assets PASS; push, PR и exact-SHA Preview невозможны без remote/upstream/Vercel credentials |
 
 Production не изменён. Статусы ниже сохраняют исходную gap-карту и не переписывают baseline задним числом.
 
