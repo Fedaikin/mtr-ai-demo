@@ -3,7 +3,7 @@
 Ветка: `codex/mtr-agent-analytical-intelligence`
 
 Base: `70543c6c34d6778695a07a5400006742ed5e3a21`
-Статус: deterministic G1–G3 vertical, безопасный feedback slice G4 и curriculum 200/200 реализованы; E2E/Preview ещё открыты
+Статус: deterministic G1–G3 vertical, безопасный feedback slice G4, curriculum 200/200 и E2E 40/40 реализованы; exact-SHA Preview внешне заблокирован
 
 ## Scope
 
@@ -41,7 +41,7 @@ Base: `70543c6c34d6778695a07a5400006742ed5e3a21`
 - [x] G3 unified `ANALYSIS` runtime/verifier/public UX, rich message history и durable reauthorized analytical evidence lineage реализованы.
 - [ ] G4 частично: recommendation, A3 proposal/confirm, analytical history и curated feedback lifecycle реализованы; outcome learning и proactive acceptance ещё открыты.
 - [x] ≥200 eval, adversarial/security, multi-turn и scale quota: 34 legacy + 50 analytical + 17 learning + 20 provider + 32 security + 20 scale + 27 multi-turn = 200.
-- [ ] ≥40 E2E business scenarios: текущий каталог содержит 25 distinct test bodies, аналитическая матрица не набрана.
-- [x] Clean local full gate: 132 test files / 526 tests, privacy 468, eval 200/200, production build/PDF assets PASS.
+- [x] ≥40 E2E business scenarios: 40 distinct test bodies выполнены на применимых desktop/mobile targets.
+- [x] Clean local full gate: 132 test files / 526 tests, privacy 470, eval 200/200, production build/PDF assets PASS.
 - [x] Строгий локальный acceptance-отчёт создан; Preview fix-loop остаётся внешне заблокирован.
 - [ ] Draft PR и Preview exact SHA; Production не затронут.

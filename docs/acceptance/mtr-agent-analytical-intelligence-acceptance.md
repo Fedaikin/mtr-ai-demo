@@ -2,7 +2,7 @@
 
 Дата: `2026-08-13`  
 Ветка: `codex/mtr-agent-analytical-intelligence`  
-Проверенный code/eval SHA: `8a472d7fb4f10a25153f2b09c2f19a78ec172da2`  
+Проверенный code/eval/E2E SHA: `adefcaf8f2b1fcaf6ffa23b10d99e045d0fde668`
 Production: не изменён
 
 Статусы относятся к локальному коду и синтетическому санкционированному dataset. Они не заменяют exact-SHA Preview-приёмку.
@@ -26,10 +26,10 @@ Production: не изменён
 | A-15 | Feedback does not auto-train | A2 | Candidate остаётся `QUARANTINED` до human curation | 12 multi-turn +17 lifecycle | learning/multi-turn packs | Повторный ответ идентичен | 100% | `8a472d7` | ПРОЙДЕНО | Fine-tuning запрещён |
 | A-16 | Human-only expert decision | A2/A3 | Recommendation/proposal не является решением | Unit/integration corpus | `pnpm test` | Unsupported expert decision absent | 0 substitutions | `8a472d7` | ПРОЙДЕНО | Требуется Preview UX-проверка |
 | A-17 | SAP/Appius write absent | A0–A3 | Agent tools и proposals ограничены разрешёнными типами | Security/action tests | `pnpm test` | Unsupported write rejected | 0 writes | `8a472d7` | ПРОЙДЕНО | Scenario engine остаётся отдельным контуром |
-| A-18 | Full local quality gate | G5 | Lint, typecheck, Vitest, privacy, evals, build/PDF trace | 526 tests +200 eval | `pnpm check` | 132 files/526 tests; privacy 468; build PASS | 100% | `8a472d7` | ПРОЙДЕНО | Vite config выводит неблокирующее предупреждение |
-| A-19 | ≥40 E2E business scenarios | G5 | Existing Playwright catalogue | 25 distinct test bodies | `playwright --list` baseline inventory | 25 < 40 | 62.5% по числу | `8a472d7` | НЕ ПРОЙДЕНО | Нужно добавить не менее 15 distinct business scenarios и выполнить их |
-| A-20 | Draft PR + exact-SHA Preview | Release | Feature branch only | — | Не запускалось | Remote/upstream/Vercel credentials отсутствуют | blocked | `8a472d7` | ЗАБЛОКИРОВАНО ВНЕШНЕЙ ЗАВИСИМОСТЬЮ | Нельзя безопасно push/deploy; Production запрещён |
+| A-18 | Full local quality gate | G5 | Lint, typecheck, Vitest, privacy, evals, build/PDF trace | 526 tests +200 eval | `pnpm check` | 132 files/526 tests; privacy 470; build PASS | 100% | `adefcaf` | ПРОЙДЕНО | Vite config выводит неблокирующее предупреждение |
+| A-19 | ≥40 E2E business scenarios | G5 | Playwright business/UX matrix | 40 distinct test bodies | Desktop + mobile projects | Desktop 37 PASS/3 target skips; mobile 21 PASS/19 target skips; каждый distinct scenario выполнен на применимом target | 40/40 | `adefcaf` | ПРОЙДЕНО | 15 analytical scenarios исполняются один раз на desktop; responsive cases отдельно на mobile |
+| A-20 | Draft PR + exact-SHA Preview | Release | Feature branch only | — | Не запускалось | Remote/upstream/Vercel credentials отсутствуют | blocked | `adefcaf` | ЗАБЛОКИРОВАНО ВНЕШНЕЙ ЗАВИСИМОСТЬЮ | Нельзя безопасно push/deploy; Production запрещён |
 
 ## Итог
 
-Локальный curriculum и полный code gate пройдены. Релизный verdict остаётся **НЕ ПРОЙДЕНО** до двух независимых условий: расширить и выполнить E2E-матрицу до 40 distinct business scenarios; затем получить exact-SHA Preview и провести приёмку без изменения Production.
+Локальный curriculum, полный code gate и E2E-матрица `40/40` пройдены. Локальная приёмка **ПРОЙДЕНА**; релизный verdict остаётся **ЗАБЛОКИРОВАН** только внешней зависимостью: требуется push feature-ветки, draft PR и exact-SHA Preview-приёмка без изменения Production.

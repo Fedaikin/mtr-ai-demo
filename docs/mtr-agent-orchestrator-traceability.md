@@ -6,8 +6,8 @@
 |---|---|---|
 | G-01…G-19 | `РЕАЛИЗОВАНО ЛОКАЛЬНО` | Единый runtime, canonical context, scoped ports, durable `0006`, commands/cases/evidence/plans/tasks/actions/events/metrics, public projection, citation reauth и persisted observability покрыты unit/integration/E2E regressions |
 | G-20 | `ЛОКАЛЬНО PASS` | Legacy `34/34`, analytical `50/50`, learning `17/17`, provider `20/20`, security `32/32`, scale `20/20`, multi-turn `27/27`: всего `200/200` |
-| G-21 | `ЧАСТИЧНО` | Каталог содержит 25 distinct Playwright test bodies; целевая матрица ≥40 business scenarios не набрана |
-| G-22 | `ЛОКАЛЬНО PASS / PREVIEW BLOCKED` | Полный `pnpm check`: 132 файла/526 тестов, privacy 468, eval 200/200, build/PDF assets PASS; push, PR и exact-SHA Preview невозможны без remote/upstream/Vercel credentials |
+| G-21 | `ЛОКАЛЬНО PASS` | 40 distinct Playwright business scenarios: desktop 37 PASS/3 target skips, mobile 21 PASS/19 target skips; каждый сценарий выполнен на применимом target |
+| G-22 | `ЛОКАЛЬНО PASS / PREVIEW BLOCKED` | Полный `pnpm check`: 132 файла/526 тестов, privacy 470, eval 200/200, build/PDF assets PASS на `adefcaf`; push, PR и exact-SHA Preview невозможны без remote/upstream/Vercel credentials |
 
 Production не изменён. Статусы ниже сохраняют исходную gap-карту и не переписывают baseline задним числом.
 
@@ -35,7 +35,7 @@ Production не изменён. Статусы ниже сохраняют ис�
 | G-18 | Sources drill-down + reauth | Citation GET сериализует сохранённые записи | Permission/resource recheck перед показом/переходом | Revoke и cross-project возвращают 404 |
 | G-19 | Полный audit/observability | Command runtime не имеет durable trace; action audit не доказан live | Received/completed/failure traces, atomic critical action | Audit failure не коммитит action |
 | G-20 | 200 runtime eval | Baseline 34/34, analytical 50/50, learning 17/17, provider 20/20, security 32/32, scale 20/20, multi-turn 27/27 | 200 production-shaped, включая analytical, temporal, adversarial, feedback и scale | Раздельные manifests и executed runtime cases |
-| G-21 | 40 E2E | Текущий каталог содержит 25 distinct test bodies | Role/task/digest/risk/action/revoke/partial/concurrency/analytical E2E | ≥40 distinct business scenarios |
+| G-21 | 40 E2E | 40 distinct business scenarios выполнены на применимых desktop/mobile targets | Поддерживать role/task/digest/risk/action/revoke/partial/concurrency/analytical E2E | ≥40 distinct business scenarios |
 | G-22 | Preview/performance/clean checkout | Для feature SHA нет push/Preview credentials | Clean worktree gate и exact-SHA Preview либо внешний blocker | p50/p95, concurrency и release manifest |
 
 ## Первые 12 regression-first исправлений
