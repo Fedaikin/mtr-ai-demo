@@ -4,6 +4,7 @@ vi.mock("server-only", () => ({}));
 
 import {
   AgentActionService,
+  type AgentActionExecutor,
   type AgentActionStore,
 } from "@/application/agent-orchestrator/action-service";
 import type { TrustedRequestContext } from "@/application/authorization-service";
@@ -101,10 +102,16 @@ function context(permissions: string[], patch: Partial<TrustedRequestContext> = 
   };
 }
 
-function executor(execute: ReturnType<typeof vi.fn>) {
+function executor(execute: ReturnType<typeof vi.fn>): AgentActionExecutor {
+  const invoke = execute as unknown as (
+    proposal: AgentActionProposal,
+    context: TrustedRequestContext,
+  ) => unknown;
   return {
     resolveCurrent: vi.fn(async (proposal: AgentActionProposal) => proposal.resource),
-    execute,
+    async execute(proposal, context) {
+      return await invoke(proposal, context) as Awaited<ReturnType<AgentActionExecutor["execute"]>>;
+    },
   };
 }
 
