@@ -5,6 +5,8 @@ import { zodTextFormat } from "openai/helpers/zod";
 import { VERSION as OPENAI_SDK_VERSION } from "openai/version";
 import { z } from "zod";
 
+import { MTR_AGENT_UNIVERSAL_VERSION } from "@/application/agent-orchestrator/system-prompt";
+
 import type { AgentExecutionContext } from "@/domain/agent/context";
 import { redactSensitiveData } from "@/lib/redaction";
 
@@ -240,7 +242,7 @@ export function readOpenAIResponsesPlannerConfig(
     apiKey,
     model,
     providerVersion: `openai-node-${OPENAI_SDK_VERSION}`,
-    promptVersion: "4.0.0",
+    promptVersion: MTR_AGENT_UNIVERSAL_VERSION,
     timeoutMs: boundedInteger(environment.MTR_AGENT_LLM_TIMEOUT_MS, 1_000, 60_000, 15_000),
     maxOutputTokens: boundedInteger(environment.MTR_AGENT_LLM_MAX_OUTPUT_TOKENS, 256, 20_000, 4_000),
     maxRetries: boundedInteger(environment.MTR_AGENT_LLM_MAX_RETRIES, 0, 2, 1),

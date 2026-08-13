@@ -6,14 +6,14 @@ import { PlatformAgentActionExecutor } from "@/application/agent-orchestrator/ac
 import { AgentActionError, AgentActionService } from "@/application/agent-orchestrator/action-service";
 import { readAgentFeaturePolicy } from "@/application/agent-orchestrator/feature-policy";
 import { scheduleScenarioRunDrain } from "@/application/scenario-background";
-import { AGENT_ACTION_TYPES } from "@/domain/agent/actions";
+import { PROJECT_AGENT_ACTION_TYPES } from "@/domain/agent/actions";
 import { ApiError, toErrorResponse } from "@/lib/api";
 
 const scalarSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 
 export const actionProposalSchema = z.object({
   caseId: z.string().trim().min(1).max(200),
-  actionType: z.enum(AGENT_ACTION_TYPES),
+  actionType: z.enum(PROJECT_AGENT_ACTION_TYPES),
   resource: z.object({
     resourceType: z.string().trim().min(1).max(120),
     resourceId: z.string().trim().min(1).max(200),

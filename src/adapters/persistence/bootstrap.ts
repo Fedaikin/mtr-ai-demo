@@ -16,6 +16,8 @@ import {
   MTR_AGENT_PROMPT_NAME,
   MTR_AGENT_ROLLBACK_PROMPT,
   MTR_AGENT_ROLLBACK_VERSION,
+  MTR_AGENT_UNIVERSAL_BASE_PROMPT,
+  MTR_AGENT_UNIVERSAL_BASE_VERSION,
   MTR_AGENT_UNIVERSAL_PROMPT,
   MTR_AGENT_UNIVERSAL_VERSION,
   promptChecksum,
@@ -80,7 +82,7 @@ export const EXPECTED_BASE_COUNTS = {
   analogueRules: 3,
   integrations: 4,
   scenarios: 5,
-  prompts: 3,
+  prompts: 4,
   dictionaries: 7,
 } as const;
 
@@ -616,6 +618,16 @@ async function insertFixtureRows(db: Database, userId: string): Promise<void> {
     },
     {
       id: "prompt-mtr-agent-004",
+      userId,
+      name: MTR_AGENT_PROMPT_NAME,
+      promptVersion: MTR_AGENT_UNIVERSAL_BASE_VERSION,
+      content: MTR_AGENT_UNIVERSAL_BASE_PROMPT,
+      active: false,
+      checksum: promptChecksum(MTR_AGENT_UNIVERSAL_BASE_PROMPT),
+      createdBy: userId,
+    },
+    {
+      id: "prompt-mtr-agent-005",
       userId,
       name: MTR_AGENT_PROMPT_NAME,
       promptVersion: MTR_AGENT_UNIVERSAL_VERSION,

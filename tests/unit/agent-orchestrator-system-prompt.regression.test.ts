@@ -5,6 +5,7 @@ import {
   MTR_AGENT_ORCHESTRATOR_VERSION,
   MTR_AGENT_ROLLBACK_PROMPT,
   MTR_AGENT_ROLLBACK_VERSION,
+  MTR_AGENT_UNIVERSAL_BASE_VERSION,
   MTR_AGENT_UNIVERSAL_PROMPT,
   MTR_AGENT_UNIVERSAL_VERSION,
   promptChecksum,
@@ -18,11 +19,15 @@ describe("system prompt оркестратора", () => {
     expect(promptChecksum(MTR_AGENT_ORCHESTRATOR_PROMPT)).toMatch(/^[a-f0-9]{64}$/);
   });
 
-  it("версионирует universal v4 после появления реальных capabilities", () => {
-    expect(MTR_AGENT_UNIVERSAL_VERSION).toBe("4.0.0");
+  it("версионирует universal v4.1 после появления подтверждаемых RBAC capabilities", () => {
+    expect(MTR_AGENT_UNIVERSAL_BASE_VERSION).toBe("4.0.0");
+    expect(MTR_AGENT_UNIVERSAL_VERSION).toBe("4.1.0");
     expect(MTR_AGENT_UNIVERSAL_PROMPT).toContain("Универсальный разговорный контур");
     expect(MTR_AGENT_UNIVERSAL_PROMPT).toContain("четырёх planning rounds");
     expect(MTR_AGENT_UNIVERSAL_PROMPT).toContain("Не обучайся автоматически");
+    expect(MTR_AGENT_UNIVERSAL_PROMPT).toContain("Подтверждаемое управление доступом");
+    expect(MTR_AGENT_UNIVERSAL_PROMPT).toContain("отдельную кнопку подтверждения");
+    expect(MTR_AGENT_UNIVERSAL_PROMPT).toContain("Самоизменение доступа");
     expect(promptChecksum(MTR_AGENT_UNIVERSAL_PROMPT)).toMatch(/^[a-f0-9]{64}$/);
   });
 

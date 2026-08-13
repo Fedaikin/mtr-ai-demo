@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 
 import type { TrustedRequestContext } from "@/application/authorization-service";
+import { MTR_AGENT_UNIVERSAL_VERSION } from "@/application/agent-orchestrator/system-prompt";
 import { createUniversalReadCapabilityRegistry } from "@/application/agent-orchestrator/universal-chat/read-capabilities";
 import { LiveUniversalChatService } from "@/application/agent-orchestrator/universal-chat/live-universal-chat-service";
 import {
@@ -44,7 +45,7 @@ describe("official OpenAI Responses planner boundary", () => {
     expect(planned.trace).toMatchObject({
       provider: "OPENAI",
       model: "gpt-test-exact",
-      promptVersion: "4.0.0",
+      promptVersion: MTR_AGENT_UNIVERSAL_VERSION,
     });
   });
 
@@ -132,7 +133,7 @@ function config() {
     apiKey: "server-secret-value",
     model: "gpt-test-exact",
     providerVersion: "openai-node-test",
-    promptVersion: "4.0.0",
+    promptVersion: MTR_AGENT_UNIVERSAL_VERSION,
     timeoutMs: 5_000,
     maxOutputTokens: 2_000,
     maxRetries: 0,

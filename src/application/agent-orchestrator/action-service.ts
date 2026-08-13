@@ -16,6 +16,11 @@ import {
   type AgentActionType,
   type PublicAgentActionProposal,
 } from "@/domain/agent/actions";
+import {
+  agentActionImpactPreviewSchema,
+  privilegedActionParametersSchema,
+} from "@/domain/agent/privileged-actions";
+import { privilegedActionPermission } from "@/application/agent-orchestrator/privileged-action-executor";
 
 const DEFAULT_EXPIRY_MINUTES = 30;
 
@@ -75,7 +80,12 @@ export class AgentActionService {
     validateProposalInput(input);
     const projectId = requireActiveProject(context);
     if (input.resource.projectId !== projectId) throw denied();
-    const permission = AGENT_ACTION_REQUIRED_PERMISSION[input.actionType];
+    const permission = isPrivilegedAction(input.actionType)
+      ? privilegedActionPermission(privilegedActionParametersSchema.parse({
+          actionType: input.actionType,
+          ...Object.fromEntries(Object.entries(input.parameters).filter(([key]) => key !== "impact")),
+        }))
+      : AGENT_ACTION_REQUIRED_PERMISSION[input.actionType];
     requirePermission(context, permission, input.resource);
     const timestamp = this.now().toISOString();
     const idempotencyKey = actionIdempotencyKey(context, input);
@@ -88,7 +98,7 @@ export class AgentActionService {
       requiredPermission: permission,
       summary: input.summary.trim(),
       consequences: input.consequences.map((item) => item.trim()),
-      parameters: sanitizeParameters(input.parameters),
+      parameters: sanitizeParameters(input.actionType, input.parameters),
       status: "PROPOSED",
       idempotencyKey,
       proposedBy: context.subjectId,
@@ -195,9 +205,34 @@ function validateProposalInput(input: ProposeAgentActionInput): void {
   if (!input.summary.trim() || input.summary.length > 300) throw validation();
   if (input.consequences.length === 0 || input.consequences.length > 8) throw validation();
   if (input.consequences.some((item) => !item.trim() || item.length > 300)) throw validation();
+  if (isPrivilegedAction(input.actionType)) {
+    try {
+      const parameters = { ...input.parameters };
+      delete parameters.impact;
+      privilegedActionParametersSchema.parse({ actionType: input.actionType, ...parameters });
+      agentActionImpactPreviewSchema.parse(input.parameters.impact);
+    } catch {
+      throw validation();
+    }
+  }
 }
 
-function sanitizeParameters(parameters: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
+function sanitizeParameters(
+  actionType: AgentActionType,
+  parameters: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> {
+  if (isPrivilegedAction(actionType)) {
+    const internal = { ...parameters };
+    const impact = internal.impact;
+    delete internal.impact;
+    const parsed = privilegedActionParametersSchema.parse({ actionType, ...internal });
+    const stored = { ...parsed } as Record<string, unknown>;
+    delete stored.actionType;
+    return Object.freeze({
+      ...stored,
+      impact: Object.freeze(agentActionImpactPreviewSchema.parse(impact)),
+    });
+  }
   const safe: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(parameters)) {
     if (/^(?:userId|subjectId|role|roles|permissions|authorizationVersion)$/u.test(key) || /password|secret|token|cookie/iu.test(key)) continue;
@@ -215,8 +250,20 @@ function actionIdempotencyKey(context: TrustedRequestContext, input: ProposeAgen
     input.resource.resourceType,
     input.resource.resourceId,
     input.requestKey.trim(),
-    stableJson(sanitizeParameters(input.parameters)),
+    stableJson(sanitizeParameters(input.actionType, input.parameters)),
   ].join("\u001f")).digest("hex");
+}
+
+function isPrivilegedAction(actionType: AgentActionType): boolean {
+  return [
+    "SET_USER_STATUS",
+    "SET_PROJECT_MEMBERSHIP_STATUS",
+    "ASSIGN_PROJECT_ROLE",
+    "ASSIGN_GLOBAL_ROLE",
+    "REVOKE_ROLE_ASSIGNMENT",
+    "CHANGE_PROJECT_ROLE",
+    "SET_ROLE_STATUS",
+  ].includes(actionType);
 }
 
 function stableJson(value: unknown): string {

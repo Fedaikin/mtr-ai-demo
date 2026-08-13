@@ -1019,7 +1019,7 @@ export const agentActionProposals = pgTable(
     index("agent_actions_retention_idx").on(table.retentionUntil),
     check(
       "agent_actions_type_check",
-      sql`${table.actionType} in ('RUN_SCENARIO','RETRY_SCENARIO','CREATE_REVIEW_TASK','PREPARE_REPORT_DRAFT','PREPARE_EXPORT_DRAFT')`,
+      sql`${table.actionType} in ('RUN_SCENARIO','RETRY_SCENARIO','CREATE_REVIEW_TASK','PREPARE_REPORT_DRAFT','PREPARE_EXPORT_DRAFT','SET_USER_STATUS','SET_PROJECT_MEMBERSHIP_STATUS','ASSIGN_PROJECT_ROLE','ASSIGN_GLOBAL_ROLE','REVOKE_ROLE_ASSIGNMENT','CHANGE_PROJECT_ROLE','SET_ROLE_STATUS')`,
     ),
     check(
       "agent_actions_status_check",

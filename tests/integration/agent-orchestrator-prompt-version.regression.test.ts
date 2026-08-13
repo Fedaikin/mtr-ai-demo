@@ -7,6 +7,7 @@ import {
   MTR_AGENT_ORCHESTRATOR_VERSION,
   MTR_AGENT_PROMPT_NAME,
   MTR_AGENT_ROLLBACK_VERSION,
+  MTR_AGENT_UNIVERSAL_BASE_VERSION,
   MTR_AGENT_UNIVERSAL_PROMPT,
   MTR_AGENT_UNIVERSAL_VERSION,
   promptChecksum,
@@ -18,16 +19,17 @@ vi.mock("server-only", () => ({}));
 describe.sequential("версионирование prompt оркестратора", () => {
   afterAll(async () => closeDatabase());
 
-  it("seed активирует universal v4 и сохраняет v1/v3 для rollback", async () => {
+  it("seed активирует universal v4.1 и сохраняет v1/v3/v4 для rollback", async () => {
     const counts = await resetDemoDatabase(DEMO_USER_ID);
     const repository = await getRepository();
     const prompts = await repository.listPrompts(DEMO_USER_ID, MTR_AGENT_PROMPT_NAME);
     const active = await repository.getActivePrompt(DEMO_USER_ID, MTR_AGENT_PROMPT_NAME);
 
-    expect(counts.prompts).toBe(3);
+    expect(counts.prompts).toBe(4);
     expect(prompts.map((prompt) => prompt.promptVersion).sort()).toEqual([
       MTR_AGENT_ROLLBACK_VERSION,
       MTR_AGENT_ORCHESTRATOR_VERSION,
+      MTR_AGENT_UNIVERSAL_BASE_VERSION,
       MTR_AGENT_UNIVERSAL_VERSION,
     ]);
     expect(active).toMatchObject({

@@ -12,6 +12,12 @@ import type {
   AgentActionProposal,
 } from "@/domain/agent/actions";
 import type { ResourceDescriptor } from "@/application/authorization-service";
+import {
+  executePrivilegedAction,
+  parseStoredPrivilegedParameters,
+  resolvePrivilegedActionResource,
+} from "@/application/agent-orchestrator/privileged-action-executor";
+import { PRIVILEGED_AGENT_ACTION_TYPES } from "@/domain/agent/actions";
 
 export interface ActionExecutionScheduler {
   scheduleScenarioRun(subjectId: string, runId: string): void;
@@ -32,6 +38,12 @@ export class PlatformAgentActionExecutor implements AgentActionExecutor {
     context: TrustedRequestContext,
   ): Promise<ResourceDescriptor | null> {
     if (proposal.projectId !== context.activeProjectId) return null;
+    if ((PRIVILEGED_AGENT_ACTION_TYPES as readonly string[]).includes(proposal.actionType)) {
+      return resolvePrivilegedActionResource(
+        parseStoredPrivilegedParameters(proposal.actionType, proposal.parameters),
+        context,
+      );
+    }
     if (proposal.actionType === "RUN_SCENARIO") {
       const scenario = await this.repository.getScenario(context.subjectId, proposal.resource.resourceId);
       return scenario
@@ -62,6 +74,12 @@ export class PlatformAgentActionExecutor implements AgentActionExecutor {
     proposal: AgentActionProposal,
     context: TrustedRequestContext,
   ): Promise<ActionExecutionResult> {
+    if ((PRIVILEGED_AGENT_ACTION_TYPES as readonly string[]).includes(proposal.actionType)) {
+      return executePrivilegedAction(
+        parseStoredPrivilegedParameters(proposal.actionType, proposal.parameters),
+        context,
+      );
+    }
     switch (proposal.actionType) {
       case "RUN_SCENARIO": {
         const run = await this.scenarios.createRun(
@@ -129,6 +147,14 @@ export class PlatformAgentActionExecutor implements AgentActionExecutor {
         const runId = requiredRunId(proposal);
         return result("EXPORT_DRAFT", runId, "COMPLETED", "Черновик экспорта подготовлен", `/reports/${encodeURIComponent(runId)}`);
       }
+      case "SET_USER_STATUS":
+      case "SET_PROJECT_MEMBERSHIP_STATUS":
+      case "ASSIGN_PROJECT_ROLE":
+      case "ASSIGN_GLOBAL_ROLE":
+      case "REVOKE_ROLE_ASSIGNMENT":
+      case "CHANGE_PROJECT_ROLE":
+      case "SET_ROLE_STATUS":
+        throw new Error("AGENT_PRIVILEGED_ACTION_DISPATCH_FAILED");
     }
   }
 }

@@ -148,4 +148,49 @@ describe("user agent chat surface", () => {
     expect(html).toContain("Открыть версию 2");
     expect(html).toContain("href=\"/specifications/spec-1\"");
   });
+
+  it("renders a separate privileged action confirmation card without internal ids", () => {
+    const html = renderToStaticMarkup(
+      <AgentChat displayName="Администратор" initialThreads={[]} initialThreadId="thread-action" initialMessages={[{
+        id: "message-action",
+        threadId: "thread-action",
+        role: "assistant",
+        content: "Подготовлено действие.",
+        structuredOutput: {
+          schemaVersion: "agent-privileged-action-v1",
+          actionProposal: {
+            id: "action-public-1",
+            actionType: "SET_USER_STATUS",
+            summary: "Заблокировать пользователя",
+            consequences: ["Активные сессии будут отозваны."],
+            parameters: { impact: {
+              targetDisplayName: "Аналитик МТР",
+              targetLogin: "analyst",
+              currentStatus: "Активен",
+              currentRoles: ["Аналитик МТР"],
+              projectLabel: "Демонстрационный проект",
+              newState: "Заблокировать пользователя",
+              affectedSessions: 1,
+              affectedAssignments: 1,
+              segregationOfDuties: "PASS",
+              lastAdministratorRisk: false,
+              lastProjectManagerRisk: false,
+            } },
+            status: "PROPOSED",
+            expiresAt: "2026-08-13T12:30:00.000Z",
+            result: null,
+          },
+          clarification: null,
+          targetUserId: "must-not-render",
+        },
+        createdAt: "2026-08-13T12:00:00.000Z",
+        citations: [],
+      }]} />,
+    );
+
+    expect(html).toContain("Требуется отдельное подтверждение");
+    expect(html).toContain("Аналитик МТР · analyst");
+    expect(html).toContain("Подтвердить действие");
+    expect(html).not.toContain("must-not-render");
+  });
 });

@@ -64,6 +64,13 @@
       "when": 1786642462578,
       "tag": "0008_universal_chat",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786647174784,
+      "tag": "0009_chat_rbac_actions",
+      "breakpoints": true
     }
   ]
 }

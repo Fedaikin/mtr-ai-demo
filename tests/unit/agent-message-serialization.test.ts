@@ -136,4 +136,59 @@ describe("agent message serialization boundary", () => {
     });
     expect(json).not.toMatch(/technicalTrace|must-not-return|toolCalls|sap\.getMaterialStock|closed-material|learningProvenance|private-evidence-graph/u);
   });
+
+  it("projects a privileged action card without internal user or assignment identifiers", () => {
+    const saved = bundle();
+    (saved.message as { structuredOutput: Record<string, unknown> | null }).structuredOutput = {
+      schemaVersion: "agent-privileged-action-v1",
+      actionProposal: {
+        id: "action-public-1",
+        actionType: "CHANGE_PROJECT_ROLE",
+        summary: "Изменить роль сотрудника",
+        consequences: ["Активные сессии будут отозваны."],
+        parameters: {
+          targetUserId: "demo-analyst-001",
+          currentAssignmentId: "assign-secret-1",
+          projectId: "demo-project-001",
+          fromRoleKey: "MTR_ANALYST",
+          toRoleKey: "MTR_EXPERT",
+          impact: {
+            targetDisplayName: "Аналитик МТР",
+            targetLogin: "analyst",
+            currentStatus: "Активен",
+            currentRoles: ["Аналитик МТР · Демонстрационный проект"],
+            projectLabel: "Демонстрационный проект",
+            newState: "Назначить роль «Эксперт МТР»",
+            affectedSessions: 1,
+            affectedAssignments: 1,
+            segregationOfDuties: "PASS",
+            lastAdministratorRisk: false,
+            lastProjectManagerRisk: false,
+          },
+        },
+        status: "PROPOSED",
+        expiresAt: "2026-08-13T12:30:00.000Z",
+        result: null,
+      },
+      clarification: null,
+      internalTrace: { targetUserId: "demo-analyst-001" },
+    };
+
+    const serialized = serializeAgentMessage(saved, []);
+    const json = JSON.stringify(serialized);
+
+    expect(serialized.structuredOutput).toMatchObject({
+      schemaVersion: "agent-privileged-action-v1",
+      actionProposal: {
+        actionType: "CHANGE_PROJECT_ROLE",
+        parameters: {
+          impact: {
+            targetDisplayName: "Аналитик МТР",
+            targetLogin: "analyst",
+          },
+        },
+      },
+    });
+    expect(json).not.toMatch(/demo-analyst-001|assign-secret-1|demo-project-001|fromRoleKey|toRoleKey|internalTrace/u);
+  });
 });

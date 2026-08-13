@@ -10,14 +10,20 @@ import { NormativeMockAdapter } from "@/adapters/mock/normative-adapter";
 import { SapMockAdapter } from "@/adapters/mock/sap-adapter";
 import { createCatalogRepositoryPort } from "@/adapters/persistence/catalog-port";
 import { createAgentOrchestratorPersistencePorts } from "@/adapters/persistence/agent-orchestrator-ports";
+import { createAgentActionStore } from "@/adapters/persistence/agent-action-store";
+import { createAgentCaseStore } from "@/adapters/persistence/agent-case-store";
 import { createUniversalAgentReadPort } from "@/adapters/persistence/universal-agent-read-port";
 import { loadUniversalChatMemory } from "@/adapters/persistence/universal-chat-memory";
 import type { MtrRepository } from "@/adapters/persistence/repository";
 import { toPublicAgentDecision } from "@/application/agent-presentation";
 import { AuditedAgentCommandCapability } from "@/application/agent-orchestrator/audited-command-capability";
+import { PlatformAgentActionExecutor } from "@/application/agent-orchestrator/action-executor";
+import { AgentActionService } from "@/application/agent-orchestrator/action-service";
+import { AgentCaseService } from "@/application/agent-orchestrator/case-service";
 import { createAgentCommandRegistry } from "@/application/agent-orchestrator/command-registry";
 import { readAgentFeaturePolicy } from "@/application/agent-orchestrator/feature-policy";
 import { createOfflineProviderConformance } from "@/application/agent-orchestrator/provider-conformance";
+import { PrivilegedActionChatService } from "@/application/agent-orchestrator/privileged-action-chat-service";
 import { restorePublicAgentCommandResult } from "@/application/agent-orchestrator/public-projection";
 import { createUniversalReadCapabilityRegistry } from "@/application/agent-orchestrator/universal-chat/read-capabilities";
 import { UniversalChatService } from "@/application/agent-orchestrator/universal-chat/universal-chat-service";
@@ -33,7 +39,9 @@ import {
 } from "@/application/agent-orchestrator/orchestrator";
 import type { AgentEventCapability } from "@/application/agent-orchestrator/orchestrator";
 import { createAgentService, type AgentService } from "@/application/agent-service";
+import { scheduleScenarioRunDrain } from "@/application/scenario-background";
 import type { PositionAnalysisResult, ReportSummary } from "@/domain/models";
+import { AGENT_ACTION_TYPES } from "@/domain/agent/actions";
 
 export { agentChatInputSchema };
 
@@ -144,6 +152,26 @@ export function createMtrAgentOrchestrator(
   );
 }
 
+export async function createPrivilegedActionChatService(
+  repository: MtrRepository,
+): Promise<PrivilegedActionChatService | null> {
+  const policy = readAgentFeaturePolicy();
+  if (!policy.actionsEnabled || !policy.executionAllowed) return null;
+  const [actionStore, caseStore] = await Promise.all([
+    createAgentActionStore(),
+    createAgentCaseStore(),
+  ]);
+  return new PrivilegedActionChatService(
+    new AgentActionService(
+      actionStore,
+      new PlatformAgentActionExecutor(repository, {
+        scheduleScenarioRun: scheduleScenarioRunDrain,
+      }),
+    ),
+    new AgentCaseService(caseStore),
+  );
+}
+
 function createUniversalService(
   repository: MtrRepository,
   liveLlmEnabled: boolean,
@@ -241,12 +269,15 @@ export function serializeAgentMessage(
     ? toPublicAgentDecision(bundle.message.content, bundle.message.structuredOutput)
     : null;
   const attachmentOutput = toPublicAttachmentOutput(bundle.message.structuredOutput, assistant);
+  const privilegedActionOutput = assistant
+    ? toPublicPrivilegedActionOutput(bundle.message.structuredOutput)
+    : null;
   return {
     id: bundle.message.id,
     threadId: bundle.message.threadId,
     role: bundle.message.role,
     content: commandResult?.answer ?? decision?.answer ?? bundle.message.content,
-    structuredOutput: commandResult ?? attachmentOutput ?? (decision
+    structuredOutput: commandResult ?? attachmentOutput ?? privilegedActionOutput ?? (decision
       ? {
           ...(decision.confidence === undefined ? {} : { confidence: decision.confidence }),
           ...(decision.requiresHumanReview === undefined
@@ -261,6 +292,67 @@ export function serializeAgentMessage(
       versionOrSnapshot: citation.versionOrSnapshot,
       clauseId: citation.clauseId,
     })),
+  };
+}
+
+function toPublicPrivilegedActionOutput(value: unknown): Record<string, unknown> | null {
+  const root = asRecord(value);
+  if (!root || root.schemaVersion !== "agent-privileged-action-v1") return null;
+  const raw = asRecord(root.actionProposal);
+  const clarification = typeof root.clarification === "string" ? root.clarification.slice(0, 500) : null;
+  if (!raw) {
+    return { schemaVersion: "agent-privileged-action-v1", actionProposal: null, clarification };
+  }
+  const actionType = typeof raw.actionType === "string" && (AGENT_ACTION_TYPES as readonly string[]).includes(raw.actionType)
+    ? raw.actionType
+    : null;
+  const status = typeof raw.status === "string" && ["PROPOSED", "EXECUTING", "SUCCEEDED", "FAILED", "EXPIRED", "CANCELLED"].includes(raw.status)
+    ? raw.status
+    : null;
+  if (!actionType || !status || typeof raw.id !== "string") return null;
+  const parameters = asRecord(raw.parameters);
+  const impact = asRecord(parameters?.impact);
+  const result = asRecord(raw.result);
+  const safeLink = typeof result?.link === "string" && result.link.startsWith("/") && !result.link.startsWith("//")
+    ? result.link
+    : null;
+  return {
+    schemaVersion: "agent-privileged-action-v1",
+    actionProposal: {
+      id: raw.id.slice(0, 200),
+      actionType,
+      summary: typeof raw.summary === "string" ? raw.summary.slice(0, 300) : "Действие доступа",
+      consequences: safeStringArray(raw.consequences).slice(0, 8),
+      parameters: impact ? { impact: safeImpact(impact) } : {},
+      status,
+      expiresAt: typeof raw.expiresAt === "string" ? raw.expiresAt : "",
+      result: result
+        ? {
+            resourceType: typeof result.resourceType === "string" ? result.resourceType.slice(0, 120) : "",
+            resourceId: "",
+            status: result.status === "ACCEPTED" ? "ACCEPTED" : "COMPLETED",
+            safeSummary: typeof result.safeSummary === "string" ? result.safeSummary.slice(0, 300) : "Действие выполнено",
+            link: safeLink,
+          }
+        : null,
+    },
+    clarification,
+  };
+}
+
+function safeImpact(value: Record<string, unknown>): Record<string, unknown> {
+  return {
+    targetDisplayName: typeof value.targetDisplayName === "string" ? value.targetDisplayName.slice(0, 300) : "",
+    targetLogin: typeof value.targetLogin === "string" ? value.targetLogin.slice(0, 200) : null,
+    currentStatus: typeof value.currentStatus === "string" ? value.currentStatus.slice(0, 120) : "",
+    currentRoles: safeStringArray(value.currentRoles),
+    projectLabel: typeof value.projectLabel === "string" ? value.projectLabel.slice(0, 300) : null,
+    newState: typeof value.newState === "string" ? value.newState.slice(0, 300) : "",
+    affectedSessions: finiteNumber(value.affectedSessions),
+    affectedAssignments: finiteNumber(value.affectedAssignments),
+    segregationOfDuties: value.segregationOfDuties === "PASS" ? "PASS" : "BLOCKED",
+    lastAdministratorRisk: value.lastAdministratorRisk === true,
+    lastProjectManagerRisk: value.lastProjectManagerRisk === true,
   };
 }
 

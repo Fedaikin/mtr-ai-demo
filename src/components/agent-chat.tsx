@@ -72,6 +72,31 @@ interface AttachmentImportView {
   published?: { href: string; versionNumber: number; positionCount: number };
 }
 
+interface ChatActionImpact {
+  targetDisplayName: string;
+  targetLogin: string | null;
+  currentStatus: string;
+  currentRoles: string[];
+  projectLabel: string | null;
+  newState: string;
+  affectedSessions: number;
+  affectedAssignments: number;
+  segregationOfDuties: "PASS" | "BLOCKED";
+  lastAdministratorRisk: boolean;
+  lastProjectManagerRisk: boolean;
+}
+
+interface ChatActionProposal {
+  id: string;
+  actionType: string;
+  summary: string;
+  consequences: string[];
+  status: "PROPOSED" | "EXECUTING" | "SUCCEEDED" | "FAILED" | "EXPIRED" | "CANCELLED";
+  expiresAt: string;
+  impact: ChatActionImpact;
+  result: { safeSummary: string; link: string | null } | null;
+}
+
 const SUGGESTIONS = [
   "Подбери взаимозаменяемые позиции для CAT-DEMO-PIP-0005.",
   "Покажи состав узла CAT-DEMO-ASM-PIP-0001.",
@@ -555,6 +580,7 @@ function AgentMessage({ message }: { message: AgentMessageView }) {
     : null;
   const output = parseStructuredOutput(message.structuredOutput);
   const attachmentImport = parseAttachmentImport(message.structuredOutput);
+  const actionProposal = parseChatActionProposal(message.structuredOutput);
   const attachmentCount = parseAttachmentRefCount(message.structuredOutput);
   return (
     <article
@@ -592,6 +618,10 @@ function AgentMessage({ message }: { message: AgentMessageView }) {
           <AttachmentImportCard value={attachmentImport} />
         ) : null}
 
+        {assistant && actionProposal ? (
+          <ChatActionCard initial={actionProposal} />
+        ) : null}
+
         {assistant && !commandResult && output ? (
           <div className="mt-4 border-t border-slate-100 pt-4">
             <AgentDecisionMeta output={output} />
@@ -606,6 +636,60 @@ function AgentMessage({ message }: { message: AgentMessageView }) {
 
       </div>
     </article>
+  );
+}
+
+function ChatActionCard({ initial }: { initial: ChatActionProposal }) {
+  const [proposal, setProposal] = useState(initial);
+  const [pending, setPending] = useState<"confirm" | "cancel" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function update(operation: "confirm" | "cancel") {
+    if (pending || proposal.status !== "PROPOSED") return;
+    setPending(operation);
+    setError(null);
+    try {
+      const response = await fetch(`/api/agent/actions/${encodeURIComponent(proposal.id)}/${operation}`, {
+        method: "POST",
+      });
+      const updated = await readApiResponse<Record<string, unknown>>(response);
+      const parsed = parsePublicActionProposal(updated);
+      if (!parsed) throw new Error("Сервер вернул некорректное состояние действия");
+      setProposal(parsed);
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setPending(null);
+    }
+  }
+
+  const impact = proposal.impact;
+  return (
+    <section className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3" aria-label="Подтверждение действия доступа">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div><p className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">Требуется отдельное подтверждение</p><h4 className="mt-1 text-sm font-semibold text-slate-950">{proposal.summary}</h4></div>
+        <span className="rounded-full bg-white px-2 py-1 text-[11px] font-medium text-slate-700">{chatActionStatusLabel(proposal.status)}</span>
+      </div>
+      <dl className="mt-3 grid gap-2 rounded-md bg-white p-3 text-xs sm:grid-cols-2">
+        <div><dt className="text-slate-500">Сотрудник / роль</dt><dd className="font-semibold text-slate-900">{impact.targetDisplayName}{impact.targetLogin ? ` · ${impact.targetLogin}` : ""}</dd></div>
+        <div><dt className="text-slate-500">Проект</dt><dd className="font-semibold text-slate-900">{impact.projectLabel ?? "Глобальный контур"}</dd></div>
+        <div><dt className="text-slate-500">Сейчас</dt><dd className="text-slate-800">{impact.currentStatus}</dd></div>
+        <div><dt className="text-slate-500">После подтверждения</dt><dd className="text-slate-800">{impact.newState}</dd></div>
+        <div><dt className="text-slate-500">Активные роли</dt><dd className="text-slate-800">{impact.currentRoles.join(", ") || "Нет"}</dd></div>
+        <div><dt className="text-slate-500">Затронуто</dt><dd className="text-slate-800">Сессий: {impact.affectedSessions} · назначений: {impact.affectedAssignments}</dd></div>
+      </dl>
+      <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-amber-950">{proposal.consequences.map((item) => <li key={item}>{item}</li>)}</ul>
+      {error ? <p role="alert" className="mt-3 text-xs text-rose-800">{error}</p> : null}
+      {proposal.status === "PROPOSED" ? (
+        <div className="mt-3 flex gap-2">
+          <button type="button" disabled={pending !== null} onClick={() => void update("confirm")} className="focus-ring rounded-md bg-teal-700 px-3 py-2 text-xs font-semibold text-white hover:bg-teal-800 disabled:opacity-50">{pending === "confirm" ? "Проверяем…" : "Подтвердить действие"}</button>
+          <button type="button" disabled={pending !== null} onClick={() => void update("cancel")} className="focus-ring rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">{pending === "cancel" ? "Отменяем…" : "Отменить"}</button>
+        </div>
+      ) : null}
+      {proposal.result ? <p className="mt-3 text-xs font-medium text-emerald-800">{proposal.result.safeSummary}</p> : null}
+      {proposal.result?.link ? <Link href={proposal.result.link} className="focus-ring mt-2 inline-flex text-xs font-semibold text-teal-800 underline underline-offset-4">Открыть результат</Link> : null}
+      <p className="mt-2 text-[11px] text-slate-500">Действительно до {formatDateTime(proposal.expiresAt)}</p>
+    </section>
   );
 }
 
@@ -851,6 +935,65 @@ function parseAttachmentImport(value: Record<string, unknown> | null): Attachmen
         }
       : {}),
   };
+}
+
+function parseChatActionProposal(value: Record<string, unknown> | null): ChatActionProposal | null {
+  if (value?.schemaVersion !== "agent-privileged-action-v1") return null;
+  return parsePublicActionProposal(value.actionProposal);
+}
+
+function parsePublicActionProposal(value: unknown): ChatActionProposal | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const parameters = raw.parameters && typeof raw.parameters === "object" && !Array.isArray(raw.parameters)
+    ? raw.parameters as Record<string, unknown>
+    : null;
+  const impactRaw = parameters?.impact && typeof parameters.impact === "object" && !Array.isArray(parameters.impact)
+    ? parameters.impact as Record<string, unknown>
+    : null;
+  const statuses = ["PROPOSED", "EXECUTING", "SUCCEEDED", "FAILED", "EXPIRED", "CANCELLED"] as const;
+  if (!impactRaw || typeof raw.id !== "string" || typeof raw.summary !== "string" || !statuses.includes(raw.status as never)) return null;
+  const resultRaw = raw.result && typeof raw.result === "object" && !Array.isArray(raw.result)
+    ? raw.result as Record<string, unknown>
+    : null;
+  return {
+    id: raw.id,
+    actionType: typeof raw.actionType === "string" ? raw.actionType : "UNKNOWN",
+    summary: raw.summary,
+    consequences: stringArray(raw.consequences),
+    status: raw.status as ChatActionProposal["status"],
+    expiresAt: typeof raw.expiresAt === "string" ? raw.expiresAt : "",
+    impact: {
+      targetDisplayName: typeof impactRaw.targetDisplayName === "string" ? impactRaw.targetDisplayName : "",
+      targetLogin: typeof impactRaw.targetLogin === "string" ? impactRaw.targetLogin : null,
+      currentStatus: typeof impactRaw.currentStatus === "string" ? impactRaw.currentStatus : "",
+      currentRoles: stringArray(impactRaw.currentRoles),
+      projectLabel: typeof impactRaw.projectLabel === "string" ? impactRaw.projectLabel : null,
+      newState: typeof impactRaw.newState === "string" ? impactRaw.newState : "",
+      affectedSessions: numberOrZero(impactRaw.affectedSessions),
+      affectedAssignments: numberOrZero(impactRaw.affectedAssignments),
+      segregationOfDuties: impactRaw.segregationOfDuties === "PASS" ? "PASS" : "BLOCKED",
+      lastAdministratorRisk: impactRaw.lastAdministratorRisk === true,
+      lastProjectManagerRisk: impactRaw.lastProjectManagerRisk === true,
+    },
+    result: resultRaw
+      ? {
+          safeSummary: typeof resultRaw.safeSummary === "string" ? resultRaw.safeSummary : "Действие выполнено",
+          link: typeof resultRaw.link === "string" && resultRaw.link.startsWith("/") ? resultRaw.link : null,
+        }
+      : null,
+  };
+}
+
+function chatActionStatusLabel(value: ChatActionProposal["status"]): string {
+  return {
+    PROPOSED: "Ожидает подтверждения",
+    EXECUTING: "Выполняется",
+    SUCCEEDED: "Выполнено",
+    FAILED: "Ошибка",
+    EXPIRED: "Истекло",
+    CANCELLED: "Отменено",
+  }[value];
 }
 
 function readyAttachments(items: readonly StagedAttachment[]) {

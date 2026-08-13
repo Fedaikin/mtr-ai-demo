@@ -107,6 +107,101 @@ export async function revokeAssignment(actorId: string, assignmentId: string) {
   });
 }
 
+export async function changeProjectRole(input: {
+  actorId: string;
+  userId: string;
+  projectId: string;
+  currentAssignmentId: string;
+  fromRoleKey: Extract<RoleKey, "PROJECT_VIEWER" | "MTR_ANALYST" | "MTR_EXPERT" | "PROJECT_MANAGER">;
+  toRoleKey: Extract<RoleKey, "PROJECT_VIEWER" | "MTR_ANALYST" | "MTR_EXPERT" | "PROJECT_MANAGER">;
+}) {
+  if (input.actorId === input.userId) throw new Error("Нельзя менять собственную проектную роль через чат");
+  if (input.fromRoleKey === input.toRoleKey) return;
+  const db = await getDatabase();
+  await db.transaction(async (transaction) => {
+    const tx = transaction as unknown as Database;
+    const [membership] = rows(await tx.execute(sql`
+      select status from project_memberships
+      where project_id=${input.projectId} and user_id=${input.userId}
+      for update
+    `));
+    if (membership?.status !== "ACTIVE") throw new Error("Пользователь не состоит в проекте");
+    const [current] = rows(await tx.execute(sql`
+      select ra.id, ra.user_id, ra.project_id, r.key
+      from role_assignments ra join roles r on r.id=ra.role_id
+      where ra.id=${input.currentAssignmentId} and ra.user_id=${input.userId}
+        and ra.project_id=${input.projectId} and ra.status='ACTIVE'
+      for update
+    `));
+    if (!current || current.key !== input.fromRoleKey) throw new Error("Текущее назначение роли изменилось");
+    const [targetRole] = rows(await tx.execute(sql`
+      select id, scope_type from roles where key=${input.toRoleKey} and active=true limit 1
+    `));
+    if (!targetRole || targetRole.scope_type !== "PROJECT") throw new Error("Проектная роль недоступна");
+    if (input.fromRoleKey === "PROJECT_MANAGER") {
+      const [managers] = rows(await tx.execute(sql`
+        select count(distinct ra.user_id)::int as count
+        from role_assignments ra join roles r on r.id=ra.role_id
+        join project_memberships pm on pm.project_id=ra.project_id and pm.user_id=ra.user_id
+        join users u on u.id=ra.user_id
+        where ra.project_id=${input.projectId} and r.key='PROJECT_MANAGER'
+          and ra.status='ACTIVE' and pm.status='ACTIVE' and u.status='ACTIVE'
+      `));
+      if (Number(managers?.count ?? 0) <= 1) throw new Error("Нельзя удалить последнего руководителя проекта");
+    }
+    const currentRoles = rows(await tx.execute(sql`
+      select r.key from role_assignments ra join roles r on r.id=ra.role_id
+      where ra.user_id=${input.userId} and ra.status='ACTIVE' and ra.id<>${input.currentAssignmentId}
+    `)).map((row) => String(row.key) as RoleKey);
+    if (hasRoleConflict([...currentRoles, input.toRoleKey])) throw new Error("Назначение нарушает разделение обязанностей");
+    await tx.execute(sql`
+      update role_assignments set status='REVOKED', revoked_by=${input.actorId}, revoked_at=now(), updated_at=now()
+      where id=${input.currentAssignmentId} and status='ACTIVE'
+    `);
+    await tx.execute(sql`
+      insert into role_assignments (id,user_id,role_id,scope_type,project_id,status,assigned_by)
+      values (${`assign-${randomUUID()}`},${input.userId},${String(targetRole.id)},'PROJECT',${input.projectId},'ACTIVE',${input.actorId})
+    `);
+    await tx.execute(sql`update users set authorization_version=authorization_version+1, updated_at=now() where id=${input.userId}`);
+    await tx.execute(sql`update auth_sessions set revoked_at=now() where user_id=${input.userId} and revoked_at is null`);
+    await writeAccessAudit(tx, input.actorId, "RBAC_PROJECT_ROLE_CHANGED", input.userId, {
+      projectId: input.projectId,
+      fromRoleKey: input.fromRoleKey,
+      toRoleKey: input.toRoleKey,
+    });
+  });
+}
+
+export async function setRoleStatus(input: {
+  actorId: string;
+  roleKey: Extract<RoleKey, "PROJECT_VIEWER" | "MTR_ANALYST" | "MTR_EXPERT" | "PROJECT_MANAGER">;
+  active: boolean;
+  approvedReassignmentPlan: false;
+}) {
+  const db = await getDatabase();
+  await db.transaction(async (transaction) => {
+    const tx = transaction as unknown as Database;
+    const [role] = rows(await tx.execute(sql`
+      select id, active, scope_type from roles where key=${input.roleKey} for update
+    `));
+    if (!role || role.scope_type !== "PROJECT") throw new Error("Роль недоступна для управления через чат");
+    if (Boolean(role.active) === input.active) return;
+    const [assignmentCount] = rows(await tx.execute(sql`
+      select count(*)::int as count from role_assignments
+      where role_id=${String(role.id)} and status='ACTIVE'
+    `));
+    if (!input.active && Number(assignmentCount?.count ?? 0) > 0 && !input.approvedReassignmentPlan) {
+      throw new Error("Сначала требуется утверждённый план переназначения активных сотрудников");
+    }
+    await tx.execute(sql`update roles set active=${input.active}, updated_at=now() where id=${String(role.id)}`);
+    await writeAccessAudit(tx, input.actorId, "RBAC_ROLE_STATUS_CHANGED", String(role.id), {
+      roleKey: input.roleKey,
+      active: input.active,
+      affectedAssignments: Number(assignmentCount?.count ?? 0),
+    });
+  });
+}
+
 async function assertNotLastProjectManager(db: Database, projectId: string, userId: string) {
   const result = rows(await db.execute(sql`select count(distinct ra.user_id)::int as count from role_assignments ra join roles r on r.id=ra.role_id join project_memberships pm on pm.project_id=ra.project_id and pm.user_id=ra.user_id join users u on u.id=ra.user_id where ra.project_id=${projectId} and r.key='PROJECT_MANAGER' and ra.status='ACTIVE' and pm.status='ACTIVE' and u.status='ACTIVE'`))[0];
   const hasRole = rows(await db.execute(sql`select 1 from role_assignments ra join roles r on r.id=ra.role_id where ra.project_id=${projectId} and ra.user_id=${userId} and r.key='PROJECT_MANAGER' and ra.status='ACTIVE' limit 1`));

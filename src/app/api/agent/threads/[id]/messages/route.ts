@@ -12,6 +12,7 @@ import { requirePermission } from "@/lib/session";
 
 import {
   agentChatInputSchema,
+  createPrivilegedActionChatService,
   createMtrAgentOrchestrator,
   isUserVisibleAgentMessage,
   requireOwnedAgentThread,
@@ -130,7 +131,13 @@ export async function POST(request: Request, { params }: MessagesRouteContext) {
           }),
         )
       : null;
-    const result = attachmentResult
+    const privilegedActionService = !attachmentResult && input.message
+      ? await createPrivilegedActionChatService(repository)
+      : null;
+    const privilegedActionResult = privilegedActionService
+      ? await privilegedActionService.prepare(input.message, threadId, session.authorization)
+      : null;
+    const result = attachmentResult || privilegedActionResult
       ? null
       : await createMtrAgentOrchestrator(repository).handle({
           kind: "CHAT",
@@ -145,6 +152,12 @@ export async function POST(request: Request, { params }: MessagesRouteContext) {
       ? {
           answer: attachmentResult.content,
           structuredOutput: attachmentResult.structuredOutput as unknown as Record<string, unknown>,
+          citations: [],
+        }
+      : privilegedActionResult
+      ? {
+          answer: privilegedActionResult.content,
+          structuredOutput: privilegedActionResult.structuredOutput as unknown as Record<string, unknown>,
           citations: [],
         }
       : result!.kind === "UNIVERSAL"
