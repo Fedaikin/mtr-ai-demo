@@ -14,15 +14,16 @@ type AgentFeatureEnvironment = Readonly<Partial<Record<
 >>>;
 
 export function readAgentFeaturePolicy(
-  environment: AgentFeatureEnvironment = process.env,
+  environment?: AgentFeatureEnvironment,
 ): AgentFeaturePolicy {
-  const orchestratorEnabled = enabled(environment.MTR_AGENT_ORCHESTRATOR_ENABLED);
-  const killed = enabled(environment.MTR_AGENT_KILL_SWITCH);
+  const values = environment ?? process.env;
+  const orchestratorEnabled = enabled(values.MTR_AGENT_ORCHESTRATOR_ENABLED);
+  const killed = enabled(values.MTR_AGENT_KILL_SWITCH);
   const executionAllowed = orchestratorEnabled && !killed;
   return Object.freeze({
     orchestratorEnabled,
-    actionsEnabled: executionAllowed && enabled(environment.MTR_AGENT_ACTIONS_ENABLED),
-    eventsEnabled: executionAllowed && enabled(environment.MTR_AGENT_EVENTS_ENABLED),
+    actionsEnabled: executionAllowed && enabled(values.MTR_AGENT_ACTIONS_ENABLED),
+    eventsEnabled: executionAllowed && enabled(values.MTR_AGENT_EVENTS_ENABLED),
     executionAllowed,
   });
 }
