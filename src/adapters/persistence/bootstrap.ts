@@ -16,6 +16,7 @@ import {
   agentMessages,
   agentThreads,
   analogueRules,
+  analysisReviewDecisions,
   auditLogs,
   authSessions,
   dictionaries,
@@ -513,6 +514,7 @@ export async function deleteUserScopedRows(
   await db.delete(agentCitations).where(eq(agentCitations.userId, userId));
   await db.delete(agentMessages).where(eq(agentMessages.userId, userId));
   await db.delete(agentThreads).where(eq(agentThreads.userId, userId));
+  await db.delete(analysisReviewDecisions).where(eq(analysisReviewDecisions.userId, userId));
   await db.delete(positionAnalysisResults).where(eq(positionAnalysisResults.userId, userId));
   await db.delete(scenarioRunSteps).where(eq(scenarioRunSteps.userId, userId));
   await db.delete(scenarioRuns).where(eq(scenarioRuns.userId, userId));
