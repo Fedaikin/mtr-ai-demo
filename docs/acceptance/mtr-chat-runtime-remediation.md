@@ -1,6 +1,6 @@
 # Корректирующая приёмка универсального чата и МТР-анализа
 
-Статус документа: `G0 / test-plan frozen`. Продуктовый код на момент создания документа не изменён.
+Статус документа: `LOCAL_FIX_VERIFIED / PREVIEW_BLOCKED`. Frozen G0 oracle сохранён без изменения.
 
 ## Идентичность проверки
 
@@ -16,6 +16,33 @@
 | Defect base verdict | `PROVISIONAL_BASE_SHA`; до штатного browser login нельзя повышать до `DEFECT_BASE_SHA` |
 | Database isolation | `PREVIEW_DB_ISOLATION_UNPROVEN`; миграции и reset запрещены |
 | Dataset oracle | `universal-chat-v1@1.0.0-DEMO`, manifest checksum `54b72aa2d0dbd46aa8c2b696ccafcc91641be23359215a68cc3ab9ec27128a6b` |
+| Local fix SHA | `b4363fa3ecea402adae58907ef41ce86c3549472` |
+
+## Локальный результат корректировки
+
+- Literal chat path: `TC-CHAT-01…04` проходят через HTTP route → единый orchestrator → universal capability → public projection; generic legacy fallback не используется.
+- Ответ «Покажи активные проекты» содержит фактические 22 `ACTIVE` project rows текущего RBAC scope. `PLANNED` возвращает доказанное пустое множество, `ALL` — те же 22 доступных записи.
+- Полное имя шкафа разрешается в `SAP-CATALOG-ASM-ELC-0001`; несуществующий alias «второй склад» не выдумывается и приводит к targeted clarification только между `WH-DEMO-CENTRAL` и `WH-DEMO-SOUTH`. Явный central warehouse даёт 4 EA.
+- Two-thread/two-scope regression: analyst получает stock evidence; viewer без `stock.search` получает `UNIVERSAL_CAPABILITY_FORBIDDEN`; в его messages/citations/audit нет material code, warehouse ID или количества.
+- Responsibility decision теперь явный: `RESOLVED`, `REVIEW_REQUIRED` или `INSUFFICIENT_DATA`. Отсутствие применимого trusted-scope rule сохраняется как `null/null/null`, не попадает в суммы заказчика/подрядчика и не маскируется `45% / UNRESOLVED`.
+- Additive migration `0010_responsibility_decision_state` необходима, потому что прежняя таблица делала responsibility/confidence/citation обязательными и не могла сохранить честный no-rule результат без выдуманного подрядчика. Старые строки не переписываются; migration regression фиксирует byte-for-byte сохранность legacy row.
+- Run provenance содержит `responsibility-rule-manifest-v1`, dataset `normative-base-v1@1.0.0`, project/source scope, документы/пункты и SHA-256 manifest.
+- `/mtr-analysis` выбирает последний завершённый immutable run, а не новый незавершённый запуск.
+
+### Локальные gates
+
+| Gate | Результат |
+|---|---|
+| Drizzle check | PASS |
+| Lint + TypeScript | PASS |
+| Vitest full | 154 files / 617 tests PASS |
+| Privacy scan | 544 files PASS |
+| Runtime/eval | 34 + 50 + 17 + 20 + 32 + 20 + 27 + 158 = 358/358 PASS |
+| Production build | PASS; PDF runtime assets 2/2 |
+| Corrective business E2E | 6/6 PASS desktop |
+| Mobile overflow regressions | 3/3 PASS after shared header fix |
+| Previously interrupted navigation checks | 4/4 PASS on isolated rerun |
+| Full Playwright first pass | 84 PASS / 53 expected SKIP / 5 FAIL; all 5 failures separately reproduced/retested as above |
 
 ## Root Cause
 
@@ -68,8 +95,8 @@ E2E case «canonical reset» имеет один stable case ID и два source
 
 ## Gate verdict
 
-- G0 source identity: `PARTIAL` — exact Preview SHA найден, browser reproduction защищён Vercel Login.
+- G0 source identity: `PARTIAL` — exact provisional Preview SHA найден, browser reproduction защищён Vercel Login.
 - G0 baseline/test oracle: `PASS LOCAL`.
-- Product edits: ещё не начаты на момент фиксации test-plan.
+- Product fix: `PASS LOCAL` на SHA `b4363fa3ecea402adae58907ef41ce86c3549472`.
 - Production/user/RBAC mutation: не выполнялась.
-- Release status: `НЕ ЗАВЕРШЕНО: DEFECT_BASE_BROWSER_EVIDENCE_BLOCKED`.
+- Release status: `НЕ ЗАВЕРШЕНО: EXACT_SHA_PREVIEW_AND_INDEPENDENT_REVIEW_PENDING`.
