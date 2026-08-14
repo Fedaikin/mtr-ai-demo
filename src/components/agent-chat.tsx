@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, KeyboardEvent, useEffect, useRef, useState, useTransition } from "react";
+import { X } from "lucide-react";
 
 export interface AgentThreadView {
   id: string;
@@ -35,6 +36,7 @@ interface AgentChatProps {
   initialThreads: AgentThreadView[];
   initialThreadId: string | null;
   initialMessages: AgentMessageView[];
+  onClose?: () => void;
 }
 
 interface StructuredAgentOutput {
@@ -62,6 +64,7 @@ export function AgentChat({
   initialThreads,
   initialThreadId,
   initialMessages,
+  onClose,
 }: AgentChatProps) {
   const router = useRouter();
   const [threads, setThreads] = useState(initialThreads);
@@ -293,9 +296,22 @@ export function AgentChat({
               {displayName} · факты только через инструменты
             </p>
           </div>
-          <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-800">
-            Детерминированный mock
-          </span>
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="hidden rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-800 sm:inline-flex">
+              Детерминированный mock
+            </span>
+            {onClose ? (
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Закрыть окно агента"
+                title="Закрыть"
+                className="focus-ring grid size-9 shrink-0 place-items-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-950"
+              >
+                <X aria-hidden="true" className="size-5" strokeWidth={2} />
+              </button>
+            ) : null}
+          </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto bg-[#fbfcfc] px-4 py-5 sm:px-6" aria-live="polite">
