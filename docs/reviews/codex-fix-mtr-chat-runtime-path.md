@@ -9,7 +9,7 @@
 - Интеграционный HEAD до текущей локальной корректировки: `b5d128f1d4e412d2d41a34d0ecb6374032318777`.
 - Проверенный product SHA: `f6c2a71996712da175f3b473e72bd16da64387d1`.
 - Pull Request: [#4](https://github.com/Fedaikin/mtr-ai-demo/pull/4), draft.
-- Preview для `b5d128f1…`: `https://mtr-ai-demo-git-codex-fix-mtr-ch-a27402-fedaikin-7533s-projects.vercel.app`.
+- Branch Preview: `https://mtr-ai-demo-git-codex-fix-mtr-ch-a27402-fedaikin-7533s-projects.vercel.app`; exact deployment metadata ведётся в draft PR.
 - Дата проверки: 2026-08-14.
 - Проверяющие: OpenAI Codex; независимый read-only reviewer.
 
@@ -115,7 +115,7 @@ pnpm playwright test tests/e2e/mtr-chat-runtime-remediation.spec.ts --project=ch
 - [x] Локальный production build выполнен.
 - [x] Repository query caps не повышены.
 - [x] Production deployment/alias/migration не выполнялись.
-- [ ] Новый exact candidate SHA Preview ещё не создан.
+- [x] Vercel Preview check для post-fix PR HEAD завершён `READY`.
 - [ ] Readiness/login/browser smoke на Preview заблокирован Deployment Protection.
 
 Внешний blocker: владелец Vercel должен выдать безопасный Preview bypass или снять protection только для branch Preview. Production для этого не требуется.

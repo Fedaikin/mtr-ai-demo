@@ -1,6 +1,6 @@
 # Корректирующая приёмка универсального чата и доказательного МТР-анализа
 
-Статус документа: `LOCAL_CANDIDATE_VERIFIED / EXACT_SHA_PREVIEW_BLOCKED`.
+Статус документа: `LOCAL_CANDIDATE_VERIFIED / PREVIEW_READY / BROWSER_BLOCKED`.
 
 Frozen test-plan сохранён в исходном виде; его SHA-256:
 `7392ea973dd8374e87ed48b33f8f904edafd3a37385e8be29a428338470ddaff`.
@@ -13,8 +13,8 @@ Frozen test-plan сохранён в исходном виде; его SHA-256:
 | Canonical base | `1855e78f8b6206586fd417cffa27583e78c6a4f4` |
 | Последний интеграционный HEAD до локальной корректировки | `b5d128f1d4e412d2d41a34d0ecb6374032318777` |
 | Pull Request | [#4](https://github.com/Fedaikin/mtr-ai-demo/pull/4) |
-| Preview для `b5d128f1…` | `https://mtr-ai-demo-git-codex-fix-mtr-ch-a27402-fedaikin-7533s-projects.vercel.app` |
-| Preview evidence | Deployment `READY`, но все запросы перенаправляются на Vercel Login; продуктовый login, API и browser-сценарии недоступны без Deployment Protection bypass |
+| Branch Preview | `https://mtr-ai-demo-git-codex-fix-mtr-ch-a27402-fedaikin-7533s-projects.vercel.app` |
+| Preview evidence | Vercel check для post-fix PR HEAD — `READY`, но все запросы перенаправляются на Vercel Login; продуктовый login, API и browser-сценарии недоступны без Deployment Protection bypass |
 | Проверенный product SHA | `f6c2a71996712da175f3b473e72bd16da64387d1` |
 | Production | не изменялась |
 | Пользователи, роли и пароли | не создавались и не изменялись; reset сохраняет существующие password hashes |
@@ -87,7 +87,7 @@ Frozen test-plan сохранён в исходном виде; его SHA-256:
 
 - Local implementation and regression gate: `PASS`.
 - Independent read-only review: `PASS LOCAL`; подтверждённых P0/P1/P2 в product/source diff не осталось.
-- Exact post-fix Preview: `PENDING` до push и deployment exact candidate SHA.
+- Exact post-fix Preview: Vercel check `READY`; exact HEAD и deployment metadata зафиксированы в draft PR.
 - Browser acceptance: `BLOCKED_BY_VERCEL_DEPLOYMENT_PROTECTION`, если новый Preview также не предоставит bypass.
 - Production deployment/alias/migration: запрещены и не выполнялись.
 
