@@ -8,14 +8,14 @@ import { RoleSwitcher } from "@/components/role-switcher";
 import type { NavigationItem } from "@/lib/navigation";
 import { ROLE_LABELS, type PermissionKey, type RoleKey } from "@/domain/rbac";
 
-const USER_NAVIGATION = [
+export const USER_NAVIGATION = [
   { name: "Обзор", href: "/", permissions: ["project.read"] },
-  { name: "Общая аналитика", href: "/analytics", permissions: ["analysis.read"] },
   { name: "Промышленный каталог", href: "/catalog", permissions: ["catalog.read"] },
   { name: "Спецификации", href: "/specifications", permissions: ["specification.read"] },
   { name: "МТР-анализ", href: "/mtr-analysis", permissions: ["report.read"] },
   { name: "Экспертная очередь", href: "/reviews", permissions: ["review.queue.read"] },
   { name: "Пульс МТР", href: "/pulse", permissions: ["analysis.read"] },
+  { name: "Общая аналитика", href: "/analytics", permissions: ["analysis.read"] },
   { name: "Справка", href: "/help", permissions: ["profile.read.own"] },
 ] as const;
 
