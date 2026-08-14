@@ -17,6 +17,7 @@ import { resetDemoDatabase } from "@/adapters/persistence/bootstrap";
 import { seedIndustrialCatalogue } from "@/adapters/persistence/catalog-bootstrap";
 import { closeDatabase, getDatabase } from "@/adapters/persistence/db";
 import { getRepository } from "@/adapters/persistence/repository";
+import { resolveAuthorizationContext } from "@/application/authorization-service";
 import { seedUniversalChatDataset } from "@/adapters/persistence/universal-chat-bootstrap";
 import { POST } from "@/app/api/agent/threads/[id]/messages/route";
 import { createFixedScenarioClock } from "@/domain/agent/universal-chat/scenario-clock";
@@ -77,6 +78,65 @@ describe.sequential("real chat HTTP route corrective path", () => {
       ],
     });
   });
+
+  test("manager, analyst и viewer получают один exact project corpus, service account fail-closed", async () => {
+    const repository = await getRepository();
+    const expectedIds = rows(await (await getDatabase()).execute(`
+      select id from business_projects
+      where tenant_id='demo-tenant-001'
+        and access_project_id='demo-project-001'
+        and status='ACTIVE'
+      order by id
+    `)).map((row) => String(row.id));
+
+    for (const subjectId of [DEMO_USER_ID, "demo-analyst-001", "demo-viewer-001"]) {
+      session.authorization = await resolveAuthorizationContext(subjectId, "demo-project-001");
+      const thread = await repository.createAgentThread(subjectId, `Проекты ${subjectId}`);
+      const response = await POST(request(thread.id, "Покажи активные проекты"), route(thread.id));
+      const payload = await response.json() as { items: Array<{ structuredOutput?: Record<string, unknown> }> };
+      const output = publicOutput(payload);
+      const persisted = await repository.listAgentMessages(subjectId, thread.id);
+      const actualIds = persisted.at(-1)?.citations.map((item) => item.entityId).sort();
+      expect(response.status).toBe(201);
+      expect(actualIds).toEqual(expectedIds);
+      expect((output.tables as Array<{ totalRows: number }>)[0]?.totalRows).toBe(expectedIds.length);
+    }
+
+    session.authorization = serviceContext();
+    const serviceThread = await repository.createAgentThread("demo-service-001", "Запрещённый interactive chat");
+    const denied = await POST(request(serviceThread.id, "Покажи активные проекты"), route(serviceThread.id));
+    expect(denied.status).toBe(403);
+    expect(JSON.stringify(await denied.json())).not.toMatch(/project-project-mtr|Проект модернизации/iu);
+  });
+
+  test("stock HTTP path сохраняется у analyst и не раскрывает объект viewer/service", async () => {
+    const repository = await getRepository();
+    session.authorization = await resolveAuthorizationContext("demo-analyst-001", "demo-project-001");
+    const analystThread = await repository.createAgentThread("demo-analyst-001", "Остаток аналитика");
+    const allowed = await POST(request(
+      analystThread.id,
+      "Есть ли на WH-DEMO-CENTRAL шкаф управления электродвигателем № 0001?",
+    ), route(analystThread.id));
+    expect(allowed.status).toBe(201);
+    expect(publicOutput(await allowed.json())).toMatchObject({ kind: "ANSWER" });
+    const analystMessages = await repository.listAgentMessages("demo-analyst-001", analystThread.id);
+    expect(analystMessages.at(-1)?.citations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ entityId: "SAP-CATALOG-ASM-ELC-0001" }),
+    ]));
+
+    for (const subjectId of ["demo-viewer-001", "demo-service-001"]) {
+      session.authorization = subjectId === "demo-service-001"
+        ? serviceContext()
+        : await resolveAuthorizationContext(subjectId, "demo-project-001");
+      const thread = await repository.createAgentThread(subjectId, `Запрещённый остаток ${subjectId}`);
+      const denied = await POST(request(
+        thread.id,
+        "Есть ли на WH-DEMO-CENTRAL шкаф управления электродвигателем № 0001?",
+      ), route(thread.id));
+      expect(denied.status).toBe(403);
+      expect(JSON.stringify(await denied.json())).not.toMatch(/SAP-CATALOG|WH-DEMO-CENTRAL|Шкаф управления/iu);
+    }
+  });
 });
 
 function managerContext(): TrustedRequestContext {
@@ -101,6 +161,31 @@ function managerContext(): TrustedRequestContext {
     authorizationVersion: 1,
     requestId: "request-http-remediation",
   };
+}
+
+function serviceContext(): TrustedRequestContext {
+  return {
+    subjectId: "demo-service-001",
+    displayName: "Интеграционная служба",
+    activeRoleAssignmentIds: ["assign-service"],
+    globalRoleKeys: ["INTEGRATION_SERVICE"],
+    activeProjectId: "demo-project-001",
+    projectRoleKeys: [],
+    permissionKeys: new Set(["source.appius.read", "source.sap.read", "source.rag.read", "sink.siem.write"]),
+    catalogScopeIds: [],
+    sourceScopeIds: ["demo-sap-001", "demo-normative-001", "demo-system-config-001"],
+    accessClaims: {},
+    authorizationVersion: 1,
+    requestId: "request-service-http-remediation",
+  };
+}
+
+function rows(result: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(result)) return result as Array<Record<string, unknown>>;
+  if (result && typeof result === "object" && "rows" in result && Array.isArray(result.rows)) {
+    return result.rows as Array<Record<string, unknown>>;
+  }
+  return [];
 }
 
 function request(threadId: string, message: string) {

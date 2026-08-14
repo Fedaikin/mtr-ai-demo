@@ -13,6 +13,11 @@ import {
   OptimisticLockError,
   type MtrRepository,
 } from "@/adapters/persistence/repository";
+import {
+  requirePermission,
+  resolveAuthorizationContext,
+  type TrustedRequestContext,
+} from "@/application/authorization-service";
 import { buildAnalogueCoverage, extendAnalogueCoverageWithDirectStock } from "@/domain/analogues";
 import { findBestMaterial } from "@/domain/matching";
 import {
@@ -62,10 +67,16 @@ export class ScenarioService {
 
   async createRun(userId: string, rawInput: unknown, requestedBy = userId): Promise<ScenarioRun> {
     const input = createScenarioRunSchema.parse(rawInput);
-    const [scenario, specifications] = await Promise.all([
-      this.repository.getScenario(userId, input.scenarioId),
-      this.repository.listSpecifications(userId),
-    ]);
+    const context = await resolveAuthorizationContext(userId);
+    const projectId = context.activeProjectId;
+    if (!projectId) throw new ScenarioServiceError(403, "PROJECT_CONTEXT_REQUIRED", "Не выбран доступный проект");
+    requirePermission(context, "analysis.create", {
+      resourceType: "PROJECT",
+      resourceId: projectId,
+      projectId,
+    });
+    const { scenario, specifications } = await this.repository
+      .getScenarioAndSpecificationsInProject(userId, projectId, input.scenarioId);
     if (!scenario || !scenario.enabled) throw new ScenarioServiceError(404, "SCENARIO_NOT_FOUND", "Сценарий не найден или отключён");
     if (specifications.length === 0) throw new ScenarioServiceError(409, "NO_SPECIFICATIONS", "Нет доступных актуальных спецификаций");
 
@@ -83,7 +94,8 @@ export class ScenarioService {
     if (selected.length === 0) throw new ScenarioServiceError(404, "SPECIFICATION_NOT_FOUND", "Спецификация не найдена");
 
     const now = new Date().toISOString();
-    const run = await this.repository.createRun(userId, {
+    const run = await this.repository.createScenarioRunInProject(userId, projectId, {
+      projectId,
       scenarioId: scenario.id,
       specificationId: selected[0]!.id,
       mode: input.mode,
@@ -97,6 +109,16 @@ export class ScenarioService {
         scenarioKind: scenario.kind,
         scenarioConfiguration: scenario.configuration,
         requestedBy,
+        trustedScope: {
+          projectId,
+          sourceScopeIds: context.sourceScopeIds,
+          authorizationVersion: context.authorizationVersion,
+          displayName: context.displayName,
+          activeRoleAssignmentIds: context.activeRoleAssignmentIds,
+          globalRoleKeys: context.globalRoleKeys,
+          projectRoleKeys: context.projectRoleKeys,
+          accessClaims: context.accessClaims,
+        },
         specificationScope: isAllCurrent ? "ALL_CURRENT" : "SINGLE",
         requestedSpecificationId,
         specificationIds: selected.map((item) => item.id),
@@ -152,7 +174,9 @@ export class ScenarioService {
     let scenarioConfiguration = recordValue(run.inputSnapshot.scenarioConfiguration);
     let scenarioKind = stringValue(run.inputSnapshot.scenarioKind);
     if (!scenarioConfiguration || !scenarioKind) {
-      const scenario = await this.repository.getScenario(userId, run.scenarioId);
+      const scenario = run.projectId
+        ? await this.repository.getScenarioInProject(userId, run.projectId, run.scenarioId)
+        : await this.repository.getScenario(userId, run.scenarioId);
       if (!scenario) throw new ScenarioServiceError(409, "SCENARIO_REMOVED", "Определение сценария недоступно");
       scenarioConfiguration = scenario.configuration;
       scenarioKind = scenario.kind;
@@ -335,7 +359,9 @@ export class ScenarioService {
       );
     }
     const snapshot = cloneSnapshot(original.inputSnapshot);
-    const retry = await this.repository.createRun(userId, {
+    const projectId = original.projectId ?? "demo-project-001";
+    const retry = await this.repository.createScenarioRunInProject(userId, projectId, {
+      projectId,
       scenarioId: original.scenarioId,
       specificationId: original.specificationId,
       retryOfRunId: original.id,
@@ -488,18 +514,19 @@ export class ScenarioService {
     step: ScenarioRunStatus,
     scenarioKind: string,
   ): Promise<Record<string, unknown>> {
+    const context = await this.resolveRunContext(userId, run);
     const output = cloneSnapshot(run.outputSnapshot);
     switch (step) {
       case "LOADING_APPIUS":
-        return this.loadAppius(userId, run, output, scenarioKind);
+        return this.loadAppius(userId, run, output, scenarioKind, context);
       case "SYNCING_SAP":
-        return this.syncSap(userId, run, output, scenarioKind);
+        return this.syncSap(userId, run, output, scenarioKind, context);
       case "CLASSIFYING_RESPONSIBILITY":
-        return this.classify(userId, output);
+        return this.classify(output, context, run);
       case "MATCHING_STOCK":
         return this.matchStock(output);
       case "FINDING_ANALOGUES":
-        return this.findAnalogues(userId, run, output);
+        return this.findAnalogues(userId, run, output, context);
       case "GENERATING_REPORT":
         return this.generateReport(userId, run, output);
       default:
@@ -512,8 +539,12 @@ export class ScenarioService {
     run: ScenarioRun,
     output: Record<string, unknown>,
     scenarioKind: string,
+    context: TrustedRequestContext,
   ): Promise<Record<string, unknown>> {
-    const state = await this.repository.getIntegrationState(userId, "APPIUS");
+    const state = await this.repository.getIntegrationStateInSourceScopes(
+      context.sourceScopeIds,
+      "APPIUS",
+    );
     await applyIntegrationDelay(state?.delayMs ?? 0);
     const manualImport = recordValue(output.manualAppiusImport);
     const manualPositions = Array.isArray(manualImport?.positions)
@@ -578,26 +609,28 @@ export class ScenarioService {
       : undefined;
 
     const ids = stringArray(run.inputSnapshot.specificationIds);
+    const projectId = context.activeProjectId!;
     const [positionGroups, specifications] = await Promise.all([
       ids.length > 0
         ? Promise.all(
             ids.map((specificationId) =>
-              this.repository.listPositions(userId, {
+              this.repository.listPositionsInProject(userId, projectId, {
                 specificationId,
                 currentOnly: true,
               }),
             ),
           )
         : this.repository
-            .listPositions(userId, { currentOnly: true })
+            .listPositionsInProject(userId, projectId, { currentOnly: true })
             .then((positions) => [positions]),
-      this.repository.listSpecifications(userId),
+      this.repository.listSpecificationsInProject(userId, projectId),
     ]);
     const positions = positionGroups.flat();
     const selectedPositions = positions.filter((position) => ids.length === 0 || ids.includes(position.specificationId));
     const selectedSpecifications = specifications.filter((item) => ids.length === 0 || ids.includes(item.id));
     const versions = await Promise.all(
-      selectedSpecifications.map((item) => this.repository.getLatestVersion(userId, item.id)),
+      selectedSpecifications.map((item) =>
+        this.repository.getLatestVersionInProject(userId, projectId, item.id)),
     );
     if (selectedPositions.length === 0 || versions.some((version) => !version?.isCurrent)) {
       throw new ExecutionFailure("APPIUS_STALE_VERSION", "Не удалось разрешить актуальную версию Appius", "RETRY");
@@ -621,6 +654,7 @@ export class ScenarioService {
     run: ScenarioRun,
     output: Record<string, unknown>,
     scenarioKind: string,
+    context: TrustedRequestContext,
   ): Promise<Record<string, unknown>> {
     const manualImport = recordValue(output.manualSapImport);
     const manualMaterials = Array.isArray(manualImport?.materials)
@@ -643,7 +677,11 @@ export class ScenarioService {
           integrationState: "AVAILABLE" as const,
           freshness: "CURRENT" as const,
         }
-      : await new SapMockAdapter(this.repository).searchMaterialStock({ top: 100 }, userId);
+      : await new SapMockAdapter(this.repository).searchMaterialStockInScope(
+          { top: 100 },
+          context.sourceScopeIds,
+          context.accessClaims.warehouseIds ?? [],
+        );
     const stale = !hasManualImport && stock.freshness === "STALE";
     output.sap = {
       state: hasManualImport ? "MANUAL_IMPORT" : stock.integrationState,
@@ -689,18 +727,42 @@ export class ScenarioService {
     return output;
   }
 
-  private async classify(userId: string, output: Record<string, unknown>): Promise<Record<string, unknown>> {
+  private async classify(
+    output: Record<string, unknown>,
+    context: TrustedRequestContext,
+    run: ScenarioRun,
+  ): Promise<Record<string, unknown>> {
     const positions = positionsFrom(output);
     const normative = new NormativeMockAdapter(this.repository);
-    const rulesByPosition = await normative.searchResponsibilityRulesBatch(positions, userId);
-    const rules = new Map<string, ResponsibilityRule>();
-    for (const position of positions) {
-      const applicable = rulesByPosition.get(position.id) ?? [];
-      for (const rule of applicable) {
-        rules.set(`${rule.documentId}:${rule.version}:${rule.clauseId}`, rule);
-      }
+    const scope = { subjectId: context.subjectId, sourceScopeIds: context.sourceScopeIds };
+    const [rulesByPosition, corpus] = await Promise.all([
+      normative.searchResponsibilityRulesBatchInScope(positions, scope),
+      normative.getResponsibilityRuleCorpusInScope(scope),
+    ]);
+    output.responsibilityRules = corpus;
+    output.responsibilityRuleManifest = buildResponsibilityRuleManifest(corpus, {
+      projectId: context.activeProjectId!,
+      sourceScopeId: context.sourceScopeIds.find((id) => id.includes("normative")) ?? "UNAVAILABLE",
+      datasetVersion: "normative-base-v1@1.0.0",
+    });
+    if (corpus.length === 0) {
+      output.responsibilityDegradation = {
+        status: "UNAVAILABLE",
+        reason: "ACTIVE_RULE_CORPUS_EMPTY",
+        requiresHumanReview: true,
+      };
+      await this.repository.writeAudit(context.subjectId, {
+        action: "SCENARIO_NORMATIVE_CORPUS_UNAVAILABLE",
+        entityType: "SCENARIO_RUN",
+        entityId: run.id,
+        outcome: "FAILURE",
+        details: {
+          projectId: context.activeProjectId,
+          sourceScopeIds: context.sourceScopeIds,
+          safeErrorCode: "ACTIVE_RULE_CORPUS_EMPTY",
+        },
+      });
     }
-    output.responsibilityRules = [...rules.values()];
     output.responsibility = Object.fromEntries(
       positions.map((position) => [
         position.id,
@@ -723,6 +785,7 @@ export class ScenarioService {
     userId: string,
     run: ScenarioRun,
     output: Record<string, unknown>,
+    context: TrustedRequestContext,
   ): Promise<Record<string, unknown>> {
     const positions = positionsFrom(output);
     const materials = materialsFrom(output).filter((item) => item.fixtureTags?.includes("case:analogue"));
@@ -735,7 +798,10 @@ export class ScenarioService {
       const match = matchFor(output, position.id);
       return !match.material || match.material.availableQuantity < position.requiredQuantity;
     });
-    const rulesByPosition = await normative.searchAnalogueRulesBatch(positionsWithShortage, userId);
+    const rulesByPosition = await normative.searchAnalogueRulesBatchInScope(
+      positionsWithShortage,
+      { subjectId: context.subjectId, sourceScopeIds: context.sourceScopeIds },
+    );
     for (const position of positionsWithShortage) {
       const match = matchFor(output, position.id);
       const directMaterial = match.material;
@@ -825,16 +891,11 @@ export class ScenarioService {
         sap: recordValue(output.sap)?.snapshotAt,
         normative: "normative-base-v1@1.0.0",
         responsibilityRules: ruleVersionManifest(output.responsibilityRules),
-        responsibilityRuleManifest: buildResponsibilityRuleManifest(
-          Array.isArray(output.responsibilityRules)
-            ? output.responsibilityRules as ResponsibilityRule[]
-            : [],
-          {
-            projectId: run.projectId ?? "demo-project-001",
-            sourceScopeId: "demo-normative-001",
-            datasetVersion: "normative-base-v1@1.0.0",
-          },
-        ),
+        responsibilityRuleManifest: output.responsibilityRuleManifest ?? buildResponsibilityRuleManifest([], {
+          projectId: run.projectId ?? "UNAVAILABLE",
+          sourceScopeId: "UNAVAILABLE",
+          datasetVersion: "UNAVAILABLE",
+        }),
         analogueRules: ruleVersionManifest(output.analogueRules),
         prompt: activePrompt
           ? {
@@ -929,6 +990,66 @@ export class ScenarioService {
       { expectedRunVersion, expectedRunStatus },
     );
     return results;
+  }
+
+  private async resolveRunContext(
+    userId: string,
+    run: ScenarioRun,
+  ): Promise<TrustedRequestContext> {
+    const frozen = recordValue(run.inputSnapshot.trustedScope);
+    const frozenProjectId = stringValue(frozen?.projectId);
+    const frozenSourceScopeIds = stringArray(frozen?.sourceScopeIds);
+    const frozenAuthorizationVersion = finiteInteger(frozen?.authorizationVersion);
+    if (
+      frozenProjectId &&
+      frozenProjectId === run.projectId &&
+      frozenSourceScopeIds.length > 0 &&
+      frozenAuthorizationVersion !== undefined &&
+      await this.repository.isScenarioRunAuthorizationCurrent(
+        userId,
+        frozenProjectId,
+        frozenAuthorizationVersion,
+        {
+          activeRoleAssignmentIds: stringArray(frozen?.activeRoleAssignmentIds),
+          accessClaims: accessClaimsFrom(frozen?.accessClaims),
+        },
+      )
+    ) {
+      return {
+        subjectId: userId,
+        displayName: stringValue(frozen?.displayName) ?? userId,
+        activeRoleAssignmentIds: stringArray(frozen?.activeRoleAssignmentIds),
+        globalRoleKeys: [],
+        activeProjectId: frozenProjectId,
+        projectRoleKeys: [],
+        permissionKeys: new Set(["analysis.create"] as const),
+        catalogScopeIds: [],
+        sourceScopeIds: frozenSourceScopeIds,
+        accessClaims: accessClaimsFrom(frozen?.accessClaims),
+        authorizationVersion: frozenAuthorizationVersion,
+        requestId: `scenario-${run.id}-v${run.version}`,
+      };
+    }
+    const context = await resolveAuthorizationContext(userId, run.projectId);
+    if (!context.activeProjectId || context.activeProjectId !== run.projectId) {
+      throw new ScenarioServiceError(403, "PROJECT_ACCESS_REVOKED", "Доступ к проекту запуска отозван");
+    }
+    requirePermission(context, "analysis.create", {
+      resourceType: "SCENARIO_RUN",
+      resourceId: run.id,
+      projectId: context.activeProjectId,
+      ownerUserId: userId,
+    });
+    const frozenAssignmentIds = stringArray(frozen?.activeRoleAssignmentIds);
+    const frozenClaims = accessClaimsFrom(frozen?.accessClaims);
+    if (
+      frozenAssignmentIds.some((id) => !context.activeRoleAssignmentIds.includes(id)) ||
+      frozenSourceScopeIds.some((id) => !context.sourceScopeIds.includes(id)) ||
+      !claimsContain(context.accessClaims, frozenClaims)
+    ) {
+      throw new ScenarioServiceError(403, "RUN_SCOPE_REVOKED", "Область доступа запуска изменилась");
+    }
+    return context;
   }
 }
 
@@ -1138,6 +1259,29 @@ function stringArray(value: unknown): string[] {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function finiteInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+function accessClaimsFrom(value: unknown): Readonly<Record<string, readonly string[]>> {
+  const record = recordValue(value);
+  if (!record) return {};
+  return Object.fromEntries(
+    Object.entries(record).flatMap(([key, candidate]) => {
+      const values = stringArray(candidate);
+      return values.length > 0 ? [[key, values] as const] : [];
+    }),
+  );
+}
+
+function claimsContain(
+  current: Readonly<Record<string, readonly string[]>>,
+  required: Readonly<Record<string, readonly string[]>>,
+): boolean {
+  return Object.entries(required).every(([type, values]) =>
+    values.every((value) => current[type]?.includes(value) === true));
 }
 
 function manualImportSystem(errorCode?: string): "APPIUS" | "SAP" | undefined {

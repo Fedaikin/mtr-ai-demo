@@ -6,11 +6,13 @@ import { selectLatestCompletedRun } from "@/lib/latest-completed-run";
 describe("responsibility analysis acceptance oracle", () => {
   it("выбирает новый immutable COMPLETED run по completedAt, независимо от порядка repository", () => {
     const oldRun = {
+      id: "run-old",
       status: "COMPLETED" as const,
       createdAt: "2026-08-13T09:00:00.000Z",
       completedAt: "2026-08-13T09:05:00.000Z",
     };
     const newRun = {
+      id: "run-new",
       status: "COMPLETED" as const,
       createdAt: "2026-08-13T10:00:00.000Z",
       completedAt: "2026-08-13T10:05:00.000Z",
@@ -18,9 +20,16 @@ describe("responsibility analysis acceptance oracle", () => {
 
     expect(selectLatestCompletedRun([
       newRun,
-      { status: "FAILED" as const, createdAt: "2026-08-13T11:00:00.000Z" },
+      { id: "run-failed", status: "FAILED" as const, createdAt: "2026-08-13T11:00:00.000Z" },
       oldRun,
     ])).toBe(newRun);
+  });
+
+  it("детерминированно выбирает run по ID при одинаковых completedAt и createdAt", () => {
+    const left = { id: "run-001", status: "COMPLETED" as const, createdAt: "2026-08-13T10:00:00.000Z", completedAt: "2026-08-13T10:05:00.000Z" };
+    const right = { ...left, id: "run-002" };
+    expect(selectLatestCompletedRun([left, right])).toBe(right);
+    expect(selectLatestCompletedRun([right, left])).toBe(right);
   });
 
   it("пересчитывает агрегаты из строк и исключает review/insufficient из CUSTOMER/CONTRACTOR", () => {

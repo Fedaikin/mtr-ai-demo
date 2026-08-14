@@ -7,7 +7,7 @@ import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 
 import { getRepository } from "@/adapters/persistence/repository";
-import { ScenarioService } from "@/application/scenario-service";
+import { requirePermission, resolveAuthorizationContext } from "@/application/authorization-service";
 import type { PositionAnalysisResult, ReportSummary, ScenarioRun } from "@/domain/models";
 import {
   effectiveResponsibilityDecisionState,
@@ -46,11 +46,20 @@ export interface ReportView {
 }
 
 export async function getReport(userId: string, runId: string): Promise<{ run: ScenarioRun; report: ReportView }> {
-  const service = await ScenarioService.create();
-  const run = await service.getRun(userId, runId);
+  const context = await resolveAuthorizationContext(userId);
+  const projectId = context.activeProjectId;
+  if (!projectId) throw new ReportError(404, "RUN_NOT_FOUND", "Запуск не найден");
+  requirePermission(context, "report.read", {
+    resourceType: "SCENARIO_RUN_REPORT",
+    resourceId: runId,
+    projectId,
+  });
+  const repository = await getRepository();
+  const run = await repository.getScenarioRunInProject(userId, projectId, runId);
+  if (!run) throw new ReportError(404, "RUN_NOT_FOUND", "Запуск не найден");
   const report = run.outputSnapshot.report;
   if (run.status !== "COMPLETED" || !isReportView(report)) throw new ReportError(409, "REPORT_NOT_READY", "Отчёт ещё не сформирован");
-  const records = await (await getRepository()).listAnalysisResults(userId, runId);
+  const records = await repository.listAnalysisResultsInProject(userId, projectId, runId);
   const persistedResults: PositionAnalysisResult[] = records.flatMap((record) =>
     isPositionAnalysisResult(record.result)
       ? [{

@@ -24,10 +24,10 @@ describe.sequential("DEF-PERF-001: пакетное выполнение сце�
     const query = vi.spyOn(client, "query");
     const repository = await getRepository();
     const calls = {
-      ragState: vi.spyOn(repository, "getIntegrationState"),
-      responsibilityRules: vi.spyOn(repository, "listResponsibilityRules"),
-      analogueRules: vi.spyOn(repository, "listAnalogueRules"),
-      chunks: vi.spyOn(repository, "listNormativeChunks"),
+      ragState: vi.spyOn(repository, "getIntegrationStateInSourceScopes"),
+      responsibilityRules: vi.spyOn(repository, "listResponsibilityRulesInSourceScopes"),
+      analogueRules: vi.spyOn(repository, "listAnalogueRulesInSourceScopes"),
+      chunks: vi.spyOn(repository, "listNormativeChunksInSourceScopes"),
       dictionaries: vi.spyOn(repository, "listDictionaries"),
       batchSave: vi.spyOn(repository, "saveAnalysisResults"),
       singleSave: vi.spyOn(repository, "saveAnalysisResult"),
@@ -68,13 +68,13 @@ describe.sequential("DEF-PERF-001: пакетное выполнение сце�
     expect(completed.status).toBe("COMPLETED");
     expect(durationMs).toBeLessThan(3_000);
     expect(counts).toMatchObject({
-      responsibilityRules: 1,
+      responsibilityRules: 2,
       analogueRules: 1,
       chunks: 2,
-      dictionaries: 2,
+      dictionaries: 0,
       batchSave: 1,
       singleSave: 0,
-      ragState: 2,
+      ragState: 3,
       drainGetRun: 1,
       drainGetScenario: 0,
     });

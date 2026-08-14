@@ -223,11 +223,6 @@ export class MtrAgentOrchestrator {
       return Object.freeze({ kind: "COMMAND", output });
     }
 
-    if (isDirectSapStockQuery(request.message)) {
-      const output = await executeLegacyChat(this.legacyChat, request, executionContext);
-      return Object.freeze({ kind: "CHAT", output });
-    }
-
     if (this.universalChat) {
       const universal = await this.universalChat.respond(request, executionContext);
       if (universal) return Object.freeze({ kind: "UNIVERSAL", output: universal });
@@ -265,11 +260,6 @@ function executeLegacyChat(
 
 function shouldPreferTypedCommand(command: NaturalAgentCommand): boolean {
   return command.commandKey === "ANALYSIS";
-}
-
-function isDirectSapStockQuery(message: string): boolean {
-  return /\bSAP-[A-Z0-9-]+\b/iu.test(message)
-    && /как(?:ов|ой)\s+(?:текущ\p{L}*\s+)?остаток\s+материал/iu.test(message);
 }
 
 function executeNaturalCommand(

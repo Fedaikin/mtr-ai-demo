@@ -364,10 +364,12 @@ async function insertFixtureRows(db: Database, userId: string): Promise<void> {
   const portfolioFixture = generateSpecificationPortfolio();
   const portfolioRows = buildSpecificationPortfolioRows(portfolioFixture, userId);
   const fixtureUser = identityFixture.users[0];
+  const fixtureHash = requiredDemoPasswordHash();
   const userValues = {
     id: userId,
     userId,
     login: "demo",
+    passwordHash: fixtureHash,
     displayName: fixtureUser.displayName,
     roles: [...fixtureUser.roles],
     locale: fixtureUser.locale,
@@ -391,7 +393,7 @@ async function insertFixtureRows(db: Database, userId: string): Promise<void> {
       },
     });
 
-  await seedRbacSubjects(db);
+  await seedRbacSubjects(db, fixtureHash);
 
   await db.insert(specifications).values(
     [
@@ -651,12 +653,8 @@ async function insertFixtureRows(db: Database, userId: string): Promise<void> {
   );
 }
 
-async function seedRbacSubjects(db: Database): Promise<void> {
-  const fixtureHash = process.env.DEMO_PASSWORD_HASH?.trim();
-  if (!fixtureHash?.startsWith("scrypt$")) {
-    throw new Error("DEMO_PASSWORD_HASH обязателен для создания demo-персон");
-  }
-  await db.execute(sql`update users set password_hash=${fixtureHash}, account_type=coalesce(account_type,'HUMAN'), auth_source=coalesce(auth_source,'DEMO') where id='demo-user-001'`);
+async function seedRbacSubjects(db: Database, fixtureHash: string): Promise<void> {
+  await db.execute(sql`update users set account_type=coalesce(account_type,'HUMAN'), auth_source=coalesce(auth_source,'DEMO') where id='demo-user-001'`);
   await db.execute(sql`insert into users (id,user_id,login,password_hash,display_name,roles,locale,is_synthetic_demo,created_by,status,account_type,auth_source) values
     ('demo-viewer-001','demo-viewer-001','viewer',${fixtureHash},'Наблюдатель проекта','["USER"]'::jsonb,'ru-RU',true,'demo-user-001','ACTIVE','HUMAN','DEMO'),
     ('demo-analyst-001','demo-analyst-001','analyst',${fixtureHash},'Аналитик МТР','["USER"]'::jsonb,'ru-RU',true,'demo-user-001','ACTIVE','HUMAN','DEMO'),
@@ -665,7 +663,7 @@ async function seedRbacSubjects(db: Database): Promise<void> {
     ('demo-admin-001','demo-admin-001','admin',${fixtureHash},'Системный администратор','["ADMIN"]'::jsonb,'ru-RU',true,'demo-user-001','ACTIVE','HUMAN','DEMO'),
     ('demo-auditor-001','demo-auditor-001','auditor',${fixtureHash},'Аудитор','["ADMIN"]'::jsonb,'ru-RU',true,'demo-user-001','ACTIVE','HUMAN','DEMO'),
     ('demo-service-001','demo-service-001','integration-service',${fixtureHash},'Интеграционная служба','[]'::jsonb,'ru-RU',true,'demo-user-001','ACTIVE','SERVICE_ACCOUNT','DEMO')
-    on conflict (id) do update set password_hash=excluded.password_hash`);
+    on conflict (id) do nothing`);
   await db.execute(sql`insert into project_memberships (project_id,user_id,status,added_by) values
     ('demo-project-001','demo-user-001','ACTIVE','demo-user-001'),('demo-project-001','demo-viewer-001','ACTIVE','demo-user-001'),('demo-project-001','demo-analyst-001','ACTIVE','demo-user-001'),('demo-project-001','demo-expert-001','ACTIVE','demo-user-001'),('demo-project-001','demo-director-001','ACTIVE','demo-user-001'),('demo-project-001','demo-auditor-001','ACTIVE','demo-user-001') on conflict do nothing`);
   await db.execute(sql`insert into role_assignments (id,user_id,role_id,scope_type,project_id,status,assigned_by) values
@@ -682,6 +680,14 @@ async function seedRbacSubjects(db: Database): Promise<void> {
         on conflict (user_id,claim_type,claim_value,source) do nothing`);
     }
   }
+}
+
+function requiredDemoPasswordHash(): string {
+  const fixtureHash = process.env.DEMO_PASSWORD_HASH?.trim();
+  if (!fixtureHash?.startsWith("scrypt$")) {
+    throw new Error("DEMO_PASSWORD_HASH обязателен для создания demo-персон");
+  }
+  return fixtureHash;
 }
 
 function buildMaterialMovementRows(): Array<typeof materialMovements.$inferInsert> {
@@ -791,6 +797,28 @@ export async function deleteUserScopedRows(
   await db.delete(agentCitations).where(eq(agentCitations.userId, userId));
   await db.delete(agentMessages).where(eq(agentMessages.userId, userId));
   await db.delete(agentThreads).where(eq(agentThreads.userId, userId));
+  // Scenario templates and Appius fixtures are shared by the demo project.
+  // Remove project runtime children for every project member before replacing
+  // those shared parents; otherwise an analyst-owned run would block reset via
+  // foreign keys and leave a half-reset database.
+  await db.execute(sql`
+    delete from analysis_review_decisions
+    where run_id in (select id from scenario_runs where project_id='demo-project-001')
+  `);
+  await db.execute(sql`
+    delete from position_analysis_results
+    where run_id in (select id from scenario_runs where project_id='demo-project-001')
+  `);
+  await db.execute(sql`
+    delete from scenario_run_steps
+    where run_id in (select id from scenario_runs where project_id='demo-project-001')
+  `);
+  await db.execute(sql`
+    delete from audit_logs
+    where entity_type='SCENARIO_RUN'
+      and entity_id in (select id from scenario_runs where project_id='demo-project-001')
+  `);
+  await db.execute(sql`delete from scenario_runs where project_id='demo-project-001'`);
   await db.delete(analysisReviewDecisions).where(eq(analysisReviewDecisions.userId, userId));
   await db.delete(positionAnalysisResults).where(eq(positionAnalysisResults.userId, userId));
   await db.delete(scenarioRunSteps).where(eq(scenarioRunSteps.userId, userId));

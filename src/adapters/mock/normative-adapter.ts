@@ -23,11 +23,20 @@ import type { NormativePort } from "@/ports";
 type NormativeRepository = Pick<
   MtrRepository,
   | "getIntegrationState"
+  | "getIntegrationStateInSourceScopes"
   | "listAnalogueRules"
+  | "listAnalogueRulesInSourceScopes"
   | "listDictionaries"
   | "listNormativeChunks"
+  | "listNormativeChunksInSourceScopes"
   | "listResponsibilityRules"
+  | "listResponsibilityRulesInSourceScopes"
 >;
+
+export interface TrustedNormativeScope {
+  readonly subjectId: string;
+  readonly sourceScopeIds: readonly string[];
+}
 
 export interface NormativeChunkRecord {
   id: string;
@@ -43,6 +52,7 @@ export interface NormativeChunkRecord {
   isSyntheticDemo: boolean;
   documentId: string;
   documentVersion: string;
+  sourceScopeId?: string | null;
 }
 
 export interface NormativeSearchHit {
@@ -113,6 +123,42 @@ export class NormativeMockAdapter implements NormativePort {
     }));
   }
 
+  async getResponsibilityRuleCorpusInScope(
+    scope: TrustedNormativeScope,
+  ): Promise<ResponsibilityRule[]> {
+    await this.assertReadableInScope(scope);
+    return this.repository.listResponsibilityRulesInSourceScopes(scope.sourceScopeIds);
+  }
+
+  async searchResponsibilityRulesBatchInScope(
+    positions: Position[],
+    scope: TrustedNormativeScope,
+  ): Promise<Map<string, ResponsibilityRule[]>> {
+    await this.assertReadableInScope(scope);
+    const [rules, chunks] = await Promise.all([
+      this.repository.listResponsibilityRulesInSourceScopes(scope.sourceScopeIds),
+      this.repository.listNormativeChunksInSourceScopes(scope.sourceScopeIds, { limit: 500 }),
+    ]);
+    const allowedSourceScopes = new Set(scope.sourceScopeIds);
+    return new Map(positions.map((position) => {
+      const applicableRules = rules.filter((rule) => isResponsibilityRuleApplicable(position, rule));
+      return [
+        position.id,
+        attachEvidence(
+          applicableRules,
+          rankNormativeChunks(
+            position,
+            chunks as NormativeChunkRecord[],
+            [],
+            "RESPONSIBILITY",
+            new Set(applicableRules.map(ruleKey)),
+            allowedSourceScopes,
+          ),
+        ),
+      ];
+    }));
+  }
+
   async searchAnalogueRules(position: Position, userId: string): Promise<AnalogueRule[]> {
     return (await this.searchAnalogueRulesBatch([position], userId)).get(position.id) ?? [];
   }
@@ -149,6 +195,36 @@ export class NormativeMockAdapter implements NormativePort {
     }));
   }
 
+  async searchAnalogueRulesBatchInScope(
+    positions: Position[],
+    scope: TrustedNormativeScope,
+  ): Promise<Map<string, AnalogueRule[]>> {
+    await this.assertReadableInScope(scope);
+    const [rules, chunks] = await Promise.all([
+      this.repository.listAnalogueRulesInSourceScopes(scope.sourceScopeIds),
+      this.repository.listNormativeChunksInSourceScopes(scope.sourceScopeIds, { limit: 500 }),
+    ]);
+    const allowedSourceScopes = new Set(scope.sourceScopeIds);
+    return new Map(positions.map((position) => {
+      const applicableRules = rules.filter((rule) =>
+        rule.equipmentTypes.includes(position.equipmentType) || rule.equipmentTypes.includes("*"));
+      return [
+        position.id,
+        attachEvidence(
+          applicableRules,
+          rankNormativeChunks(
+            position,
+            chunks as NormativeChunkRecord[],
+            [],
+            "ANALOGUE",
+            new Set(applicableRules.map(ruleKey)),
+            allowedSourceScopes,
+          ),
+        ),
+      ];
+    }));
+  }
+
   private async assertReadable(userId: string): Promise<IntegrationStateRecord> {
     const state = await this.repository.getIntegrationState(userId, "RAG");
     if (!state) {
@@ -168,6 +244,25 @@ export class NormativeMockAdapter implements NormativePort {
       state.safeMessage ?? safeStateMessage(state.state),
     );
   }
+
+  private async assertReadableInScope(
+    scope: TrustedNormativeScope,
+  ): Promise<IntegrationStateRecord> {
+    const state = await this.repository.getIntegrationStateInSourceScopes(
+      scope.sourceScopeIds,
+      "RAG",
+    );
+    if (!state) {
+      throw new NormativeMockError(503, "RAG_STATE_NOT_CONFIGURED", "Состояние нормативного поиска не настроено.");
+    }
+    if (state.state === "SLOW") await controlledDelay(state.delayMs);
+    if (state.state === "AVAILABLE" || state.state === "SLOW") return state;
+    throw new NormativeMockError(
+      state.state === "RATE_LIMITED" ? 429 : 503,
+      `RAG_${state.state}`,
+      state.safeMessage ?? safeStateMessage(state.state),
+    );
+  }
 }
 
 export async function createNormativeMockAdapter(): Promise<NormativeMockAdapter> {
@@ -180,6 +275,7 @@ export function rankNormativeChunks(
   dictionaries: SearchDictionaryEntry[],
   kind: NormativeSearchKind,
   allowedRuleKeys?: Set<string>,
+  allowedSourceScopes?: ReadonlySet<string>,
 ): NormativeSearchHit[] {
   const queryValues = positionSearchValues(position);
   const queryTokens = tokenizeWithDictionary(queryValues, dictionaries);
@@ -188,7 +284,9 @@ export function rankNormativeChunks(
   );
 
   const ranked = chunks.flatMap((chunk): NormativeSearchHit[] => {
-    if (!chunk.isSyntheticDemo || !hasChunkAccess(chunk, position.userId)) return [];
+    const scopeAuthorized = chunk.sourceScopeId !== null && chunk.sourceScopeId !== undefined &&
+      allowedSourceScopes?.has(chunk.sourceScopeId);
+    if (!chunk.isSyntheticDemo || !(scopeAuthorized || hasChunkAccess(chunk, position.userId))) return [];
     const key = citationKey(chunk.documentId, chunk.documentVersion, chunk.clauseId);
     if (allowedRuleKeys && !allowedRuleKeys.has(key)) return [];
     if (!chunkMatchesKind(chunk, kind)) return [];

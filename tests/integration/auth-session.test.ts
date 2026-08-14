@@ -16,7 +16,7 @@ import { POST as logout } from "@/app/api/auth/logout/route";
 import { POST as switchRole } from "@/app/api/auth/switch-role/route";
 import { DEMO_USER_ID } from "@/domain/models";
 import { SESSION_COOKIE_NAME } from "@/lib/auth-config";
-import { hashPassword, verifyPassword } from "@/lib/password";
+import { hashPassword } from "@/lib/password";
 import {
   authenticateDemoCredentials,
   resolveDemoSession,
@@ -72,7 +72,7 @@ describe.sequential("persistent demo authentication", () => {
     });
     expect(user?.passwordHash).toMatch(/^scrypt\$/);
     expect(user?.passwordHash).not.toContain("MtrLocalTestOnly!");
-    await expect(verifyPassword("Demo2026!", user!.passwordHash!)).resolves.toBe(false);
+    await expect(authenticateDemoCredentials("demo", "Demo2026!")).resolves.toBeNull();
 
     const created = await authenticateDemoCredentials("demo", "MtrLocalTestOnly!");
     expect(created?.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
@@ -98,6 +98,24 @@ describe.sequential("persistent demo authentication", () => {
 
       process.env.DEMO_PASSWORD_HASH = await hashPassword("Next-test-only-password!");
       await expect(resolveDemoSession(created?.token)).resolves.toBeNull();
+    } finally {
+      if (previousHash === undefined) delete process.env.DEMO_PASSWORD_HASH;
+      else process.env.DEMO_PASSWORD_HASH = previousHash;
+    }
+  });
+
+  it("не меняет сохранённые password hashes при seed/reset", async () => {
+    const database = await getDatabase();
+    await resetDemoDatabase(DEMO_USER_ID, database);
+    const before = await database.select({ id: users.id, passwordHash: users.passwordHash }).from(users);
+    const previousHash = process.env.DEMO_PASSWORD_HASH;
+    process.env.DEMO_PASSWORD_HASH = await hashPassword("Reset-must-not-rotate-passwords!");
+    try {
+      await resetDemoDatabase(DEMO_USER_ID, database);
+      const after = await database.select({ id: users.id, passwordHash: users.passwordHash }).from(users);
+      expect(after.toSorted((left, right) => left.id.localeCompare(right.id))).toEqual(
+        before.toSorted((left, right) => left.id.localeCompare(right.id)),
+      );
     } finally {
       if (previousHash === undefined) delete process.env.DEMO_PASSWORD_HASH;
       else process.env.DEMO_PASSWORD_HASH = previousHash;

@@ -62,6 +62,7 @@ export class UniversalChatService {
     const normalized = message.toLocaleLowerCase("ru-RU");
     if (!message) return null;
 
+    if (asksProjectStatusSequence(normalized)) return this.projectStatusSequence(context);
     if (asksPlannedProjects(normalized)) return this.projectsByStatus(context, ["PLANNED"], "Запланированные проекты");
     if (asksAllProjects(normalized)) return this.projectsByStatus(context, ["PLANNED", "ACTIVE", "ON_HOLD", "COMPLETED"], "Все доступные проекты");
     if (asksActiveProjects(normalized)) return this.activeProjects(context);
@@ -82,6 +83,10 @@ export class UniversalChatService {
     }
     if (asksInventoryExistence(normalized)) {
       return this.materialQuestion(context, message, normalized, materialCodes);
+    }
+    const rememberedMaterialCode = request.memory?.resolvedContext?.material?.code;
+    if (rememberedMaterialCode && asksWarehouseFollowup(normalized)) {
+      return this.materialQuestion(context, message, normalized, [rememberedMaterialCode]);
     }
 
     const projects = await this.execute<readonly BusinessProject[]>("project.list", context, {
@@ -126,6 +131,54 @@ export class UniversalChatService {
 
   private async activeProjects(context: AgentExecutionContext): Promise<UniversalAgentAnswer> {
     return this.projectsByStatus(context, ["ACTIVE"], "Активные проекты");
+  }
+
+  private async projectStatusSequence(
+    context: AgentExecutionContext,
+  ): Promise<UniversalAgentAnswer> {
+    const [active, planned, all] = await Promise.all([
+      this.execute<readonly BusinessProject[]>("project.list", context, {
+        status: ["ACTIVE"],
+        limit: 200,
+      }),
+      this.execute<readonly BusinessProject[]>("project.list", context, {
+        status: ["PLANNED"],
+        limit: 200,
+      }),
+      this.execute<readonly BusinessProject[]>("project.list", context, {
+        status: ["PLANNED", "ACTIVE", "ON_HOLD", "COMPLETED"],
+        limit: 200,
+      }),
+    ]);
+    const table = (id: string, title: string, projects: readonly BusinessProject[]) => ({
+      id,
+      title,
+      columns: ["Проект", "Статус", "Фаза", "Дата потребности"],
+      rows: projects.map((project) => ({
+        "Проект": `${project.name} (${project.code})`,
+        "Статус": projectStatus(project.status),
+        "Фаза": projectPhase(project.phase),
+        "Дата потребности": localDate(project.needDate),
+      })),
+      totalRows: projects.length,
+    });
+    return answer({
+      summary: `Активных проектов: ${active.length}; запланированных: ${planned.length}; всего доступно: ${all.length}.`,
+      facts: [
+        fact("active-project-count", "Активных проектов", active.length),
+        fact("planned-project-count", "Запланированных проектов", planned.length),
+        fact("all-project-count", "Всего доступно проектов", all.length),
+      ],
+      tables: [
+        table("active-projects", "Активные проекты", active),
+        table("planned-projects", "Запланированные проекты", planned),
+        table("all-projects", "Все доступные проекты", all),
+      ],
+      citations: uniqueCitations(all.map(projectCitation)),
+      missingData: [],
+      confidence: 1,
+      requiresHumanReview: false,
+    }, this.clock);
   }
 
   private async projectsByStatus(
@@ -1261,8 +1314,16 @@ function asksAllProjects(message: string): boolean {
     /(?:все|полный\s+список).{0,20}проект/iu.test(message);
 }
 
+function asksProjectStatusSequence(message: string): boolean {
+  return /активн/iu.test(message) && /запланирован/iu.test(message) && /все\s+доступн/iu.test(message);
+}
+
 function asksInventoryExistence(message: string): boolean {
   return /(?:есть|имеется)\s+ли/iu.test(message) && /(?:склад|\bWH-[A-Z0-9-]+\b)/iu.test(message);
+}
+
+function asksWarehouseFollowup(message: string): boolean {
+  return /склад/iu.test(message) && /(?:этот|эта|это|данн|указан|проверь)/iu.test(message);
 }
 
 function asksUpcomingDeadlines(message: string): boolean {

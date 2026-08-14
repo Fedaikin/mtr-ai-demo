@@ -18,10 +18,20 @@ export const dynamic = "force-dynamic";
 export default async function MtrAnalysisPage() {
   const [session, repository] = await Promise.all([requirePermission("report.read"), getRepository()]);
   const { user, authorization } = session;
+  const projectId = authorization.activeProjectId;
   const [runs, specifications, positions, threads] = await Promise.all([
-    repository.listRuns(user.id, { limit: 30, includeSteps: false }),
-    repository.listSpecifications(user.id),
-    repository.listPositions(user.id, { currentOnly: true, limit: 200 }),
+    projectId
+      ? repository.listScenarioRunsInProject(user.id, projectId, { limit: 30, includeSteps: false })
+      : Promise.resolve([]),
+    projectId
+      ? repository.listSpecificationsInProject(user.id, projectId)
+      : Promise.resolve([]),
+    projectId
+      ? repository.listPositionsInProject(user.id, projectId, {
+          currentOnly: true,
+          limit: 200,
+        })
+      : Promise.resolve([]),
     repository.listAgentThreads(user.id),
   ]);
   const latest = selectLatestCompletedRun(runs);
@@ -74,10 +84,9 @@ export default async function MtrAnalysisPage() {
   }
 
   const { report } = await getReport(user.id, latest.id);
-  const records = await repository.listAnalysisResults(user.id, latest.id);
-  const reviews = await repository.ensureAnalysisReviews(
-    user.id,
-    records.map((record) => ({
+  const records = await repository.listAnalysisResultsInProject(user.id, projectId!, latest.id);
+  const reviews = authorization.permissionKeys.has("review.queue.read")
+    ? await repository.ensureAnalysisReviews(user.id, records.map((record) => ({
       resultId: record.id,
       runId: latest.id,
       positionId: record.positionId,
@@ -96,13 +105,14 @@ export default async function MtrAnalysisPage() {
         humanReviewFlagAbsent: !record.requiresHumanReview,
         source: "Сохранённый неизменяемый результат запуска",
       },
-    })),
-  );
+    })))
+    : [];
   const decided = report.results.filter((result) => responsibilityState(result) === "RESOLVED");
   const customerRows = decided.filter((result) => result.responsibility === "CUSTOMER");
   const contractorRows = decided.filter((result) => result.responsibility === "CONTRACTOR");
   const reviewRows = report.results.filter((result) => responsibilityState(result) === "REVIEW_REQUIRED");
   const insufficientRows = report.results.filter((result) => responsibilityState(result) === "INSUFFICIENT_DATA");
+  const ruleManifest = responsibilityManifest(report.provenance.responsibilityRuleManifest);
 
   return (
     <>
@@ -162,10 +172,19 @@ export default async function MtrAnalysisPage() {
           </div>
           <Link href={`/reports/${latest.id}`} className="focus-ring rounded-md bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-800">Открыть полный отчет</Link>
         </div>
-        <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-3">
+        <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-3">
+          <ReportFact label="ID запуска" value={latest.id} />
           <ReportFact label="Позиций" value={String(report.results.length)} />
           <ReportFact label="Решений человека" value={String(reviews.filter((review) => review.decidedBy).length)} />
           <ReportFact label="Сформирован" value={formatDateTime(report.generatedAt)} />
+          <ReportFact
+            label="Активный корпус правил"
+            value={ruleManifest ? `${ruleManifest.activeRuleCount} правил · ${ruleManifest.datasetVersion}` : "Недоступен"}
+          />
+          <ReportFact
+            label="Контрольная сумма правил"
+            value={ruleManifest?.checksumSha256 ?? "Недоступна"}
+          />
         </dl>
       </section>
     </>
@@ -181,7 +200,7 @@ function Metric({ label, value, detail, warning = false }: { label: string; valu
 }
 
 function ReportFact({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-lg bg-slate-50 p-3"><dt className="text-xs text-slate-500">{label}</dt><dd className="mt-1 font-semibold text-slate-900">{value}</dd></div>;
+  return <div className="rounded-lg bg-slate-50 p-3"><dt className="text-xs text-slate-500">{label}</dt><dd className="mt-1 break-all font-semibold text-slate-900">{value}</dd></div>;
 }
 
 function EmptyState() {
@@ -214,4 +233,22 @@ function responsibilityDecisionLabel(result: Parameters<typeof responsibilitySta
   if (state === "REVIEW_REQUIRED" && result.responsibility === null) return "Требуется решение";
   const label = responsibilityLabel(result.responsibility);
   return state === "REVIEW_REQUIRED" ? `${label} · требуется проверка` : label;
+}
+
+function responsibilityManifest(value: unknown): {
+  activeRuleCount: number;
+  datasetVersion: string;
+  checksumSha256: string;
+} | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  return typeof record.activeRuleCount === "number" &&
+    typeof record.datasetVersion === "string" &&
+    typeof record.checksumSha256 === "string"
+    ? {
+        activeRuleCount: record.activeRuleCount,
+        datasetVersion: record.datasetVersion,
+        checksumSha256: record.checksumSha256,
+      }
+    : null;
 }

@@ -53,9 +53,20 @@ describe.sequential("corrective universal chat runtime", () => {
     expect(output.requiresHumanReview).toBe(false);
   });
 
-  test("TC-CHAT-04 не выдумывает alias «второй склад» и предлагает разрешённые склады объекта", async () => {
+  test("TC-CHAT-04 использует material context потока и не выдумывает alias «второй склад»", async () => {
     const output = await service.respond({
-      message: "Есть ли на втором складке шкаф управления электродвигателем № 0001?",
+      message: "Проверь этот шкаф на втором складе",
+      memory: {
+        resolvedContext: {
+          material: {
+            kind: "MATERIAL",
+            id: "catalog-item-asm-elc-0001",
+            code: "SAP-CATALOG-ASM-ELC-0001",
+            name: "Шкаф управления электродвигателем № 0001",
+            confidence: 1,
+          },
+        },
+      },
     }, context());
 
     expect(output).toEqual({
@@ -66,6 +77,22 @@ describe.sequential("corrective universal chat runtime", () => {
         expect.objectContaining({ kind: "WAREHOUSE", code: "WH-DEMO-SOUTH" }),
       ],
     });
+  });
+
+  test("TC-CHAT-03 выполняет frozen составной запрос как три независимых status scope", async () => {
+    const output = await service.respond({
+      message: "Покажи активные проекты; затем отдельно запланированные; затем все доступные проекты",
+    }, context());
+    if (!output || "kind" in output) throw new Error("Ожидался структурированный ответ.");
+
+    expect(output.tables.map((table) => ({ id: table.id, count: table.totalRows }))).toEqual([
+      { id: "active-projects", count: 22 },
+      { id: "planned-projects", count: 0 },
+      { id: "all-projects", count: 22 },
+    ]);
+    expect(new Set(output.citations.map((citation) => citation.entityId))).toEqual(
+      new Set(datasetActiveProjectIds()),
+    );
   });
 
   test("TC-CHAT-02 отвечает по точному объекту и явному разрешённому складу", async () => {
@@ -168,4 +195,17 @@ function context() {
     requestId: "request-corrective-chat",
   };
   return createAgentExecutionContext(trusted);
+}
+
+function datasetActiveProjectIds(): string[] {
+  return [
+    "business-project-pipe-rich-project-mtr-006-project-mtr-007",
+    "business-project-project-project-demo-alpha",
+    "business-project-project-project-demo-beta",
+    "business-project-project-project-demo-gamma",
+    ...Array.from({ length: 5 }, (_, index) =>
+      `business-project-project-project-mtr-${String(index + 1).padStart(3, "0")}`),
+    ...Array.from({ length: 13 }, (_, index) =>
+      `business-project-project-project-mtr-${String(index + 8).padStart(3, "0")}`),
+  ];
 }
