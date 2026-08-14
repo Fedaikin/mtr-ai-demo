@@ -10,14 +10,14 @@ import {
 } from "@/evals/universal-agent-evaluator";
 
 describe("universal agent evaluation curriculum", () => {
-  it("формирует 150 уникальных current-runtime кейсов по закреплённой стратификации", async () => {
+  it("формирует 158 уникальных current-runtime кейсов, включая восемь corrective regressions", async () => {
     const manifest = await loadUniversalAgentEvalManifest(
       resolve(process.cwd(), "evals/mtr-agent-universal-curriculum.json"),
     );
     const cases = buildUniversalAgentEvalCases(manifest);
 
-    expect(cases).toHaveLength(150);
-    expect(new Set(cases.map((item) => item.id))).toHaveLength(150);
+    expect(cases).toHaveLength(158);
+    expect(new Set(cases.map((item) => item.id))).toHaveLength(158);
     expect(cases.filter((item) => item.category === "project-material")).toHaveLength(40);
     expect(cases.filter((item) => item.category === "compatibility-reliability")).toHaveLength(25);
     expect(cases.filter((item) => item.category === "portfolio-intake-deadline")).toHaveLength(20);
@@ -25,5 +25,6 @@ describe("universal agent evaluation curriculum", () => {
     expect(cases.filter((item) => item.category === "permission-abstention")).toHaveLength(15);
     expect(cases.filter((item) => item.category === "public-projection")).toHaveLength(15);
     expect(cases.filter((item) => item.category === "parameterized-scale")).toHaveLength(15);
+    expect(cases.filter((item) => item.category === "corrective-remediation")).toHaveLength(8);
   });
 });

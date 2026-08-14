@@ -35,7 +35,12 @@ import {
   ScenarioRunStatus,
 } from "@/domain/models";
 import { RUN_PROGRESS, RUN_STATUS_LABELS, TERMINAL_STATUSES, canCancel } from "@/domain/scenario";
-import { classifyResponsibility, type ResponsibilityDecision } from "@/domain/responsibility";
+import {
+  buildResponsibilityRuleManifest,
+  classifyResponsibility,
+  summarizeResponsibilityDecisions,
+  type ResponsibilityDecision,
+} from "@/domain/responsibility";
 
 const ALL_CURRENT_SPECIFICATIONS = "ALL_CURRENT_SPECIFICATIONS";
 
@@ -818,8 +823,18 @@ export class ScenarioService {
         appius: recordValue(output.appius)?.snapshotAt,
         appiusVersions: uniqueAppiusVersions(results),
         sap: recordValue(output.sap)?.snapshotAt,
-        normative: "DEMO_RULES_VERSIONED",
+        normative: "normative-base-v1@1.0.0",
         responsibilityRules: ruleVersionManifest(output.responsibilityRules),
+        responsibilityRuleManifest: buildResponsibilityRuleManifest(
+          Array.isArray(output.responsibilityRules)
+            ? output.responsibilityRules as ResponsibilityRule[]
+            : [],
+          {
+            projectId: run.projectId ?? "demo-project-001",
+            sourceScopeId: "demo-normative-001",
+            datasetVersion: "normative-base-v1@1.0.0",
+          },
+        ),
         analogueRules: ruleVersionManifest(output.analogueRules),
         prompt: activePrompt
           ? {
@@ -870,10 +885,12 @@ export class ScenarioService {
               : "NOT_FOUND";
       return {
         position,
+        responsibilityDecisionState: responsibility.decisionState,
         responsibility: responsibility.responsibility,
         responsibilityConfidence: responsibility.confidence,
         responsibilityExplanation: responsibility.explanation,
         responsibilityCitation: responsibility.citation,
+        responsibilityCandidateCitations: responsibility.candidateCitations,
         match,
         ...(analogueSearch ? { analogueSearch } : {}),
         ...(analogueCoverage ? { analogueCoverage } : {}),
@@ -889,9 +906,16 @@ export class ScenarioService {
       results.map((result) => ({
           runId,
           positionId: result.position.id,
+          responsibilityDecisionState: result.responsibilityDecisionState ?? (
+            result.responsibility === null
+              ? "INSUFFICIENT_DATA"
+              : result.requiresHumanReview
+                ? "REVIEW_REQUIRED"
+                : "RESOLVED"
+          ),
           responsibility: result.responsibility,
           responsibilityConfidence: result.responsibilityConfidence,
-          responsibilityCitation: result.responsibilityCitation as unknown as Record<string, unknown>,
+          responsibilityCitation: result.responsibilityCitation as unknown as Record<string, unknown> | null,
           matchCategory: result.match.category,
           matchScore: result.match.score,
           matchedMaterialCode: result.match.material?.materialCode,
@@ -1052,6 +1076,7 @@ function ruleVersionManifest(
 function summarize(results: PositionAnalysisResult[]): ReportSummary {
   const category = (name: string) => results.filter((item) => item.match.category === name).length;
   const procurement = results.filter((item) => item.status === "NOT_FOUND" || item.status === "INSUFFICIENT").length;
+  const responsibility = summarizeResponsibilityDecisions(results);
   return {
     total: results.length,
     exact: category("EXACT"),
@@ -1062,8 +1087,8 @@ function summarize(results: PositionAnalysisResult[]): ReportSummary {
     analogues: results.filter((item) => Boolean(item.analogueCoverage)).length,
     insufficient: results.filter((item) => item.status === "INSUFFICIENT").length,
     procurement,
-    customerResponsibility: results.filter((item) => item.responsibility === "CUSTOMER").length,
-    contractorResponsibility: results.filter((item) => item.responsibility === "CONTRACTOR").length,
+    customerResponsibility: responsibility.customer,
+    contractorResponsibility: responsibility.contractor,
   };
 }
 
@@ -1072,7 +1097,12 @@ function fallbackResponsibility(position: Position, rules?: ResponsibilityRule[]
 }
 
 function isResponsibilityDecision(value: unknown): value is ResponsibilityDecision {
-  return Boolean(recordValue(value)?.responsibility && recordValue(value)?.citation);
+  const record = recordValue(value);
+  return Boolean(
+    record &&
+      ["RESOLVED", "REVIEW_REQUIRED", "INSUFFICIENT_DATA"].includes(String(record.decisionState)) &&
+      typeof record.requiresHumanReview === "boolean",
+  );
 }
 
 function isMatchExplanation(value: unknown): value is MatchExplanation {

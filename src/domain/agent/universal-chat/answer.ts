@@ -1,7 +1,7 @@
 export type UniversalAnswerMode = "PRIMARY_LLM" | "DETERMINISTIC_FALLBACK";
 
 export interface UniversalEntityRef {
-  readonly kind: "BUSINESS_PROJECT" | "SPECIFICATION" | "MATERIAL" | "POSITION";
+  readonly kind: "BUSINESS_PROJECT" | "SPECIFICATION" | "MATERIAL" | "POSITION" | "WAREHOUSE";
   readonly id: string;
   readonly code: string;
   readonly name: string;

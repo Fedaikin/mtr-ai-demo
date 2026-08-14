@@ -62,6 +62,8 @@ export class UniversalChatService {
     const normalized = message.toLocaleLowerCase("ru-RU");
     if (!message) return null;
 
+    if (asksPlannedProjects(normalized)) return this.projectsByStatus(context, ["PLANNED"], "Запланированные проекты");
+    if (asksAllProjects(normalized)) return this.projectsByStatus(context, ["PLANNED", "ACTIVE", "ON_HOLD", "COMPLETED"], "Все доступные проекты");
     if (asksActiveProjects(normalized)) return this.activeProjects(context);
     if (asksSpecificationIntake(normalized)) return this.specificationIntake(context, normalized);
     if (asksSpecificationVersionChange(normalized)) return this.specificationVersionChange(context, message);
@@ -76,6 +78,9 @@ export class UniversalChatService {
     // it before project intent routing so an unknown code produces an honest
     // material answer instead of unrelated project candidates.
     if (materialCodes.length > 0) {
+      return this.materialQuestion(context, message, normalized, materialCodes);
+    }
+    if (asksInventoryExistence(normalized)) {
       return this.materialQuestion(context, message, normalized, materialCodes);
     }
 
@@ -120,21 +125,37 @@ export class UniversalChatService {
   }
 
   private async activeProjects(context: AgentExecutionContext): Promise<UniversalAgentAnswer> {
+    return this.projectsByStatus(context, ["ACTIVE"], "Активные проекты");
+  }
+
+  private async projectsByStatus(
+    context: AgentExecutionContext,
+    statuses: readonly BusinessProject["status"][],
+    title: string,
+  ): Promise<UniversalAgentAnswer> {
     const projects = await this.execute<readonly BusinessProject[]>("project.list", context, {
-      status: ["ACTIVE", "ON_HOLD", "PLANNED"],
+      status: [...statuses],
       limit: 200,
     });
+    const activeOnly = statuses.length === 1 && statuses[0] === "ACTIVE";
+    const plannedOnly = statuses.length === 1 && statuses[0] === "PLANNED";
     return answer({
       summary: projects.length
-        ? `Доступно ${projects.length} активных и планируемых бизнес-проектов.`
-        : "В текущем контуре доступа проекты не найдены.",
+        ? activeOnly
+          ? `Доступно ${projects.length} активных бизнес-проекта.`
+          : plannedOnly
+            ? `Доступно ${projects.length} запланированных бизнес-проектов.`
+            : `Всего доступно бизнес-проектов: ${projects.length}.`
+        : plannedOnly
+          ? "Запланированных бизнес-проектов в текущем контуре доступа нет."
+          : "В текущем контуре доступа проекты не найдены.",
       facts: [
         fact("project-count", "Проектов", projects.length),
         fact("project-at-risk", "С риском по срокам", projects.filter((project) => project.deadlines.some((deadline) => deadline.status === "AT_RISK")).length, undefined, "ATTENTION"),
       ],
       tables: [{
         id: "active-projects",
-        title: "Активные проекты",
+        title,
         columns: ["Проект", "Статус", "Фаза", "Дата потребности"],
         rows: projects.map((project) => ({
           "Проект": `${project.name} (${project.code})`,
@@ -145,13 +166,13 @@ export class UniversalChatService {
         totalRows: projects.length,
       }],
       citations: projects.map(projectCitation),
-      missingData: projects.length ? [] : [{
+      missingData: projects.length || plannedOnly ? [] : [{
         code: "PROJECT_SCOPE_EMPTY",
         message: "В текущем контуре доступа нет подтверждённых бизнес-проектов.",
         impact: "Нельзя делать вывод об отсутствии проектов вне разрешённого контура.",
       }],
-      confidence: projects.length ? 1 : 0,
-      requiresHumanReview: projects.length === 0,
+      confidence: projects.length || plannedOnly ? 1 : 0,
+      requiresHumanReview: projects.length === 0 && !plannedOnly,
     }, this.clock);
   }
 
@@ -798,10 +819,59 @@ export class UniversalChatService {
       }, this.clock);
     }
     if (resolution.kind === "AMBIGUOUS") {
-      return clarification("Уточните материал из найденных вариантов.", resolution);
+      return clarification("Уточните материал из найденных вариантов.", resolution, "MATERIAL");
     }
     const source = matches.find((item) => item.materialCode === resolution.entity.code);
     if (!source) throw new Error("UNIVERSAL_MATERIAL_RESOLUTION_MISMATCH");
+    const requestedWarehouse = warehouseRequest(message);
+    if (requestedWarehouse.mentioned) {
+      const balances = source.stock.balances.slice(0, 5);
+      const selectedBalance = requestedWarehouse.explicitId
+        ? balances.find((balance) => balance.warehouseId === requestedWarehouse.explicitId)
+        : balances.length === 1
+          ? balances[0]
+          : undefined;
+      if (!selectedBalance) {
+        return {
+          kind: "ASK_CLARIFICATION",
+          question: `Уточните склад для материала «${source.nameRu}».`,
+          candidates: balances.map((balance) => warehouseEntityRef(balance.warehouseId, balance.plant)),
+        };
+      }
+      const available = Math.max(
+        0,
+        selectedBalance.onHandQuantity - selectedBalance.reservedQuantity - selectedBalance.quarantinedQuantity,
+      );
+      return answer({
+        summary: available > 0
+          ? `Да. На складе ${selectedBalance.warehouseId} доступно ${available} ${selectedBalance.unit} материала «${source.nameRu}».`
+          : `Нет. На складе ${selectedBalance.warehouseId} доступного количества материала «${source.nameRu}» нет.`,
+        resolvedContext: { material: materialEntityRef(source, resolution.confidence) },
+        facts: [
+          fact("warehouse-on-hand", "Фактический остаток", selectedBalance.onHandQuantity, selectedBalance.unit),
+          fact("warehouse-reserved", "В резерве", selectedBalance.reservedQuantity, selectedBalance.unit),
+          fact("warehouse-quarantine", "В карантине", selectedBalance.quarantinedQuantity, selectedBalance.unit),
+          fact("warehouse-available", "Доступно", available, selectedBalance.unit, available > 0 ? "NORMAL" : "ATTENTION"),
+        ],
+        tables: [{
+          id: "warehouse-inventory",
+          title: "Остаток на выбранном складе",
+          columns: ["Склад", "Площадка", "Остаток", "Резерв", "Карантин", "Доступно"],
+          rows: [{
+            "Склад": selectedBalance.warehouseId,
+            "Площадка": selectedBalance.plant,
+            "Остаток": selectedBalance.onHandQuantity,
+            "Резерв": selectedBalance.reservedQuantity,
+            "Карантин": selectedBalance.quarantinedQuantity,
+            "Доступно": available,
+          }],
+          totalRows: 1,
+        }],
+        citations: [materialStockCitation(source)],
+        confidence: 1,
+        requiresHumanReview: false,
+      }, this.clock);
+    }
     const whereUsed = await this.execute<readonly UniversalPositionRecord[]>(
       "material.getWhereUsed",
       context,
@@ -1030,12 +1100,13 @@ function resolveProject(
 function clarification<T extends { id: string; code: string; name: string; aliases: readonly string[] }>(
   question: string,
   resolution: Extract<EntityResolution<T>, { kind: "AMBIGUOUS" }>,
+  kind: UniversalEntityRef["kind"] = "BUSINESS_PROJECT",
 ): UniversalClarification {
   return {
     kind: "ASK_CLARIFICATION",
     question,
     candidates: resolution.candidates.map(({ entity, confidence }) =>
-      entityRef("BUSINESS_PROJECT", entity, confidence)),
+      entityRef(kind, entity, confidence)),
   };
 }
 
@@ -1058,6 +1129,14 @@ function materialEntity(material: UniversalMaterialRecord) {
 
 function materialEntityRef(material: UniversalMaterialRecord, confidence: number): UniversalEntityRef {
   return entityRef("MATERIAL", materialEntity(material), confidence);
+}
+
+function warehouseEntityRef(warehouseId: string, plant: string): UniversalEntityRef {
+  return entityRef("WAREHOUSE", {
+    id: warehouseId,
+    code: warehouseId,
+    name: `${warehouseId} · ${plant}`,
+  }, 1);
 }
 
 function projectCitation(project: BusinessProject): UniversalCitation {
@@ -1139,9 +1218,19 @@ function signed(value: number): string {
 
 function materialQuery(message: string): string {
   return message
+    .replace(/^(?:есть|имеется)\s+ли\s+(?:на|в)\s+.{0,40}?склад\p{L}*\s+/iu, "")
+    .replace(/^(?:есть|имеется)\s+ли\s+(?:на|в)\s+WH-[A-Z0-9-]+\s+/iu, "")
+    .replace(/^(?:есть|имеется)\s+ли\s+/iu, "")
     .replace(/^(?:что\s+это\s+за|найди|покажи|какой|какая|какие|где\s+используется)\s+/iu, "")
+    .replace(/\s+(?:на|в)\s+.{0,40}?склад\p{L}*[?.!]*$/iu, "")
+    .replace(/\s+(?:на|в)\s+WH-[A-Z0-9-]+[?.!]*$/iu, "")
     .replace(/[?.!]+$/gu, "")
     .trim();
+}
+
+function warehouseRequest(message: string): { mentioned: boolean; explicitId: string | null } {
+  const explicitId = message.match(/\bWH-[A-Z0-9-]+\b/iu)?.[0]?.toLocaleUpperCase("en-US") ?? null;
+  return { mentioned: explicitId !== null || /склад/iu.test(message), explicitId };
 }
 
 function requestedPurpose(message: string): UniversalResolvedContext["purpose"] | undefined {
@@ -1160,7 +1249,20 @@ function requestedDays(message: string): number | null {
 }
 
 function asksActiveProjects(message: string): boolean {
-  return /(?:покажи|какие|список).{0,20}(?:активн|текущ).{0,10}проект/iu.test(message);
+  return /(?:покажи|выведи|какие|список).{0,20}(?:активн|текущ).{0,10}проект/iu.test(message);
+}
+
+function asksPlannedProjects(message: string): boolean {
+  return /(?:покажи|какие|список).{0,25}(?:запланирован|планируем).{0,15}проект/iu.test(message);
+}
+
+function asksAllProjects(message: string): boolean {
+  return /(?:покажи|какие|список).{0,20}(?:все|полный\s+список).{0,10}проект/iu.test(message) ||
+    /(?:все|полный\s+список).{0,20}проект/iu.test(message);
+}
+
+function asksInventoryExistence(message: string): boolean {
+  return /(?:есть|имеется)\s+ли/iu.test(message) && /(?:склад|\bWH-[A-Z0-9-]+\b)/iu.test(message);
 }
 
 function asksUpcomingDeadlines(message: string): boolean {

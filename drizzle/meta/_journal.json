@@ -71,6 +71,13 @@
       "when": 1786647174784,
       "tag": "0009_chat_rbac_actions",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1786699284968,
+      "tag": "0010_responsibility_decision_state",
+      "breakpoints": true
     }
   ]
 }

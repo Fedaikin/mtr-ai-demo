@@ -562,9 +562,10 @@ export const positionAnalysisResults = pgTable(
     // A result can refer either to a canonical PLM position or to a validated
     // run-scoped manual-import position stored in the result snapshot.
     positionId: text("position_id").notNull(),
-    responsibility: text("responsibility").notNull(),
-    responsibilityConfidence: numeric("responsibility_confidence", { precision: 5, scale: 4 }).notNull(),
-    responsibilityCitation: jsonb("responsibility_citation").$type<Record<string, unknown>>().notNull(),
+    responsibilityDecisionState: text("responsibility_decision_state"),
+    responsibility: text("responsibility"),
+    responsibilityConfidence: numeric("responsibility_confidence", { precision: 5, scale: 4 }),
+    responsibilityCitation: jsonb("responsibility_citation").$type<Record<string, unknown>>(),
     matchCategory: text("match_category").notNull(),
     matchScore: integer("match_score").notNull(),
     matchedMaterialCode: text("matched_material_code"),

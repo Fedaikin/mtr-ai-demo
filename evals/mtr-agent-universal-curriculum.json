@@ -3,7 +3,7 @@
   "datasetVersion": "universal-chat-v1@1.0.0-DEMO",
   "runtimeBoundary": "UNIVERSAL_CHAT_SERVICE_WITH_SCOPED_PERSISTENCE_PORT",
   "scenarioClock": "2026-08-13T09:15:00.000Z",
-  "expectedCases": 150,
+  "expectedCases": 158,
   "categories": {
     "project-material": 40,
     "compatibility-reliability": 25,
@@ -11,7 +11,8 @@
     "multi-turn-context": 20,
     "permission-abstention": 15,
     "public-projection": 15,
-    "parameterized-scale": 15
+    "parameterized-scale": 15,
+    "corrective-remediation": 8
   },
   "minimums": {
     "businessProjects": 20,

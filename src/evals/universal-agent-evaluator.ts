@@ -21,7 +21,7 @@ import { createFixedScenarioClock } from "@/domain/agent/universal-chat/scenario
 import { DEMO_USER_ID } from "@/domain/models";
 import type { PermissionKey } from "@/domain/rbac";
 
-export const EXPECTED_UNIVERSAL_AGENT_EVAL_CASES = 150;
+export const EXPECTED_UNIVERSAL_AGENT_EVAL_CASES = 158;
 const CLOCK_INSTANT = "2026-08-13T09:15:00.000Z";
 
 const categorySchema = z.enum([
@@ -32,6 +32,7 @@ const categorySchema = z.enum([
   "permission-abstention",
   "public-projection",
   "parameterized-scale",
+  "corrective-remediation",
 ]);
 
 const manifestSchema = z.object({
@@ -70,7 +71,13 @@ interface UniversalEvalCase {
     | "FOREIGN_SCOPE"
     | "UNKNOWN_MATERIAL"
     | "PUBLIC_PROJECTION"
-    | "SCALE";
+    | "SCALE"
+    | "CORRECTIVE_ACTIVE"
+    | "CORRECTIVE_PLANNED"
+    | "CORRECTIVE_ALL"
+    | "CORRECTIVE_INVENTORY"
+    | "CORRECTIVE_WAREHOUSE"
+    | "CORRECTIVE_UNKNOWN";
   readonly projectId?: string;
   readonly projectCode?: string;
   readonly followUp?: string;
@@ -229,6 +236,17 @@ export function buildUniversalAgentEvalCases(
     message: `Покажи полный материальный баланс и риски проекта ${project.code}`,
   }));
 
+  const correctiveCases: UniversalEvalCase[] = [
+    { id: "REMEDIAL-CHAT-001", category: "corrective-remediation", variant: "CORRECTIVE_ACTIVE", message: "Покажи активные проекты" },
+    { id: "REMEDIAL-CHAT-002", category: "corrective-remediation", variant: "CORRECTIVE_ACTIVE", message: "Выведи список текущих проектов" },
+    { id: "REMEDIAL-CHAT-003", category: "corrective-remediation", variant: "CORRECTIVE_PLANNED", message: "Покажи запланированные проекты" },
+    { id: "REMEDIAL-CHAT-004", category: "corrective-remediation", variant: "CORRECTIVE_ALL", message: "Покажи все проекты" },
+    { id: "REMEDIAL-CHAT-005", category: "corrective-remediation", variant: "CORRECTIVE_INVENTORY", message: "Есть ли на WH-DEMO-CENTRAL шкаф управления электродвигателем № 0001?" },
+    { id: "REMEDIAL-CHAT-006", category: "corrective-remediation", variant: "CORRECTIVE_INVENTORY", message: "Есть ли шкаф управления электродвигателем № 0001 на WH-DEMO-CENTRAL?" },
+    { id: "REMEDIAL-CHAT-007", category: "corrective-remediation", variant: "CORRECTIVE_WAREHOUSE", message: "Есть ли на втором складке шкаф управления электродвигателем № 0001?" },
+    { id: "REMEDIAL-CHAT-008", category: "corrective-remediation", variant: "CORRECTIVE_UNKNOWN", message: "Есть ли на WH-DEMO-CENTRAL шкаф управления электродвигателем № 9999?" },
+  ];
+
   const cases = [
     ...projectCases,
     ...compatibilityCases,
@@ -237,6 +255,7 @@ export function buildUniversalAgentEvalCases(
     ...securityCases,
     ...publicCases,
     ...scaleCases,
+    ...correctiveCases,
   ];
   validateCurriculum(cases, manifest);
   return Object.freeze(cases);
@@ -300,7 +319,13 @@ async function runCase(
       const output = await service.respond({ message: evalCase.message }, context);
       if (!output) {
         failures.push("Current universal runtime не распознал production-shaped запрос.");
-      } else if (evalCase.variant === "UNKNOWN_MATERIAL") {
+      } else if (evalCase.variant === "CORRECTIVE_WAREHOUSE") {
+        if (!("kind" in output) || output.kind !== "ASK_CLARIFICATION") {
+          failures.push("Неоднозначный склад не завершился целевым уточнением.");
+        } else if (output.candidates.map((candidate) => candidate.code).join(",") !== "WH-DEMO-CENTRAL,WH-DEMO-SOUTH") {
+          failures.push("Список складов не совпал с разрешённым oracle объекта.");
+        }
+      } else if (evalCase.variant === "UNKNOWN_MATERIAL" || evalCase.variant === "CORRECTIVE_UNKNOWN") {
         if ("kind" in output) {
           if (output.candidates.some((candidate) => candidate.kind !== "MATERIAL")) {
             failures.push("Unknown material ушёл в несвязанный project-контекст.");
@@ -368,6 +393,23 @@ async function verifyAnswer(
   }
   if (evalCase.variant === "PORTFOLIO") {
     if (output.tables.length === 0 || output.facts.length === 0) failures.push("Портфельный ответ не содержит facts/table.");
+  }
+  if (evalCase.variant === "CORRECTIVE_ACTIVE") {
+    if (output.tables[0]?.totalRows !== 22 || output.tables[0].rows.some((row) => row["Статус"] !== "Активен")) {
+      failures.push("Active-project semantics не совпали с oracle 22 ACTIVE.");
+    }
+  }
+  if (evalCase.variant === "CORRECTIVE_PLANNED") {
+    if (output.tables[0]?.totalRows !== 0 || output.confidence !== 1) failures.push("Пустой PLANNED scope не доказан честно.");
+  }
+  if (evalCase.variant === "CORRECTIVE_ALL") {
+    if (output.tables[0]?.totalRows !== 22) failures.push("All-project scope не совпал с oracle.");
+  }
+  if (evalCase.variant === "CORRECTIVE_INVENTORY") {
+    if (output.resolvedContext.material?.code !== "SAP-CATALOG-ASM-ELC-0001") failures.push("Full-object material разрешён неверно.");
+    if (!output.facts.some((item) => item.key === "warehouse-on-hand" && item.value === 4 && item.unit === "EA")) {
+      failures.push("Складской остаток не совпал с oracle.");
+    }
   }
   if (evalCase.variant === "FOREIGN_SCOPE") {
     if (output.confidence !== 0 || output.citations.length !== 0 || !output.requiresHumanReview) {

@@ -322,9 +322,10 @@ export interface SaveAnalysisResultInput {
   id?: string;
   runId: string;
   positionId: string;
-  responsibility: "CUSTOMER" | "CONTRACTOR";
-  responsibilityConfidence: number;
-  responsibilityCitation: Record<string, unknown>;
+  responsibilityDecisionState: "RESOLVED" | "REVIEW_REQUIRED" | "INSUFFICIENT_DATA";
+  responsibility: "CUSTOMER" | "CONTRACTOR" | null;
+  responsibilityConfidence: number | null;
+  responsibilityCitation: Record<string, unknown> | null;
   matchCategory: string;
   matchScore: number;
   matchedMaterialCode?: string | null;
@@ -2799,8 +2800,9 @@ export class MtrRepository {
         userId,
         projectId: run.projectId ?? "demo-project-001",
         positionId: input.positionId,
+        responsibilityDecisionState: input.responsibilityDecisionState,
         responsibility: input.responsibility,
-        responsibilityConfidence: confidenceDecimal(input.responsibilityConfidence),
+        responsibilityConfidence: nullableConfidenceDecimal(input.responsibilityConfidence),
         responsibilityCitation: input.responsibilityCitation,
         matchCategory: input.matchCategory,
         matchScore: input.matchScore,
@@ -2813,8 +2815,9 @@ export class MtrRepository {
       .onConflictDoUpdate({
         target: [positionAnalysisResults.runId, positionAnalysisResults.positionId],
         set: {
+          responsibilityDecisionState: input.responsibilityDecisionState,
           responsibility: input.responsibility,
-          responsibilityConfidence: confidenceDecimal(input.responsibilityConfidence),
+          responsibilityConfidence: nullableConfidenceDecimal(input.responsibilityConfidence),
           responsibilityCitation: input.responsibilityCitation,
           matchCategory: input.matchCategory,
           matchScore: input.matchScore,
@@ -2901,8 +2904,9 @@ export class MtrRepository {
           userId,
           projectId: lockedRun.project_id === null ? "demo-project-001" : String(lockedRun.project_id),
           positionId: input.positionId,
+          responsibilityDecisionState: input.responsibilityDecisionState,
           responsibility: input.responsibility,
-          responsibilityConfidence: confidenceDecimal(input.responsibilityConfidence),
+          responsibilityConfidence: nullableConfidenceDecimal(input.responsibilityConfidence),
           responsibilityCitation: input.responsibilityCitation,
           matchCategory: input.matchCategory,
           matchScore: input.matchScore,
@@ -2915,6 +2919,7 @@ export class MtrRepository {
         .onConflictDoUpdate({
           target: [positionAnalysisResults.runId, positionAnalysisResults.positionId],
           set: {
+            responsibilityDecisionState: sql`excluded.responsibility_decision_state`,
             responsibility: sql`excluded.responsibility`,
             responsibilityConfidence: sql`excluded.responsibility_confidence`,
             responsibilityCitation: sql`excluded.responsibility_citation`,
@@ -3449,7 +3454,7 @@ export class MtrRepository {
       if (input.expectedVersion !== undefined && input.expectedVersion !== current.version) {
         throw new OptimisticLockError(current.id);
       }
-      if (current.responsibility === input.responsibility) {
+      if (current.responsibility === input.responsibility && current.responsibilityDecisionState === "RESOLVED") {
         throw new Error("Новое решение по ответственности должно отличаться от текущего.");
       }
 
@@ -3459,7 +3464,7 @@ export class MtrRepository {
         ? previousResult.manualResponsibilityOverrides
         : [];
       const override = {
-        before: current.responsibility as "CUSTOMER" | "CONTRACTOR",
+        before: current.responsibility as "CUSTOMER" | "CONTRACTOR" | null,
         after: input.responsibility,
         reason,
         actor: input.actorDisplayName ?? DEMO_USER_DISPLAY_NAME,
@@ -3467,14 +3472,20 @@ export class MtrRepository {
       };
       const updatedResult = {
         ...previousResult,
+        responsibilityDecisionState: "RESOLVED",
         responsibility: input.responsibility,
+        responsibilityConfidence: 1,
+        requiresHumanReview: false,
         analysisVersion: current.version + 1,
         manualResponsibilityOverrides: [...previousOverrides, override],
       };
       const [updated] = await tx
         .update(positionAnalysisResults)
         .set({
+          responsibilityDecisionState: "RESOLVED",
           responsibility: input.responsibility,
+          responsibilityConfidence: confidenceDecimal(1),
+          requiresHumanReview: false,
           result: updatedResult,
           updatedAt: occurredAt,
           version: sql`${positionAnalysisResults.version} + 1`,
@@ -4486,14 +4497,25 @@ function toScenarioRunStep(row: typeof scenarioRunSteps.$inferSelect): ScenarioR
 }
 
 function toAnalysisResult(row: typeof positionAnalysisResults.$inferSelect): AnalysisResultRecord {
+  const legacyCitation = row.responsibilityCitation;
+  const decisionState = responsibilityDecisionStateFromRow(
+    row.responsibilityDecisionState,
+    legacyCitation,
+    row.requiresHumanReview,
+  );
   return {
     id: row.id,
     userId: row.userId,
     runId: row.runId,
     positionId: row.positionId,
-    responsibility: row.responsibility as "CUSTOMER" | "CONTRACTOR",
-    responsibilityConfidence: Number(row.responsibilityConfidence),
-    responsibilityCitation: row.responsibilityCitation,
+    responsibilityDecisionState: decisionState,
+    responsibility: decisionState === "INSUFFICIENT_DATA"
+      ? null
+      : row.responsibility as "CUSTOMER" | "CONTRACTOR" | null,
+    responsibilityConfidence: decisionState === "INSUFFICIENT_DATA" || row.responsibilityConfidence === null
+      ? null
+      : Number(row.responsibilityConfidence),
+    responsibilityCitation: decisionState === "INSUFFICIENT_DATA" ? null : legacyCitation,
     matchCategory: row.matchCategory,
     matchScore: row.matchScore,
     matchedMaterialCode: row.matchedMaterialCode,
@@ -4504,6 +4526,18 @@ function toAnalysisResult(row: typeof positionAnalysisResults.$inferSelect): Ana
     updatedAt: row.updatedAt,
     version: row.version,
   };
+}
+
+function responsibilityDecisionStateFromRow(
+  persisted: string | null,
+  citation: Record<string, unknown> | null,
+  requiresHumanReview: boolean,
+): SaveAnalysisResultInput["responsibilityDecisionState"] {
+  if (persisted === "RESOLVED" || persisted === "REVIEW_REQUIRED" || persisted === "INSUFFICIENT_DATA") {
+    return persisted;
+  }
+  if (citation?.clauseId === "UNRESOLVED") return "INSUFFICIENT_DATA";
+  return requiresHumanReview ? "REVIEW_REQUIRED" : "RESOLVED";
 }
 
 function toPromptVersion(row: typeof promptVersions.$inferSelect): PromptVersionRecord {
@@ -5040,6 +5074,10 @@ function confidenceDecimal(value: number): string {
     throw new Error("Уверенность должна находиться в диапазоне от 0 до 1.");
   }
   return value.toFixed(4);
+}
+
+function nullableConfidenceDecimal(value: number | null): string | null {
+  return value === null ? null : confidenceDecimal(value);
 }
 
 function oneCalendarYearAfter(value: string): string {

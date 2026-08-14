@@ -6,7 +6,9 @@ import { getReport } from "@/application/report-service";
 import { AgentOrchestratorWorkspace } from "@/components/agent-orchestrator-workspace";
 import { AnalysisReviewQueue } from "@/components/analysis-review-queue";
 import { PageHeader } from "@/components/page-header";
+import { effectiveResponsibilityDecisionState } from "@/domain/responsibility";
 import { formatDateTime, formatNumber } from "@/lib/format";
+import { selectLatestCompletedRun } from "@/lib/latest-completed-run";
 import { responsibilityLabel, runStatusLabel } from "@/lib/localization";
 import { requirePermission } from "@/lib/session";
 
@@ -22,7 +24,7 @@ export default async function MtrAnalysisPage() {
     repository.listPositions(user.id, { currentOnly: true, limit: 200 }),
     repository.listAgentThreads(user.id),
   ]);
-  const latest = runs.find((run) => run.status === "COMPLETED");
+  const latest = selectLatestCompletedRun(runs);
   const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60_000);
   const workspace = authorization.activeProjectId && authorization.permissionKeys.has("agent.chat") ? (
@@ -96,19 +98,18 @@ export default async function MtrAnalysisPage() {
       },
     })),
   );
-  const decided = report.results.filter(
-    (result) => !result.requiresHumanReview && result.responsibilityConfidence === 1,
-  );
+  const decided = report.results.filter((result) => responsibilityState(result) === "RESOLVED");
   const customerRows = decided.filter((result) => result.responsibility === "CUSTOMER");
   const contractorRows = decided.filter((result) => result.responsibility === "CONTRACTOR");
-  const reviewRows = report.results.filter((result) => !decided.includes(result));
+  const reviewRows = report.results.filter((result) => responsibilityState(result) === "REVIEW_REQUIRED");
+  const insufficientRows = report.results.filter((result) => responsibilityState(result) === "INSUFFICIENT_DATA");
 
   return (
     <>
       <PageHeader
         eyebrow="Подтверждённые результаты"
         title="МТР-анализ"
-        description={`Последний завершённый отчёт от ${formatDateTime(report.generatedAt)}. Ответственность с неполной уверенностью не считается решением.`}
+        description={`Последний завершённый отчёт от ${formatDateTime(report.generatedAt)}. Решение определяется применимым нормативным правилом, а не требованием 100% уверенности.`}
       />
       {workspace}
       <nav aria-label="Подразделы МТР-анализа" className="mb-5 grid gap-3 md:grid-cols-3">
@@ -116,10 +117,11 @@ export default async function MtrAnalysisPage() {
         <SectionLink href="#doublechecker" number="02" title="Даблчекер МТР" description="Независимая проверка и решение эксперта" />
         <SectionLink href="#full-report" number="03" title="Полный отчет" description="Все результаты, источники и выгрузка" />
       </nav>
-      <div className="mb-5 grid gap-3 sm:grid-cols-3">
+      <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Metric label="Заказчик" value={`${customerRows.length} поз.`} detail={requiredVolumes(customerRows)} />
         <Metric label="Подрядчик" value={`${contractorRows.length} поз.`} detail={requiredVolumes(contractorRows)} />
         <Metric label="Требуется решение" value={`${reviewRows.length} поз.`} detail={requiredVolumes(reviewRows)} warning />
+        <Metric label="Недостаточно данных" value={`${insufficientRows.length} поз.`} detail={requiredVolumes(insufficientRows)} warning />
       </div>
       <section id="responsibility" className="scroll-mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 p-4">
@@ -133,15 +135,16 @@ export default async function MtrAnalysisPage() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {report.results.map((result) => {
-                const needsDecision = result.requiresHumanReview || result.responsibilityConfidence < 1;
+                const state = responsibilityState(result);
+                const needsDecision = state !== "RESOLVED";
                 return (
                   <tr key={result.position.id}>
                     <td className="px-4 py-3"><p className="font-mono text-xs font-semibold text-teal-800">{result.position.internalCode}</p><p className="mt-1 font-medium">{result.position.nameRu}</p></td>
-                    <td className={`px-4 py-3 font-medium ${needsDecision ? "text-amber-800" : "text-slate-900"}`}>{needsDecision ? "Требуется решение" : responsibilityLabel(result.responsibility)}</td>
-                    <td className="px-4 py-3 tabular-nums">{Math.round(result.responsibilityConfidence * 100)}%</td>
+                    <td className={`px-4 py-3 font-medium ${needsDecision ? "text-amber-800" : "text-slate-900"}`}>{responsibilityDecisionLabel(result)}</td>
+                    <td className="px-4 py-3 tabular-nums">{result.responsibilityConfidence === null ? "—" : `${Math.round(result.responsibilityConfidence * 100)}%`}</td>
                     <td className="max-w-md px-4 py-3 text-slate-600">{result.responsibilityExplanation ?? "Объяснение не сохранено"}</td>
-                    <td className="px-4 py-3 text-xs"><p>{result.responsibilityCitation.title}</p><p className="mt-1 text-slate-500">v{result.responsibilityCitation.version} · {result.responsibilityCitation.clauseId}</p></td>
-                    <td className="px-4 py-3 text-xs">{result.manualResponsibilityOverrides?.length ? `Изменено вручную · ${result.manualResponsibilityOverrides.at(-1)?.actor}` : needsDecision ? "В очереди эксперта" : "Подтверждено правилом"}</td>
+                    <td className="px-4 py-3 text-xs">{result.responsibilityCitation ? <><p>{result.responsibilityCitation.title}</p><p className="mt-1 text-slate-500">v{result.responsibilityCitation.version} · {result.responsibilityCitation.clauseId}</p></> : <p>Нормативное основание не найдено</p>}</td>
+                    <td className="px-4 py-3 text-xs">{result.manualResponsibilityOverrides?.length ? `Изменено вручную · ${result.manualResponsibilityOverrides.at(-1)?.actor}` : state === "REVIEW_REQUIRED" ? "В очереди эксперта" : state === "INSUFFICIENT_DATA" ? "Нужно нормативное основание" : "Подтверждено правилом"}</td>
                   </tr>
                 );
               })}
@@ -194,4 +197,21 @@ function requiredVolumes(rows: Array<{ position: { requiredQuantity: number; uni
   const totals = new Map<string, number>();
   for (const row of rows) totals.set(row.position.unit, (totals.get(row.position.unit) ?? 0) + row.position.requiredQuantity);
   return [...totals].map(([unit, quantity]) => `${formatNumber(quantity)} ${unit}`).join(" · ") || "0";
+}
+
+function responsibilityState(result: {
+  responsibilityDecisionState?: "RESOLVED" | "REVIEW_REQUIRED" | "INSUFFICIENT_DATA";
+  responsibility: "CUSTOMER" | "CONTRACTOR" | null;
+  responsibilityCitation: { clauseId: string } | null;
+  requiresHumanReview: boolean;
+}) {
+  return effectiveResponsibilityDecisionState(result);
+}
+
+function responsibilityDecisionLabel(result: Parameters<typeof responsibilityState>[0] & { responsibility: "CUSTOMER" | "CONTRACTOR" | null }) {
+  const state = responsibilityState(result);
+  if (state === "INSUFFICIENT_DATA") return "Недостаточно данных";
+  if (state === "REVIEW_REQUIRED" && result.responsibility === null) return "Требуется решение";
+  const label = responsibilityLabel(result.responsibility);
+  return state === "REVIEW_REQUIRED" ? `${label} · требуется проверка` : label;
 }

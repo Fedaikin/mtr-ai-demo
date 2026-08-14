@@ -20,7 +20,7 @@ const CAPABILITY_KEYS = Object.freeze(
 );
 
 const resolvedEntitySchema = z.object({
-  kind: z.enum(["BUSINESS_PROJECT", "SPECIFICATION", "MATERIAL", "POSITION"]),
+  kind: z.enum(["BUSINESS_PROJECT", "SPECIFICATION", "MATERIAL", "POSITION", "WAREHOUSE"]),
   code: z.string().trim().min(1).max(200),
   name: z.string().trim().min(1).max(300),
 }).strict();

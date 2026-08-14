@@ -758,11 +758,12 @@ describe.sequential("server scenario runner", () => {
     ]);
     expect(JSON.stringify(audit)).not.toContain("password=unsafe");
     expect(JSON.stringify(audit)).toContain("password=[СКРЫТО]");
+    if (!original?.responsibility) throw new Error("Тестовый результат должен содержать решение ответственности.");
     await expect(
       repository.overrideAnalysisResponsibility(DEMO_USER_ID, {
         runId: completed.id,
         positionId: original!.positionId,
-        responsibility: original!.responsibility,
+        responsibility: original.responsibility,
         reason: "Повтор с устаревшей версией должен быть отклонён.",
         expectedVersion: original!.version,
       }),

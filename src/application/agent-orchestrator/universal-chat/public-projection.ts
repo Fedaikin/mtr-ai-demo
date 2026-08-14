@@ -289,7 +289,7 @@ function integer(value: unknown, min: number, max: number): number {
 }
 
 function entityKindLabel(value: unknown): string {
-  return { BUSINESS_PROJECT: "Бизнес-проект", SPECIFICATION: "Спецификация", MATERIAL: "Материал", POSITION: "Позиция" }[String(value)] ?? "Объект";
+  return { BUSINESS_PROJECT: "Бизнес-проект", SPECIFICATION: "Спецификация", MATERIAL: "Материал", POSITION: "Позиция", WAREHOUSE: "Склад" }[String(value)] ?? "Объект";
 }
 
 function factStatusLabel(value: unknown): string | null {

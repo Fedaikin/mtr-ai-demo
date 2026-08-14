@@ -79,7 +79,7 @@ describe.sequential("report export route audit", () => {
             appius: expect.any(String),
             appiusVersions: expect.any(Array),
             sap: expect.any(String),
-            normative: "DEMO_RULES_VERSIONED",
+            normative: "normative-base-v1@1.0.0",
             promptVersion: MTR_AGENT_UNIVERSAL_VERSION,
             responsibilityRules: expect.any(Array),
             analogueRules: expect.any(Array),

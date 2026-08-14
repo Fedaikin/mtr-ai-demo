@@ -227,10 +227,13 @@ export interface AnalogueSearchDecision {
 
 export interface PositionAnalysisResult {
   position: Position;
-  responsibility: "CUSTOMER" | "CONTRACTOR";
-  responsibilityConfidence: number;
+  /** Present on every newly calculated result; optional only for immutable legacy snapshots. */
+  responsibilityDecisionState?: "RESOLVED" | "REVIEW_REQUIRED" | "INSUFFICIENT_DATA";
+  responsibility: "CUSTOMER" | "CONTRACTOR" | null;
+  responsibilityConfidence: number | null;
   responsibilityExplanation?: string;
-  responsibilityCitation: RuleCitation;
+  responsibilityCitation: RuleCitation | null;
+  responsibilityCandidateCitations?: RuleCitation[];
   match: MatchExplanation;
   analogueSearch?: AnalogueSearchDecision;
   analogueCoverage?: AnalogueCoverage;
@@ -238,7 +241,7 @@ export interface PositionAnalysisResult {
   requiresHumanReview: boolean;
   analysisVersion?: number;
   manualResponsibilityOverrides?: Array<{
-    before: "CUSTOMER" | "CONTRACTOR";
+    before: "CUSTOMER" | "CONTRACTOR" | null;
     after: "CUSTOMER" | "CONTRACTOR";
     reason: string;
     actor: string;
