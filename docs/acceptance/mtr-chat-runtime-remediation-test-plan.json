@@ -1,0 +1,175 @@
+{
+  "schemaVersion": "mtr-chat-runtime-remediation-test-plan-v1",
+  "frozenAt": "2026-08-14T00:00:00.000+03:00",
+  "sources": {
+    "provisionalDefectBaseSha": "0e17f74e5c94ffc3bf2b47a83eb32d647727a093",
+    "universalSourceSha": "e6271da0c3279454f35f5e0895d10d8fc9e2c0be",
+    "previewDeploymentId": "5902965882",
+    "previewUrl": "https://mtr-ai-demo-ppe1gtel0-fedaikin-7533s-projects.vercel.app",
+    "previewEvidenceStatus": "BLOCKED_BY_VERCEL_DEPLOYMENT_PROTECTION",
+    "databaseIsolationStatus": "PREVIEW_DB_ISOLATION_UNPROVEN"
+  },
+  "baselineUnion": {
+    "runtimeEval": {
+      "count": 350,
+      "manifestSha256": "a6f1b9448308f351dfd4771f9fc94ff74a3cc45286071a916e888f84c6a580f0",
+      "targetAfterFix": 358
+    },
+    "analysisUnitIntegration": {
+      "count": 64,
+      "manifestSha256": "6eda553f263baf81264514eda29bd53443b9aa7f96c2c110d94b616ba7b88a9b",
+      "targetAfterFix": 70
+    },
+    "businessE2e": {
+      "count": 65,
+      "manifestSha256": "d4d161a00b8a3b3a3b4b3fb8b5db5862b357160db4197ec18c64cf9b45587240",
+      "targetAfterFix": 71,
+      "oracleConflicts": [
+        {
+          "caseId": "E2E-CANONICAL-RESET",
+          "defectBaseOracle": "24 current Appius positions",
+          "universalSourceOracle": "83 Appius specifications",
+          "resolution": "ONE_CASE_ID_VERSIONED_DATASET_ORACLE"
+        }
+      ]
+    }
+  },
+  "rbacBaseline": {
+    "roleModelFile": "src/domain/rbac.ts",
+    "roleModelSha256": "7d17a53f9794f2eb8ee4a4217f157329904117c1be0f6a678114666be6a09c6c",
+    "migrationFile": "drizzle/0005_scoped_rbac.sql",
+    "migrationSha256": "d1fd10b4f0e8da824b1462f838761ab035c96226a2ea92a9c85f87b3629fee32",
+    "assignmentClaimManifestSha256": "e59131937528baf998f85389138a05e9a2171114ffede4364b83cae4b1ad24f1",
+    "subjects": [
+      {
+        "subjectId": "demo-user-001",
+        "accountType": "HUMAN",
+        "status": "ACTIVE",
+        "assignments": ["GLOBAL:SYSTEM_ADMIN", "PROJECT:demo-project-001:PROJECT_MANAGER"],
+        "warehouseIds": ["WH-DEMO-CENTRAL", "WH-DEMO-ELECTRICAL", "WH-DEMO-EQUIPMENT", "WH-DEMO-INSTRUMENT", "WH-DEMO-NORTH", "WH-DEMO-RESERVE", "WH-DEMO-SOUTH"],
+        "expected": {"activeProjects": "ALLOW", "inventory": "ALLOW", "scenarioStart": "ALLOW", "analysisRead": "ALLOW"}
+      },
+      {
+        "subjectId": "demo-analyst-001",
+        "accountType": "HUMAN",
+        "status": "ACTIVE",
+        "assignments": ["PROJECT:demo-project-001:MTR_ANALYST"],
+        "warehouseIds": ["WH-DEMO-CENTRAL", "WH-DEMO-ELECTRICAL", "WH-DEMO-EQUIPMENT", "WH-DEMO-INSTRUMENT", "WH-DEMO-NORTH", "WH-DEMO-RESERVE", "WH-DEMO-SOUTH"],
+        "expected": {"activeProjects": "ALLOW", "inventory": "ALLOW", "scenarioStart": "ALLOW", "analysisRead": "ALLOW"}
+      },
+      {
+        "subjectId": "demo-viewer-001",
+        "accountType": "HUMAN",
+        "status": "ACTIVE",
+        "assignments": ["PROJECT:demo-project-001:PROJECT_VIEWER"],
+        "warehouseIds": [],
+        "expected": {"activeProjects": "ALLOW", "inventory": "DENY_NO_EXISTENCE_LEAK", "scenarioStart": "DENY", "analysisRead": "ALLOW"}
+      },
+      {
+        "subjectId": "demo-service-001",
+        "accountType": "SERVICE_ACCOUNT",
+        "status": "ACTIVE",
+        "assignments": ["SERVICE:INTEGRATION_SERVICE"],
+        "warehouseIds": [],
+        "expected": {"activeProjects": "DENY_INTERACTIVE", "inventory": "DENY_INTERACTIVE", "scenarioStart": "DENY_INTERACTIVE", "analysisRead": "DENY_INTERACTIVE"}
+      }
+    ]
+  },
+  "referenceOracle": {
+    "datasetVersion": "universal-chat-v1@1.0.0-DEMO",
+    "datasetManifestSha256": "54b72aa2d0dbd46aa8c2b696ccafcc91641be23359215a68cc3ab9ec27128a6b",
+    "rawReferenceManifestSha256": "a9c0fa447282eafa4860552ada4eba921b796999dd980462d12f5901aac2ff9c",
+    "scenarioClock": "2026-08-13T09:15:00.000Z",
+    "availableFormula": "onHandQuantity - reservedQuantity - quarantinedQuantity - committedToOtherNeeds",
+    "expectedActiveProjectIdsForAllowedProjectScope": [
+      "business-project-pipe-rich-project-mtr-006-project-mtr-007",
+      "business-project-project-project-demo-alpha",
+      "business-project-project-project-demo-beta",
+      "business-project-project-project-demo-gamma",
+      "business-project-project-project-mtr-001",
+      "business-project-project-project-mtr-002",
+      "business-project-project-project-mtr-003",
+      "business-project-project-project-mtr-004",
+      "business-project-project-project-mtr-005",
+      "business-project-project-project-mtr-008",
+      "business-project-project-project-mtr-009",
+      "business-project-project-project-mtr-010",
+      "business-project-project-project-mtr-011",
+      "business-project-project-project-mtr-012",
+      "business-project-project-project-mtr-013",
+      "business-project-project-project-mtr-014",
+      "business-project-project-project-mtr-015",
+      "business-project-project-project-mtr-016",
+      "business-project-project-project-mtr-017",
+      "business-project-project-project-mtr-018",
+      "business-project-project-project-mtr-019",
+      "business-project-project-project-mtr-020"
+    ],
+    "inventoryObject": {
+      "catalogItemId": "catalog-item-asm-elc-0001",
+      "catalogItemCode": "CAT-DEMO-ASM-ELC-0001",
+      "materialCode": "SAP-CATALOG-ASM-ELC-0001",
+      "manufacturerPartNumber": "D-ASM-MCC-0001",
+      "fullName": "Шкаф управления электродвигателем № 0001",
+      "equipmentType": "MOTOR_CONTROL_ASSEMBLY",
+      "snapshotId": "universal-stock-catalog-item-asm-elc-0001",
+      "snapshotAt": "2026-08-13T09:15:00.000Z",
+      "unit": "EA",
+      "balances": [
+        {"warehouseId": "WH-DEMO-CENTRAL", "onHand": 4, "reserved": 0, "quarantined": 0, "committed": 0, "available": 4},
+        {"warehouseId": "WH-DEMO-SOUTH", "onHand": 1, "reserved": 0, "quarantined": 0, "committed": 0, "available": 1}
+      ],
+      "warehouseDirectoryStatus": "ABSENT_IN_SOURCE_DATASET",
+      "expectedForSecondWarehousePhrase": "TARGETED_WAREHOUSE_CLARIFICATION",
+      "expectedCandidateWarehouseIds": ["WH-DEMO-CENTRAL", "WH-DEMO-SOUTH"]
+    }
+  },
+  "cases": [
+    {
+      "caseId": "TC-CHAT-01-ACTIVE-PROJECTS",
+      "input": "Покажи активные проекты",
+      "subjects": ["demo-user-001", "demo-analyst-001", "demo-viewer-001", "demo-service-001"],
+      "oracle": "exact set equality with RBAC-filtered ACTIVE raw project IDs",
+      "expected": "UNIVERSAL route; allowed human subjects receive exactly 22 ACTIVE project IDs and a visible table; service account is denied; no generic clarification, mock label or false confidence"
+    },
+    {
+      "caseId": "TC-CHAT-02-INVENTORY-OBJECT",
+      "input": "Есть ли на втором складке шкаф управления электродвигателем № 0001?",
+      "subjects": ["demo-user-001", "demo-analyst-001", "demo-viewer-001", "demo-service-001"],
+      "oracle": "object resolves exactly; source dataset has no warehouse alias directory, therefore warehouse remains ambiguous between the two permitted balances",
+      "expected": "UNIVERSAL targeted clarification with exactly WH-DEMO-CENTRAL and WH-DEMO-SOUTH for allowed stock subjects; viewer/service denied without material or stock existence leak; never a generic motor list"
+    },
+    {
+      "caseId": "TC-CHAT-03-PROJECT-STATUS",
+      "input": "Покажи активные проекты; затем отдельно запланированные; затем все доступные проекты",
+      "subjects": ["demo-user-001", "demo-analyst-001", "demo-viewer-001", "demo-service-001"],
+      "oracle": "three independent exact status-filtered set comparisons inside current project scope",
+      "expected": "ACTIVE, PLANNED and ALL semantics do not mix; empty proven set is not replaced by another status; service account denied"
+    },
+    {
+      "caseId": "TC-CHAT-04-WAREHOUSE-AMBIGUITY",
+      "input": "Проверь этот шкаф на втором складе",
+      "subjects": ["demo-user-001", "demo-analyst-001", "demo-viewer-001", "demo-service-001"],
+      "oracle": "thread object context plus raw allowed warehouse candidate set",
+      "expected": "exactly one targeted warehouse clarification for stock-authorized humans while route kind remains UNIVERSAL; viewer/service denied without existence leak"
+    },
+    {
+      "caseId": "TC-ANALYSIS-01-RULE-COVERAGE",
+      "input": "Launch a new standard scenario from the admin UI and open its immutable result in /mtr-analysis",
+      "subjects": ["demo-user-001", "demo-analyst-001", "demo-viewer-001", "demo-service-001"],
+      "oracle": "independent raw position-to-applicable-rule join inside trusted project/source scope, with rule/document/clause version",
+      "expected": "applicable non-conflicting rule yields RESOLVED or justified REVIEW_REQUIRED with real citation; confidence below 1 alone does not require review; no 45%/UNRESOLVED fallback; scenario start denied for viewer/service"
+    },
+    {
+      "caseId": "TC-ANALYSIS-02-NO-RULE",
+      "input": "Run the controlled no-rule fixture in an isolated test database and render /mtr-analysis",
+      "subjects": ["demo-user-001"],
+      "oracle": "position has no applicable trusted-scope normative rule",
+      "expected": "INSUFFICIENT_DATA; responsibility and confidence are null; excluded from customer and contractor totals; incomplete normative coverage is explicit; target Preview dataset is not mutated"
+    }
+  ],
+  "immutability": {
+    "frozenFields": ["caseId", "input", "subjects", "oracle", "expected", "rbacBaseline", "referenceOracle", "baselineUnion"],
+    "allowedLaterChange": "technical locator only, with explicit review reason"
+  }
+}
