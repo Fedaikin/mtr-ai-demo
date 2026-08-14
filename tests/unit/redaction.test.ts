@@ -6,7 +6,7 @@ describe("central audit redaction", () => {
       promptVersion: "mtr-agent-v7",
       arguments: {
         materialCode: "SAP-DEMO-0001",
-        password: "Demo2026!",
+        password: "MtrLocalTestOnly!",
         nested: [{ authorization: "Bearer hidden-token" }],
       },
       documentText: "полный конфиденциальный документ",

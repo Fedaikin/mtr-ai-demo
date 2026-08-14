@@ -3,22 +3,59 @@ import type { Metadata } from "next";
 
 import { getRepository } from "@/adapters/persistence/repository";
 import { getReport } from "@/application/report-service";
+import { AgentOrchestratorWorkspace } from "@/components/agent-orchestrator-workspace";
 import { AnalysisReviewQueue } from "@/components/analysis-review-queue";
 import { PageHeader } from "@/components/page-header";
 import { formatDateTime, formatNumber } from "@/lib/format";
-import { responsibilityLabel } from "@/lib/localization";
+import { responsibilityLabel, runStatusLabel } from "@/lib/localization";
 import { requirePermission } from "@/lib/session";
 
 export const metadata: Metadata = { title: "МТР-анализ" };
 export const dynamic = "force-dynamic";
 
 export default async function MtrAnalysisPage() {
-  const [{ user }, repository] = await Promise.all([requirePermission("report.read"), getRepository()]);
-  const [latest] = await repository.listRuns(user.id, {
-    status: "COMPLETED",
-    limit: 1,
-    includeSteps: false,
-  });
+  const [session, repository] = await Promise.all([requirePermission("report.read"), getRepository()]);
+  const { user, authorization } = session;
+  const [runs, specifications, positions, threads] = await Promise.all([
+    repository.listRuns(user.id, { limit: 30, includeSteps: false }),
+    repository.listSpecifications(user.id),
+    repository.listPositions(user.id, { currentOnly: true, limit: 200 }),
+    repository.listAgentThreads(user.id),
+  ]);
+  const latest = runs.find((run) => run.status === "COMPLETED");
+  const now = new Date();
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60_000);
+  const workspace = authorization.activeProjectId && authorization.permissionKeys.has("agent.chat") ? (
+    <AgentOrchestratorWorkspace
+      displayName={user.displayName}
+      project={{ id: authorization.activeProjectId, label: "Демонстрационный проект МТР" }}
+      specifications={specifications.map((specification) => ({
+        id: specification.id,
+        label: `${specification.projectCode} · ${specification.name}`,
+      }))}
+      positions={positions.map((position) => ({
+        id: position.id,
+        specificationId: position.specificationId,
+        label: `${position.internalCode} · ${position.nameRu}`,
+      }))}
+      runs={runs.map((run) => ({
+        id: run.id,
+        label: `${runStatusLabel(run.status)} · ${formatDateTime(run.createdAt)}`,
+      }))}
+      initialContext={{
+        projectId: authorization.activeProjectId,
+        ...(latest ? { specificationId: latest.specificationId, runId: latest.id } : {}),
+      }}
+      initialThreads={threads.map((thread) => ({
+        id: thread.id,
+        title: thread.title,
+        createdAt: thread.createdAt,
+        updatedAt: thread.updatedAt,
+        version: thread.version,
+      }))}
+      initialPeriod={{ from: weekAgo.toISOString(), to: now.toISOString() }}
+    />
+  ) : null;
 
   if (!latest) {
     return (
@@ -28,6 +65,7 @@ export default async function MtrAnalysisPage() {
           title="МТР-анализ"
           description="Последний завершённый анализ по актуальной версии спецификации."
         />
+        {workspace}
         <EmptyState />
       </>
     );
@@ -72,6 +110,7 @@ export default async function MtrAnalysisPage() {
         title="МТР-анализ"
         description={`Последний завершённый отчёт от ${formatDateTime(report.generatedAt)}. Ответственность с неполной уверенностью не считается решением.`}
       />
+      {workspace}
       <nav aria-label="Подразделы МТР-анализа" className="mb-5 grid gap-3 md:grid-cols-3">
         <SectionLink href="#responsibility" number="01" title="Ответственность по позициям" description="Решение, уверенность и нормативное основание" />
         <SectionLink href="#doublechecker" number="02" title="Даблчекер МТР" description="Независимая проверка и решение эксперта" />

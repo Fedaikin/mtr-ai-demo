@@ -45,6 +45,10 @@ import {
   type CatalogueCategory,
   type CatalogueItemKind,
 } from "@/domain/catalogue";
+import type {
+  AgentAnalysisHistoryInput,
+  AgentAnalysisHistorySnapshot,
+} from "@/domain/agent/case";
 import { redactSensitiveRecord } from "@/lib/redaction";
 import type {
   CatalogAssemblyBom,
@@ -63,6 +67,14 @@ import { getSeedCounts, resetDemoDatabase, type SeedCounts } from "./bootstrap";
 import { type Database, getDatabase } from "./db";
 import {
   analysisReviewDecisions,
+  agentTasks,
+  agentActionProposals,
+  agentEventInbox,
+  agentMetricEvents,
+  agentCases,
+  agentEvidenceFacts,
+  agentPlanExecutions,
+  agentProactiveInsights,
   agentCitations,
   agentMessages,
   agentThreads,
@@ -75,6 +87,7 @@ import {
   catalogStockBalances,
   dictionaries,
   integrationStates,
+  materialMovements,
   normativeChunks,
   normativeDocuments,
   positionAnalysisResults,
@@ -105,6 +118,8 @@ export interface SapMaterialQuery {
   text?: string;
   equipmentType?: string;
   materialCode?: string;
+  /** Trusted storage-location scope applied by SQL before paging or counting. */
+  warehouseIds?: readonly string[];
   limit?: number;
   offset?: number;
   /** OData-compatible aliases used by the SAP mock port. */
@@ -118,6 +133,89 @@ export interface SapSearchResult {
   snapshotAt: string;
   nextOffset?: number;
   nextSkip?: number;
+}
+
+export interface AnalysisReviewTaskRow {
+  readonly id: string;
+  readonly ownerSubjectId: string;
+  readonly projectId: string;
+  readonly runId: string;
+  readonly resultId: string;
+  readonly positionId: string;
+  readonly status: string;
+  readonly doublecheckOutcome: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly decidedAt: string | null;
+}
+
+export interface AgentAssignedTaskRow {
+  readonly id: string;
+  readonly projectId: string;
+  readonly caseId: string | null;
+  readonly reviewDecisionId: string | null;
+  readonly assigneeUserId: string;
+  readonly assignedByUserId: string;
+  readonly kind: string;
+  readonly status: string;
+  readonly priority: string;
+  readonly title: string;
+  readonly reason: string;
+  readonly resourceType: string;
+  readonly resourceId: string;
+  readonly allowedActions: readonly string[];
+  readonly dueAt: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface CreateAgentAssignedTaskInput {
+  readonly id: string;
+  readonly projectId: string;
+  readonly caseId: string;
+  readonly reviewDecisionId?: string | null;
+  readonly assigneeUserId: string;
+  readonly kind: "ANALYSIS_REVIEW" | "EXPERT_REVIEW" | "DATA_CLARIFICATION" | "TECHNICAL";
+  readonly priority: "LOW" | "NORMAL" | "HIGH" | "CRITICAL";
+  readonly title: string;
+  readonly reason: string;
+  readonly resourceType: string;
+  readonly resourceId: string;
+  readonly allowedActions: readonly string[];
+  readonly dueAt?: string | null;
+  readonly idempotencyKey: string;
+  readonly authorizationVersion: number;
+  readonly roleAssignmentSnapshot: readonly string[];
+  readonly occurredAt: string;
+  readonly requestId: string;
+}
+
+export interface StartAgentCommandPlanInput {
+  readonly projectId: string;
+  readonly commandKey: string;
+  readonly correlationId: string;
+  readonly selection: Readonly<Record<string, unknown>>;
+  readonly actorDisplayName: string;
+  readonly authorizationVersion: number;
+  readonly roleAssignmentSnapshot: readonly string[];
+  readonly occurredAt: string;
+}
+
+export interface AgentCommandPlanHandle {
+  readonly id: string;
+  readonly caseId: string;
+  readonly version: number;
+}
+
+export interface AgentMetricEventQuery {
+  readonly projectId: string;
+  readonly from: string;
+  readonly to: string;
+}
+
+export interface MaterialMovementQuery extends AgentMetricEventQuery {
+  readonly warehouseIds: readonly string[];
+  readonly materialCodes?: readonly string[];
 }
 
 export interface CatalogOverview {
@@ -153,6 +251,7 @@ export interface ScenarioDefinitionRecord extends ScenarioDefinition {
 
 export interface CreateScenarioRunInput {
   id?: string;
+  projectId?: string;
   scenarioId: string;
   specificationId: string;
   retryOfRunId?: string;
@@ -181,6 +280,7 @@ export interface ScenarioRunUpdate {
 }
 
 export interface ScenarioRunQuery {
+  projectId?: string;
   scenarioId?: string;
   status?: ScenarioRunStatus;
   limit?: number;
@@ -321,6 +421,33 @@ export interface AgentAuditMetricsRecord {
   lastFailureAt: string | null;
 }
 
+/** Persisted, user-scoped facts for the typed orchestrator dashboard. */
+export interface AgentOrchestratorMetricsRecord {
+  commandRequests: number;
+  commandSucceeded: number;
+  commandFailed: number;
+  commandPartial: number;
+  commandP50Ms: number | null;
+  commandP95Ms: number | null;
+  noCitationResponses: number;
+  humanReviewResponses: number;
+  staleOrConflictFailures: number;
+  rbacDenials: number;
+  activePlans: number;
+  stuckPlans: number;
+  succeededPlans: number;
+  failedPlans: number;
+  planP95Ms: number | null;
+  actionsProposed: number;
+  actionsExecuting: number;
+  actionsSucceeded: number;
+  actionsFailed: number;
+  actionsCancelled: number;
+  actionsExpired: number;
+  activeInsights: number;
+  failedEvents: number;
+}
+
 export interface PromptVersionRecord {
   id: string;
   userId: string;
@@ -383,12 +510,14 @@ export interface SpecificationImportPositionInput {
 
 export interface PublishSpecificationImportInput {
   fileId: string;
+  projectId?: string;
   mode: "NEW" | "NEW_VERSION";
   projectCode?: string;
   name?: string;
   specificationId?: string;
   positions: SpecificationImportPositionInput[];
   validationSummary: Record<string, unknown>;
+  instructionHash?: string;
 }
 
 export interface AnalysisReviewSeed {
@@ -610,6 +739,12 @@ export class MtrRepository {
 
     return this.db.transaction(async (transaction) => {
       const tx = transaction as unknown as Database;
+      await tx.execute(sql`
+        select id from ${uploadedFiles}
+        where ${uploadedFiles.userId} = ${userId}
+          and ${uploadedFiles.id} = ${input.fileId}
+        for update
+      `);
       const [file] = await tx.select().from(uploadedFiles).where(and(
         eq(uploadedFiles.userId, userId),
         eq(uploadedFiles.id, input.fileId),
@@ -617,7 +752,24 @@ export class MtrRepository {
       if (!file) throw new Error("Загруженный файл не найден.");
       if (file.parseStatus !== "PARSED") throw new Error("Файл требует ручной проверки и не может быть опубликован.");
 
+      const [existingVersion] = await tx.select().from(specificationVersions).where(and(
+        eq(specificationVersions.userId, userId),
+        eq(specificationVersions.sourceFileId, file.id),
+      )).limit(1);
+      if (existingVersion) {
+        const [existingSpecification] = await tx.select().from(specifications).where(and(
+          eq(specifications.userId, userId),
+          eq(specifications.id, existingVersion.specificationId),
+        )).limit(1);
+        if (!existingSpecification) throw new Error("Опубликованная спецификация недоступна.");
+        return {
+          specification: toSpecification(existingSpecification),
+          version: toSpecificationVersion(existingVersion),
+        };
+      }
+
       const now = new Date().toISOString();
+      const projectId = input.projectId?.trim() || "demo-project-001";
       const specificationId = input.mode === "NEW"
         ? `spec-${randomUUID()}`
         : input.specificationId?.trim();
@@ -652,6 +804,7 @@ export class MtrRepository {
         await tx.insert(specifications).values({
           id: specificationId,
           userId,
+          projectId,
           projectCode: input.projectCode!.trim().slice(0, 120),
           name: input.name!.trim().slice(0, 300),
           latestVersionId: versionId,
@@ -666,6 +819,7 @@ export class MtrRepository {
         id: versionId,
         specificationId,
         userId,
+        projectId,
         versionNumber,
         isCurrent: true,
         status: "ACTIVE",
@@ -687,6 +841,7 @@ export class MtrRepository {
         specificationId,
         versionId,
         userId,
+        projectId,
         internalCode: position.internalCode,
         nameRu: position.nameRu,
         synonyms: [],
@@ -721,7 +876,14 @@ export class MtrRepository {
         entityType: "specification",
         entityId: specificationId,
         outcome: "SUCCESS",
-        details: { fileId: file.id, fileName: file.originalName, versionId, versionNumber, positionCount: input.positions.length },
+        details: {
+          fileId: file.id,
+          fileName: file.originalName,
+          versionId,
+          versionNumber,
+          positionCount: input.positions.length,
+          ...(input.instructionHash ? { instructionHash: input.instructionHash } : {}),
+        },
         retentionUntil: oneCalendarYearAfter(now),
       });
 
@@ -742,6 +904,29 @@ export class MtrRepository {
       .where(and(eq(specifications.userId, userId), eq(specifications.id, specificationId)))
       .limit(1);
     return row ? toSpecification(row) : null;
+  }
+
+  async getBusinessProjectInProject(
+    userId: string,
+    projectId: string,
+    businessProjectId: string,
+  ): Promise<{ id: string; accessProjectId: string } | null> {
+    trustedUser(userId);
+    const [row] = executedRows(await this.db.execute(sql`
+      select bp.id, bp.access_project_id
+      from business_projects bp
+      join project_memberships pm
+        on pm.project_id=bp.access_project_id
+       and pm.user_id=${userId}
+       and pm.status='ACTIVE'
+      where bp.tenant_id='demo-tenant-001'
+        and bp.access_project_id=${projectId}
+        and bp.id=${businessProjectId}
+      limit 1
+    `));
+    return row
+      ? { id: String(row.id), accessProjectId: String(row.access_project_id) }
+      : null;
   }
 
   async listSpecificationVersions(
@@ -892,6 +1077,7 @@ export class MtrRepository {
 
       const nextVersionNumber = current.versionNumber + 1;
       const nextVersionId = `${input.specificationId}-v${nextVersionNumber}`;
+      const projectId = current.projectId ?? "demo-project-001";
       const now = new Date().toISOString();
       const historicSnapshot = {
         schemaVersion: "1.0.0",
@@ -943,6 +1129,7 @@ export class MtrRepository {
           id: nextVersionId,
           specificationId: input.specificationId,
           userId,
+          projectId,
           versionNumber: nextVersionNumber,
           isCurrent: true,
           status: "ACTIVE",
@@ -960,6 +1147,7 @@ export class MtrRepository {
           specificationId: input.specificationId,
           versionId: nextVersionId,
           userId,
+          projectId,
           internalCode: position.internalCode,
           nameRu: position.nameRu,
           nameEn: position.nameEn,
@@ -1058,6 +1246,7 @@ export class MtrRepository {
     const positions = rows.map(({ position, versionNumber, isCurrentVersion, specificationName }) => ({
       id: position.id,
       userId: position.userId,
+      ...(position.projectId ? { projectId: position.projectId } : {}),
       internalCode: position.internalCode,
       nameRu: position.nameRu,
       ...(position.nameEn ? { nameEn: position.nameEn } : {}),
@@ -1102,6 +1291,7 @@ export class MtrRepository {
       return {
         id: position.id,
         userId,
+        ...(historic.version.projectId ? { projectId: historic.version.projectId } : {}),
         internalCode: position.internalCode,
         nameRu: position.nameRu,
         ...(position.nameEn ? { nameEn: position.nameEn } : {}),
@@ -1712,6 +1902,7 @@ export class MtrRepository {
       .values({
         id: input.id ?? `run-${randomUUID()}`,
         userId,
+        projectId: input.projectId ?? "demo-project-001",
         scenarioId: input.scenarioId,
         specificationId: input.specificationId,
         retryOfRunId: input.retryOfRunId,
@@ -1753,12 +1944,35 @@ export class MtrRepository {
     return this.getScenarioRun(userId, runId);
   }
 
+  async getScenarioRunInProject(
+    userId: string,
+    projectId: string,
+    runId: string,
+  ): Promise<ScenarioRun | null> {
+    trustedUser(userId);
+    const [row] = await this.db
+      .select()
+      .from(scenarioRuns)
+      .where(
+        and(
+          eq(scenarioRuns.userId, userId),
+          eq(scenarioRuns.projectId, projectId),
+          eq(scenarioRuns.id, runId),
+        ),
+      )
+      .limit(1);
+    if (!row) return null;
+    const steps = await this.listScenarioRunSteps(userId, runId);
+    return toScenarioRun(row, steps);
+  }
+
   async listScenarioRuns(
     userId: string,
     options: ScenarioRunQuery = {},
   ): Promise<ScenarioRun[]> {
     trustedUser(userId);
     const conditions: SQL[] = [eq(scenarioRuns.userId, userId)];
+    if (options.projectId) conditions.push(eq(scenarioRuns.projectId, options.projectId));
     if (options.scenarioId) conditions.push(eq(scenarioRuns.scenarioId, options.scenarioId));
     if (options.status) conditions.push(eq(scenarioRuns.status, options.status));
     const rows = await this.db
@@ -1904,18 +2118,19 @@ export class MtrRepository {
       ),
       inserted_step as (
         insert into ${scenarioRunSteps} (
-          id, run_id, user_id, status, label, outcome, started_at,
+          id, run_id, user_id, project_id, status, label, outcome, started_at,
           completed_at, duration_ms, details, idempotency_key,
           created_at, updated_at, created_by, version
         )
         select
-          ${stepId}, claim.id, claim.user_id, ${input.status}, ${input.label},
+          ${stepId}, claim.id, claim.user_id, claim.project_id, ${input.status}, ${input.label},
           'STARTED', ${input.startedAt}::timestamptz, null, null,
           ${JSON.stringify(claimDetails)}::jsonb, ${input.idempotencyKey},
           ${now}::timestamptz, ${now}::timestamptz, claim.user_id, 1
         from eligible_run claim
         on conflict (run_id, idempotency_key) do update set
           status = excluded.status,
+          project_id = excluded.project_id,
           label = excluded.label,
           outcome = excluded.outcome,
           started_at = excluded.started_at,
@@ -1942,6 +2157,7 @@ export class MtrRepository {
       select
         updated_run.id as "runId",
         updated_run.user_id as "runUserId",
+        updated_run.project_id as "runProjectId",
         updated_run.scenario_id as "runScenarioId",
         updated_run.specification_id as "runSpecificationId",
         updated_run.retry_of_run_id as "runRetryOfRunId",
@@ -1963,6 +2179,7 @@ export class MtrRepository {
         step.id as "stepId",
         step.run_id as "stepRunId",
         step.user_id as "stepUserId",
+        step.project_id as "stepProjectId",
         step.status as "stepStatus",
         step.label as "stepLabel",
         step.outcome as "stepOutcome",
@@ -2098,6 +2315,7 @@ export class MtrRepository {
         select
           updated_run.id as "runId",
           updated_run.user_id as "runUserId",
+          updated_run.project_id as "runProjectId",
           updated_run.scenario_id as "runScenarioId",
           updated_run.specification_id as "runSpecificationId",
           updated_run.retry_of_run_id as "runRetryOfRunId",
@@ -2119,6 +2337,7 @@ export class MtrRepository {
           step.id as "stepId",
           step.run_id as "stepRunId",
           step.user_id as "stepUserId",
+          step.project_id as "stepProjectId",
           step.status as "stepStatus",
           step.label as "stepLabel",
           step.outcome as "stepOutcome",
@@ -2222,13 +2441,13 @@ export class MtrRepository {
           returning result.id
         ),
         inserted_step as (
-          insert into ${scenarioRunSteps} (
-            id, run_id, user_id, status, label, outcome, started_at,
+        insert into ${scenarioRunSteps} (
+            id, run_id, user_id, project_id, status, label, outcome, started_at,
             completed_at, duration_ms, details, idempotency_key,
             created_at, updated_at, created_by, version
           )
           select
-            ${stepId}, claim.id, claim.user_id, ${input.status}, ${input.label}, 'CANCELLED',
+            ${stepId}, claim.id, claim.user_id, claim.project_id, ${input.status}, ${input.label}, 'CANCELLED',
             ${input.startedAt}::timestamptz, ${now}::timestamptz, ${input.durationMs ?? 0},
             ${JSON.stringify(details)}::jsonb, ${input.idempotencyKey},
             clock_timestamp(), clock_timestamp(), claim.user_id, 1
@@ -2254,6 +2473,7 @@ export class MtrRepository {
         select
           updated_run.id as "runId",
           updated_run.user_id as "runUserId",
+          updated_run.project_id as "runProjectId",
           updated_run.scenario_id as "runScenarioId",
           updated_run.specification_id as "runSpecificationId",
           updated_run.retry_of_run_id as "runRetryOfRunId",
@@ -2275,6 +2495,7 @@ export class MtrRepository {
           step.id as "stepId",
           step.run_id as "stepRunId",
           step.user_id as "stepUserId",
+          step.project_id as "stepProjectId",
           step.status as "stepStatus",
           step.label as "stepLabel",
           step.outcome as "stepOutcome",
@@ -2498,6 +2719,7 @@ export class MtrRepository {
         id: sql<string>`${stepId}`.as("id"),
         runId: scenarioRuns.id,
         userId: scenarioRuns.userId,
+        projectId: scenarioRuns.projectId,
         status: sql<ScenarioRunStatus>`${input.status}`.as("status"),
         label: sql<string>`${input.label}`.as("label"),
         outcome: sql<string>`${input.outcome}`.as("outcome"),
@@ -2575,6 +2797,7 @@ export class MtrRepository {
         id: input.id ?? `result-${randomUUID()}`,
         runId: input.runId,
         userId,
+        projectId: run.projectId ?? "demo-project-001",
         positionId: input.positionId,
         responsibility: input.responsibility,
         responsibilityConfidence: confidenceDecimal(input.responsibilityConfidence),
@@ -2630,7 +2853,7 @@ export class MtrRepository {
     return this.db.transaction(async (transaction) => {
       const tx = transaction as unknown as Database;
       const lockedRun = executedRows(await tx.execute(sql`
-        select id, version, status
+        select id, project_id, version, status
         from ${scenarioRuns}
         where ${scenarioRuns.userId} = ${userId}
           and ${scenarioRuns.id} = ${runIds[0]!}
@@ -2676,6 +2899,7 @@ export class MtrRepository {
           id: input.id ?? `result-${randomUUID()}`,
           runId: input.runId,
           userId,
+          projectId: lockedRun.project_id === null ? "demo-project-001" : String(lockedRun.project_id),
           positionId: input.positionId,
           responsibility: input.responsibility,
           responsibilityConfidence: confidenceDecimal(input.responsibilityConfidence),
@@ -2762,6 +2986,407 @@ export class MtrRepository {
       eq(analysisReviewDecisions.userId, userId),
       eq(analysisReviewDecisions.runId, runId),
     )).orderBy(asc(analysisReviewDecisions.positionId));
+  }
+
+  async listAnalysisReviewTasksInProject(
+    userId: string,
+    projectId: string,
+  ): Promise<AnalysisReviewTaskRow[]> {
+    trustedUser(userId);
+    const rows = await this.db
+      .select({ review: analysisReviewDecisions, runProjectId: scenarioRuns.projectId })
+      .from(analysisReviewDecisions)
+      .innerJoin(
+        scenarioRuns,
+        and(
+          eq(scenarioRuns.id, analysisReviewDecisions.runId),
+          eq(scenarioRuns.userId, userId),
+          eq(scenarioRuns.projectId, projectId),
+        ),
+      )
+      .where(eq(analysisReviewDecisions.userId, userId))
+      .orderBy(desc(analysisReviewDecisions.updatedAt), asc(analysisReviewDecisions.id));
+    return rows.map(({ review, runProjectId }) => ({
+      id: review.id,
+      ownerSubjectId: review.userId,
+      projectId: runProjectId ?? projectId,
+      runId: review.runId,
+      resultId: review.resultId,
+      positionId: review.positionId,
+      status: review.status,
+      doublecheckOutcome: review.doublecheckOutcome,
+      createdAt: review.createdAt,
+      updatedAt: review.updatedAt,
+      decidedAt: review.decidedAt,
+    }));
+  }
+
+  async findActiveProjectExpert(
+    actorUserId: string,
+    projectId: string,
+    requestedAssigneeUserId?: string | null,
+  ): Promise<string | null> {
+    trustedUser(actorUserId);
+    const requested = requestedAssigneeUserId?.trim() || null;
+    const candidates = executedRows(await this.db.execute(sql`
+      select u.id
+      from users u
+      join project_memberships pm on pm.user_id = u.id and pm.project_id = ${projectId}
+      join role_assignments ra on ra.user_id = u.id and ra.project_id = ${projectId}
+      join roles r on r.id = ra.role_id
+      where u.status = 'ACTIVE'
+        and pm.status = 'ACTIVE'
+        and pm.valid_from <= now() and (pm.valid_until is null or pm.valid_until > now())
+        and ra.status = 'ACTIVE'
+        and ra.valid_from <= now() and (ra.valid_until is null or ra.valid_until > now())
+        and r.active = true and r.key = 'MTR_EXPERT'
+        and (${requested}::text is null or u.id = ${requested})
+      order by u.id
+      limit 1
+    `));
+    return candidates[0]?.id ? String(candidates[0].id) : null;
+  }
+
+  async startAgentCommandPlan(
+    actorUserId: string,
+    input: StartAgentCommandPlanInput,
+  ): Promise<AgentCommandPlanHandle> {
+    trustedUser(actorUserId);
+    const fingerprint = createHash("sha256").update([
+      actorUserId,
+      input.projectId,
+      input.commandKey,
+      input.correlationId,
+    ].join("\u001f")).digest("hex");
+    const caseId = `case-command-${fingerprint.slice(0, 24)}`;
+    const planId = `plan-${fingerprint.slice(0, 24)}`;
+    const idempotencyKey = `command-plan:${fingerprint}`;
+    const steps = [
+      { index: 1, key: "VALIDATE_TRUSTED_CONTEXT", status: "SUCCEEDED" },
+      { index: 2, key: "AUTHORIZE_AND_EXECUTE", status: "RUNNING" },
+      { index: 3, key: "PERSIST_PLAN_AUDIT", status: "PLANNED" },
+    ];
+    return this.db.transaction(async (transaction) => {
+      const tx = transaction as unknown as Database;
+      await tx.insert(agentCases).values({
+        id: caseId,
+        tenantId: "demo-tenant-001",
+        projectId: input.projectId,
+        ownerUserId: actorUserId,
+        status: "GATHERING_DATA",
+        title: `Команда МТР-агента: ${input.commandKey}`,
+        contextSnapshot: safeAgentSelection(input.selection),
+        authorizationVersion: input.authorizationVersion,
+        roleAssignmentSnapshot: [...input.roleAssignmentSnapshot],
+        createdByUserId: actorUserId,
+        createdAt: input.occurredAt,
+        updatedAt: input.occurredAt,
+        retentionUntil: oneCalendarYearAfter(input.occurredAt),
+      }).onConflictDoNothing();
+      const [existing] = await tx.select().from(agentPlanExecutions).where(and(
+        eq(agentPlanExecutions.tenantId, "demo-tenant-001"),
+        eq(agentPlanExecutions.projectId, input.projectId),
+        eq(agentPlanExecutions.idempotencyKey, idempotencyKey),
+      )).limit(1);
+      if (existing) return { id: existing.id, caseId: existing.caseId, version: existing.version };
+      const [created] = await tx.insert(agentPlanExecutions).values({
+        id: planId,
+        tenantId: "demo-tenant-001",
+        projectId: input.projectId,
+        caseId,
+        actorUserId,
+        intent: "READ_ONLY_COMMAND",
+        commandKey: input.commandKey,
+        status: "RUNNING",
+        planVersion: "typed-command-plan-v1",
+        steps,
+        currentStep: 2,
+        maxSteps: 3,
+        correlationId: input.correlationId,
+        idempotencyKey,
+        authorizationVersion: input.authorizationVersion,
+        roleAssignmentSnapshot: [...input.roleAssignmentSnapshot],
+        startedAt: input.occurredAt,
+        createdAt: input.occurredAt,
+        updatedAt: input.occurredAt,
+        retentionUntil: oneCalendarYearAfter(input.occurredAt),
+      }).onConflictDoNothing().returning();
+      if (!created) {
+        const [concurrent] = await tx.select().from(agentPlanExecutions).where(and(
+          eq(agentPlanExecutions.tenantId, "demo-tenant-001"),
+          eq(agentPlanExecutions.projectId, input.projectId),
+          eq(agentPlanExecutions.idempotencyKey, idempotencyKey),
+        )).limit(1);
+        if (!concurrent) throw new Error("AGENT_COMMAND_PLAN_CREATE_FAILED");
+        return { id: concurrent.id, caseId: concurrent.caseId, version: concurrent.version };
+      }
+      await tx.insert(auditLogs).values({
+        id: `audit-${randomUUID()}`,
+        userId: actorUserId,
+        actorDisplayName: input.actorDisplayName,
+        action: "agent.plan.started",
+        entityType: "AGENT_PLAN_EXECUTION",
+        entityId: created.id,
+        outcome: "SUCCESS",
+        details: {
+          projectId: input.projectId,
+          commandKey: input.commandKey,
+          planVersion: created.planVersion,
+          maxSteps: created.maxSteps,
+          authorizationVersion: input.authorizationVersion,
+        },
+        occurredAt: input.occurredAt,
+        retentionUntil: oneCalendarYearAfter(input.occurredAt),
+        requestId: input.correlationId,
+      });
+      return { id: created.id, caseId: created.caseId, version: created.version };
+    });
+  }
+
+  async finishAgentCommandPlan(
+    actorUserId: string,
+    input: AgentCommandPlanHandle & {
+      readonly projectId: string;
+      readonly correlationId: string;
+      readonly status: "SUCCEEDED" | "FAILED";
+      readonly occurredAt: string;
+      readonly safeErrorCode?: string;
+      readonly analysisHistory?: AgentAnalysisHistoryInput;
+      readonly actorDisplayName: string;
+    },
+  ): Promise<void> {
+    trustedUser(actorUserId);
+    await this.db.transaction(async (transaction) => {
+      const tx = transaction as unknown as Database;
+      const [current] = await tx.select().from(agentPlanExecutions).where(and(
+        eq(agentPlanExecutions.id, input.id),
+        eq(agentPlanExecutions.tenantId, "demo-tenant-001"),
+        eq(agentPlanExecutions.projectId, input.projectId),
+        eq(agentPlanExecutions.actorUserId, actorUserId),
+      )).limit(1);
+      if (!current) throw new Error("AGENT_COMMAND_PLAN_NOT_FOUND");
+      if (current.status === input.status) return;
+      const steps = current.steps.map((step) => {
+        if (step.key === "AUTHORIZE_AND_EXECUTE") {
+          return {
+            ...step,
+            status: input.status,
+            ...(input.safeErrorCode ? { safeErrorCode: input.safeErrorCode } : {}),
+          };
+        }
+        if (step.key === "PERSIST_PLAN_AUDIT") {
+          return { ...step, status: input.status === "SUCCEEDED" ? "SUCCEEDED" : "CANCELLED" };
+        }
+        return step;
+      });
+      const [updated] = await tx.update(agentPlanExecutions).set({
+        status: input.status,
+        steps,
+        currentStep: 3,
+        completedAt: input.occurredAt,
+        safeErrorCode: input.safeErrorCode ?? null,
+        updatedAt: input.occurredAt,
+        version: current.version + 1,
+      }).where(and(
+        eq(agentPlanExecutions.id, input.id),
+        eq(agentPlanExecutions.status, "RUNNING"),
+        eq(agentPlanExecutions.version, current.version),
+      )).returning();
+      if (!updated) throw new Error("AGENT_COMMAND_PLAN_OPTIMISTIC_LOCK");
+      const [currentCase] = await tx.select().from(agentCases).where(and(
+        eq(agentCases.id, input.caseId),
+        eq(agentCases.tenantId, "demo-tenant-001"),
+        eq(agentCases.projectId, input.projectId),
+        eq(agentCases.ownerUserId, actorUserId),
+      )).limit(1);
+      if (!currentCase) throw new Error("AGENT_COMMAND_CASE_NOT_FOUND");
+      const analysisHistory = input.analysisHistory
+        ? await buildAgentAnalysisHistory(tx, {
+            actorUserId,
+            projectId: input.projectId,
+            caseId: input.caseId,
+            selection: currentCase.contextSnapshot,
+            authorizationVersion: currentCase.authorizationVersion,
+            roleAssignmentSnapshot: currentCase.roleAssignmentSnapshot,
+            input: input.analysisHistory,
+          })
+        : null;
+      await tx.update(agentCases).set({
+        status: input.status === "SUCCEEDED" ? "ANALYZED" : "BLOCKED",
+        ...(analysisHistory
+          ? { contextSnapshot: { ...currentCase.contextSnapshot, analysisHistory } }
+          : {}),
+        updatedAt: input.occurredAt,
+      }).where(and(
+        eq(agentCases.id, input.caseId),
+        eq(agentCases.tenantId, "demo-tenant-001"),
+        eq(agentCases.projectId, input.projectId),
+        eq(agentCases.ownerUserId, actorUserId),
+      ));
+      await tx.insert(auditLogs).values({
+        id: `audit-${randomUUID()}`,
+        userId: actorUserId,
+        actorDisplayName: input.actorDisplayName,
+        action: input.status === "SUCCEEDED" ? "agent.plan.completed" : "agent.plan.failed",
+        entityType: "AGENT_PLAN_EXECUTION",
+        entityId: input.id,
+        outcome: input.status === "SUCCEEDED" ? "SUCCESS" : "FAILURE",
+        details: {
+          projectId: input.projectId,
+          status: input.status,
+          currentStep: 3,
+          ...(input.safeErrorCode ? { safeErrorCode: input.safeErrorCode } : {}),
+        },
+        occurredAt: input.occurredAt,
+        retentionUntil: oneCalendarYearAfter(input.occurredAt),
+        requestId: input.correlationId,
+      });
+    });
+  }
+
+  async createOrGetAgentAssignedTask(
+    assignedByUserId: string,
+    input: CreateAgentAssignedTaskInput,
+  ): Promise<AgentAssignedTaskRow> {
+    trustedUser(assignedByUserId);
+    return this.db.transaction(async (transaction) => {
+      const tx = transaction as unknown as Database;
+      const [expert] = executedRows(await tx.execute(sql`
+        select u.id
+        from users u
+        join project_memberships pm on pm.user_id = u.id and pm.project_id = ${input.projectId}
+        join role_assignments ra on ra.user_id = u.id and ra.project_id = ${input.projectId}
+        join roles r on r.id = ra.role_id
+        where u.id = ${input.assigneeUserId}
+          and u.status = 'ACTIVE' and pm.status = 'ACTIVE' and ra.status = 'ACTIVE' and r.active = true
+          and pm.valid_from <= now() and (pm.valid_until is null or pm.valid_until > now())
+          and ra.valid_from <= now() and (ra.valid_until is null or ra.valid_until > now())
+          and r.key = 'MTR_EXPERT'
+        limit 1
+      `));
+      if (!expert) throw new Error("AGENT_TASK_ASSIGNEE_NOT_EXPERT");
+
+      const [existing] = await tx.select().from(agentTasks).where(and(
+        eq(agentTasks.tenantId, "demo-tenant-001"),
+        eq(agentTasks.projectId, input.projectId),
+        eq(agentTasks.idempotencyKey, input.idempotencyKey),
+      )).limit(1);
+      if (existing) return toAgentAssignedTask(existing);
+
+      const [created] = await tx.insert(agentTasks).values({
+        id: input.id,
+        tenantId: "demo-tenant-001",
+        projectId: input.projectId,
+        caseId: input.caseId,
+        reviewDecisionId: input.reviewDecisionId ?? null,
+        assigneeUserId: input.assigneeUserId,
+        assignedByUserId,
+        kind: input.kind,
+        status: "AWAITING_ACCEPTANCE",
+        priority: input.priority,
+        title: input.title,
+        reason: input.reason,
+        resourceType: input.resourceType,
+        resourceId: input.resourceId,
+        allowedActions: [...input.allowedActions],
+        assignmentHistory: [{
+          action: "ASSIGNED",
+          actorUserId: assignedByUserId,
+          assigneeUserId: input.assigneeUserId,
+          occurredAt: input.occurredAt,
+        }],
+        idempotencyKey: input.idempotencyKey,
+        dueAt: input.dueAt ?? null,
+        authorizationVersion: input.authorizationVersion,
+        roleAssignmentSnapshot: [...input.roleAssignmentSnapshot],
+        createdAt: input.occurredAt,
+        updatedAt: input.occurredAt,
+        retentionUntil: oneCalendarYearAfter(input.occurredAt),
+      }).onConflictDoNothing().returning();
+      if (!created) {
+        const [raced] = await tx.select().from(agentTasks).where(and(
+          eq(agentTasks.tenantId, "demo-tenant-001"),
+          eq(agentTasks.projectId, input.projectId),
+          eq(agentTasks.idempotencyKey, input.idempotencyKey),
+        )).limit(1);
+        if (!raced) throw new Error("AGENT_TASK_IDEMPOTENCY_RACE");
+        return toAgentAssignedTask(raced);
+      }
+      await tx.insert(auditLogs).values({
+        id: `audit-${randomUUID()}`,
+        userId: assignedByUserId,
+        actorDisplayName: assignedByUserId,
+        action: "agent.task.created",
+        entityType: "AGENT_TASK",
+        entityId: created.id,
+        outcome: "SUCCESS",
+        details: {
+          projectId: input.projectId,
+          caseId: input.caseId,
+          assigneeUserId: input.assigneeUserId,
+          kind: input.kind,
+          priority: input.priority,
+          authorizationVersion: input.authorizationVersion,
+          roleAssignmentSnapshot: input.roleAssignmentSnapshot,
+        },
+        occurredAt: input.occurredAt,
+        retentionUntil: oneCalendarYearAfter(input.occurredAt),
+        requestId: input.requestId,
+      });
+      return toAgentAssignedTask(created);
+    });
+  }
+
+  async listAgentAssignedTasksInProject(
+    assigneeUserId: string,
+    projectId: string,
+  ): Promise<AgentAssignedTaskRow[]> {
+    trustedUser(assigneeUserId);
+    const rows = await this.db.select().from(agentTasks).where(and(
+      eq(agentTasks.tenantId, "demo-tenant-001"),
+      eq(agentTasks.projectId, projectId),
+      eq(agentTasks.assigneeUserId, assigneeUserId),
+    )).orderBy(desc(agentTasks.updatedAt), asc(agentTasks.id));
+    return rows.map(toAgentAssignedTask);
+  }
+
+  async listAgentMetricEvents(
+    userId: string,
+    query: AgentMetricEventQuery,
+  ): Promise<Array<typeof agentMetricEvents.$inferSelect>> {
+    trustedUser(userId);
+    return this.db
+      .select()
+      .from(agentMetricEvents)
+      .where(and(
+        eq(agentMetricEvents.tenantId, "demo-tenant-001"),
+        eq(agentMetricEvents.projectId, query.projectId),
+        gte(agentMetricEvents.occurredAt, query.from),
+        lt(agentMetricEvents.occurredAt, query.to),
+      ))
+      .orderBy(asc(agentMetricEvents.occurredAt), asc(agentMetricEvents.id));
+  }
+
+  async listMaterialMovements(
+    userId: string,
+    query: MaterialMovementQuery,
+  ): Promise<Array<typeof materialMovements.$inferSelect>> {
+    trustedUser(userId);
+    if (query.warehouseIds.length === 0) return [];
+    return this.db
+      .select()
+      .from(materialMovements)
+      .where(and(
+        eq(materialMovements.tenantId, "demo-tenant-001"),
+        eq(materialMovements.projectId, query.projectId),
+        inArray(materialMovements.storageLocation, [...query.warehouseIds]),
+        gte(materialMovements.occurredAt, query.from),
+        lt(materialMovements.occurredAt, query.to),
+        ...(query.materialCodes && query.materialCodes.length > 0
+          ? [inArray(materialMovements.materialCode, [...query.materialCodes])]
+          : []),
+      ))
+      .orderBy(asc(materialMovements.occurredAt), asc(materialMovements.id));
   }
 
   async decideAnalysisReview(
@@ -3135,6 +3760,173 @@ export class MtrRepository {
       expertReviews: finiteNumber(row.expertReviews),
       lastSuccessAt: nullableTimestamp(row.lastSuccessAt),
       lastFailureAt: nullableTimestamp(row.lastFailureAt),
+    };
+  }
+
+  /**
+   * Aggregates only persisted orchestrator facts. The query never reads chat
+   * text, action parameters, event payloads, tool output, or evidence bodies.
+   */
+  async getAgentOrchestratorMetrics(userId: string): Promise<AgentOrchestratorMetricsRecord> {
+    trustedUser(userId);
+    const result = await this.db.execute(sql`
+      with command_entries as (
+        select
+          ${auditLogs.action} as action,
+          ${auditLogs.details} as details,
+          case
+            when jsonb_typeof(${auditLogs.details} -> 'durationMs') = 'number'
+              then (${auditLogs.details} ->> 'durationMs')::double precision
+            else null
+          end as duration_ms,
+          case
+            when jsonb_typeof(${auditLogs.details} -> 'missingDataCount') = 'number'
+              then (${auditLogs.details} ->> 'missingDataCount')::integer
+            else 0
+          end as missing_data_count,
+          case
+            when jsonb_typeof(${auditLogs.details} -> 'citationCount') = 'number'
+              then (${auditLogs.details} ->> 'citationCount')::integer
+            else null
+          end as citation_count,
+          (${auditLogs.details} -> 'requiresHumanReview') = 'true'::jsonb as requires_review,
+          coalesce(${auditLogs.details} ->> 'errorCode', '') as error_code
+        from ${auditLogs}
+        where ${auditLogs.userId} = ${userId}
+          and ${auditLogs.action} in (
+            'agent.command.received',
+            'agent.command.completed',
+            'agent.command.failed'
+          )
+      ),
+      command_stats as (
+        select
+          count(*) filter (where action = 'agent.command.received')::integer as requests,
+          count(*) filter (where action = 'agent.command.completed')::integer as succeeded,
+          count(*) filter (where action = 'agent.command.failed')::integer as failed,
+          count(*) filter (
+            where action = 'agent.command.completed' and missing_data_count > 0
+          )::integer as partial,
+          round(percentile_disc(0.5) within group (order by duration_ms)
+            filter (where action = 'agent.command.completed' and duration_ms is not null))::integer as p50_ms,
+          round(percentile_disc(0.95) within group (order by duration_ms)
+            filter (where action = 'agent.command.completed' and duration_ms is not null))::integer as p95_ms,
+          count(*) filter (
+            where action = 'agent.command.completed' and citation_count = 0
+          )::integer as no_citation,
+          count(*) filter (
+            where action = 'agent.command.completed' and requires_review
+          )::integer as human_review,
+          count(*) filter (
+            where action = 'agent.command.failed'
+              and (error_code like '%STALE%' or error_code like '%CONFLICT%')
+          )::integer as stale_or_conflict,
+          count(*) filter (
+            where action = 'agent.command.failed'
+              and (
+                error_code like '%FORBIDDEN%'
+                or error_code like '%PERMISSION_DENIED%'
+                or error_code like '%ACCESS_DENIED%'
+                or error_code like '%SCOPE_DENIED%'
+              )
+          )::integer as rbac_denials
+        from command_entries
+      ),
+      plan_stats as (
+        select
+          count(*) filter (where ${agentPlanExecutions.status} in ('PLANNED','RUNNING'))::integer as active,
+          count(*) filter (
+            where ${agentPlanExecutions.status} in ('PLANNED','RUNNING')
+              and ${agentPlanExecutions.updatedAt} < now() - interval '5 minutes'
+          )::integer as stuck,
+          count(*) filter (where ${agentPlanExecutions.status} = 'SUCCEEDED')::integer as succeeded,
+          count(*) filter (where ${agentPlanExecutions.status} in ('FAILED','CANCELLED','EXPIRED'))::integer as failed,
+          round(percentile_disc(0.95) within group (
+            order by extract(epoch from (${agentPlanExecutions.completedAt} - ${agentPlanExecutions.startedAt})) * 1000
+          ) filter (
+            where ${agentPlanExecutions.completedAt} is not null
+              and ${agentPlanExecutions.startedAt} is not null
+          ))::integer as p95_ms
+        from ${agentPlanExecutions}
+        where ${agentPlanExecutions.actorUserId} = ${userId}
+      ),
+      action_stats as (
+        select
+          count(*) filter (where ${agentActionProposals.status} = 'PROPOSED')::integer as proposed,
+          count(*) filter (where ${agentActionProposals.status} in ('CONFIRMED','EXECUTING'))::integer as executing,
+          count(*) filter (where ${agentActionProposals.status} = 'SUCCEEDED')::integer as succeeded,
+          count(*) filter (where ${agentActionProposals.status} = 'FAILED')::integer as failed,
+          count(*) filter (where ${agentActionProposals.status} = 'CANCELLED')::integer as cancelled,
+          count(*) filter (where ${agentActionProposals.status} = 'EXPIRED')::integer as expired
+        from ${agentActionProposals}
+        where ${agentActionProposals.proposedByUserId} = ${userId}
+      ),
+      insight_stats as (
+        select count(*) filter (where ${agentProactiveInsights.status} = 'ACTIVE')::integer as active
+        from ${agentProactiveInsights}
+        where ${agentProactiveInsights.subjectUserId} = ${userId}
+          or ${agentProactiveInsights.createdByUserId} = ${userId}
+      ),
+      event_stats as (
+        select count(*) filter (
+          where ${agentEventInbox.status} in ('FAILED','DEAD_LETTER')
+        )::integer as failed
+        from ${agentEventInbox}
+        where ${agentEventInbox.actorUserId} = ${userId}
+      )
+      select
+        command_stats.requests as "commandRequests",
+        command_stats.succeeded as "commandSucceeded",
+        command_stats.failed as "commandFailed",
+        command_stats.partial as "commandPartial",
+        command_stats.p50_ms as "commandP50Ms",
+        command_stats.p95_ms as "commandP95Ms",
+        command_stats.no_citation as "noCitationResponses",
+        command_stats.human_review as "humanReviewResponses",
+        command_stats.stale_or_conflict as "staleOrConflictFailures",
+        command_stats.rbac_denials as "rbacDenials",
+        plan_stats.active as "activePlans",
+        plan_stats.stuck as "stuckPlans",
+        plan_stats.succeeded as "succeededPlans",
+        plan_stats.failed as "failedPlans",
+        plan_stats.p95_ms as "planP95Ms",
+        action_stats.proposed as "actionsProposed",
+        action_stats.executing as "actionsExecuting",
+        action_stats.succeeded as "actionsSucceeded",
+        action_stats.failed as "actionsFailed",
+        action_stats.cancelled as "actionsCancelled",
+        action_stats.expired as "actionsExpired",
+        insight_stats.active as "activeInsights",
+        event_stats.failed as "failedEvents"
+      from command_stats, plan_stats, action_stats, insight_stats, event_stats
+    `);
+    const row = executedRows(result)[0];
+    if (!row) throw new Error("Не удалось рассчитать метрики оркестратора МТР-агента.");
+
+    return {
+      commandRequests: finiteNumber(row.commandRequests),
+      commandSucceeded: finiteNumber(row.commandSucceeded),
+      commandFailed: finiteNumber(row.commandFailed),
+      commandPartial: finiteNumber(row.commandPartial),
+      commandP50Ms: nullableFiniteNumber(row.commandP50Ms),
+      commandP95Ms: nullableFiniteNumber(row.commandP95Ms),
+      noCitationResponses: finiteNumber(row.noCitationResponses),
+      humanReviewResponses: finiteNumber(row.humanReviewResponses),
+      staleOrConflictFailures: finiteNumber(row.staleOrConflictFailures),
+      rbacDenials: finiteNumber(row.rbacDenials),
+      activePlans: finiteNumber(row.activePlans),
+      stuckPlans: finiteNumber(row.stuckPlans),
+      succeededPlans: finiteNumber(row.succeededPlans),
+      failedPlans: finiteNumber(row.failedPlans),
+      planP95Ms: nullableFiniteNumber(row.planP95Ms),
+      actionsProposed: finiteNumber(row.actionsProposed),
+      actionsExecuting: finiteNumber(row.actionsExecuting),
+      actionsSucceeded: finiteNumber(row.actionsSucceeded),
+      actionsFailed: finiteNumber(row.actionsFailed),
+      actionsCancelled: finiteNumber(row.actionsCancelled),
+      actionsExpired: finiteNumber(row.actionsExpired),
+      activeInsights: finiteNumber(row.activeInsights),
+      failedEvents: finiteNumber(row.failedEvents),
     };
   }
 
@@ -3547,6 +4339,7 @@ function toSpecification(row: typeof specifications.$inferSelect): Specification
   return {
     id: row.id,
     userId: row.userId,
+    ...(row.projectId ? { projectId: row.projectId } : {}),
     projectCode: row.projectCode,
     name: row.name,
     latestVersionId: row.latestVersionId,
@@ -3571,6 +4364,28 @@ function toSpecificationVersion(row: typeof specificationVersions.$inferSelect):
     ...(row.publishedBy ? { publishedBy: row.publishedBy } : {}),
     ...(row.publishedAt ? { publishedAt: row.publishedAt } : {}),
     ...(row.validationSummary ? { validationSummary: row.validationSummary } : {}),
+  };
+}
+
+function toAgentAssignedTask(row: typeof agentTasks.$inferSelect): AgentAssignedTaskRow {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    caseId: row.caseId,
+    reviewDecisionId: row.reviewDecisionId,
+    assigneeUserId: row.assigneeUserId,
+    assignedByUserId: row.assignedByUserId,
+    kind: row.kind,
+    status: row.status,
+    priority: row.priority,
+    title: row.title,
+    reason: row.reason,
+    resourceType: row.resourceType,
+    resourceId: row.resourceId,
+    allowedActions: row.allowedActions,
+    dueAt: row.dueAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   };
 }
 
@@ -3850,6 +4665,13 @@ function sapConditions(userId: string, options: SapMaterialQuery): SQL[] {
   const conditions: SQL[] = [eq(sapMaterials.userId, userId)];
   if (options.equipmentType) conditions.push(eq(sapMaterials.equipmentType, options.equipmentType));
   if (options.materialCode) conditions.push(eq(sapMaterials.materialCode, options.materialCode));
+  if (options.warehouseIds) {
+    conditions.push(
+      options.warehouseIds.length > 0
+        ? inArray(sapStockBalances.storageLocation, [...options.warehouseIds])
+        : sql<boolean>`false`,
+    );
+  }
   if (options.text?.trim()) {
     const pattern = `%${escapeLike(options.text.trim())}%`;
     conditions.push(
@@ -3963,6 +4785,139 @@ function nullableTimestamp(value: unknown): string | null {
   return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
 }
 
+function safeAgentSelection(value: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  const output: Record<string, unknown> = {};
+  for (const key of ["projectId", "specificationId", "positionId", "runId"] as const) {
+    const item = value[key];
+    if (typeof item === "string" && item.trim() && item.length <= 200) output[key] = item.trim();
+  }
+  const period = value.period;
+  if (period && typeof period === "object" && !Array.isArray(period)) {
+    const candidate = period as Record<string, unknown>;
+    if (
+      typeof candidate.from === "string" &&
+      typeof candidate.to === "string" &&
+      Number.isFinite(Date.parse(candidate.from)) &&
+      Number.isFinite(Date.parse(candidate.to)) &&
+      Date.parse(candidate.from) < Date.parse(candidate.to)
+    ) output.period = { from: candidate.from, to: candidate.to };
+  }
+  return output;
+}
+
+async function buildAgentAnalysisHistory(
+  db: Database,
+  args: {
+    readonly actorUserId: string;
+    readonly projectId: string;
+    readonly caseId: string;
+    readonly selection: Readonly<Record<string, unknown>>;
+    readonly authorizationVersion: number;
+    readonly roleAssignmentSnapshot: readonly string[];
+    readonly input: AgentAnalysisHistoryInput;
+  },
+): Promise<AgentAnalysisHistorySnapshot> {
+  const positionId = typeof args.selection.positionId === "string"
+    ? args.selection.positionId
+    : null;
+  const [previous] = positionId
+    ? await db.select({ id: agentCases.id, contextSnapshot: agentCases.contextSnapshot })
+        .from(agentCases)
+        .where(and(
+          eq(agentCases.tenantId, "demo-tenant-001"),
+          eq(agentCases.projectId, args.projectId),
+          eq(agentCases.ownerUserId, args.actorUserId),
+          ne(agentCases.id, args.caseId),
+          sql`${agentCases.contextSnapshot}->>'positionId' = ${positionId}`,
+          sql`${agentCases.contextSnapshot}->'analysisHistory' is not null`,
+        ))
+        .orderBy(desc(agentCases.updatedAt), desc(agentCases.id))
+        .limit(1)
+    : [];
+  const previousHistory = asAgentAnalysisHistory(previous?.contextSnapshot.analysisHistory);
+  const conclusionFingerprint = createHash("sha256").update(JSON.stringify({
+    summary: args.input.summary,
+    recommendation: args.input.recommendation,
+    datasetVersion: args.input.datasetVersion,
+    semanticRegistryVersion: args.input.semanticRegistryVersion,
+    forecastModelVersion: args.input.forecastModelVersion,
+  })).digest("hex");
+  const sourceIds: string[] = [];
+  for (const citation of args.input.citations) {
+    const sourceScopeId = citation.sourceSystem === "SAP"
+      ? "demo-sap-001"
+      : citation.sourceSystem === "NORMATIVE"
+        ? "demo-normative-001"
+        : null;
+    const fingerprint = createHash("sha256").update([
+      args.caseId,
+      citation.sourceSystem,
+      citation.entityId,
+      citation.versionOrSnapshot,
+      citation.clauseId ?? "",
+    ].join("\u001f")).digest("hex");
+    const id = `evidence-${fingerprint.slice(0, 24)}`;
+    const [created] = await db.insert(agentEvidenceFacts).values({
+      id,
+      tenantId: "demo-tenant-001",
+      projectId: args.projectId,
+      caseId: args.caseId,
+      kind: "ANALYTICAL_SOURCE",
+      summary: `${citation.sourceSystem}: ${citation.entityId}`,
+      sourceSystem: citation.sourceSystem,
+      entityId: citation.entityId,
+      versionOrSnapshot: citation.versionOrSnapshot,
+      clauseId: citation.clauseId,
+      observedAt: args.input.generatedAt,
+      sourceSnapshotAt: citation.observedAt,
+      freshness: "FRESH",
+      payload: {
+        datasetVersion: args.input.datasetVersion,
+        semanticRegistryVersion: args.input.semanticRegistryVersion,
+      },
+      accessAttributes: {
+        ...(sourceScopeId ? { sourceScopeId } : {}),
+        ...(citation.sourceSystem === "CATALOG" ? { catalogScopeId: "demo-catalog-001" } : {}),
+      },
+      fingerprint,
+      authorizationVersion: args.authorizationVersion,
+      roleAssignmentSnapshot: [...args.roleAssignmentSnapshot],
+      createdByUserId: args.actorUserId,
+      createdAt: args.input.generatedAt,
+      updatedAt: args.input.generatedAt,
+      retentionUntil: oneCalendarYearAfter(args.input.generatedAt),
+    }).onConflictDoNothing().returning();
+    sourceIds.push(created?.id ?? id);
+  }
+  return {
+    schemaVersion: "mtr-agent-analysis-history-v1",
+    summary: args.input.summary,
+    confidence: Math.min(1, Math.max(0, args.input.confidence)),
+    requiresHumanReview: args.input.requiresHumanReview,
+    generatedAt: args.input.generatedAt,
+    datasetVersion: args.input.datasetVersion,
+    semanticRegistryVersion: args.input.semanticRegistryVersion,
+    forecastModelVersion: args.input.forecastModelVersion,
+    recommendation: args.input.recommendation,
+    conclusionFingerprint,
+    previousCaseId: previous?.id ?? null,
+    changedConclusion: previousHistory
+      ? previousHistory.conclusionFingerprint !== conclusionFingerprint
+      : null,
+    sourceCount: new Set(sourceIds).size,
+  };
+}
+
+function asAgentAnalysisHistory(value: unknown): AgentAnalysisHistorySnapshot | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (
+    record.schemaVersion !== "mtr-agent-analysis-history-v1" ||
+    typeof record.conclusionFingerprint !== "string"
+  ) return null;
+  return record as unknown as AgentAnalysisHistorySnapshot;
+}
+
 function trustedUser(userId: string): void {
   if (!userId || !userId.trim()) throw new Error("Отсутствует доверенный идентификатор пользователя.");
 }
@@ -4037,6 +4992,7 @@ function scenarioRunRowFromTransition(row: Record<string, unknown>): typeof scen
   return {
     id: String(row.runId),
     userId: String(row.runUserId),
+    projectId: row.runProjectId === null ? null : String(row.runProjectId),
     scenarioId: String(row.runScenarioId),
     specificationId: String(row.runSpecificationId),
     retryOfRunId: row.runRetryOfRunId === null ? null : String(row.runRetryOfRunId),
@@ -4063,6 +5019,7 @@ function scenarioStepRowFromTransition(row: Record<string, unknown>): typeof sce
     id: String(row.stepId),
     runId: String(row.stepRunId),
     userId: String(row.stepUserId),
+    projectId: row.stepProjectId === null ? null : String(row.stepProjectId),
     status: row.stepStatus as ScenarioRunStatus,
     label: String(row.stepLabel),
     outcome: String(row.stepOutcome),

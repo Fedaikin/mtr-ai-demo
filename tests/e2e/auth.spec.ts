@@ -1,7 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-const DEMO_LOGIN = process.env.E2E_DEMO_LOGIN ?? "demo";
-const DEMO_PASSWORD = process.env.E2E_DEMO_PASSWORD ?? "Demo2026!";
+import { E2E_DEMO_LOGIN, E2E_DEMO_PASSWORD } from "./demo-auth";
 
 const PROTECTED_API_PATHS = [
   "/api/scenario-runs",
@@ -37,29 +36,29 @@ test("анонимный пользователь перенаправляетс
   await expect(page.getByRole("heading", { name: "Вход в анализ МТР" })).toBeVisible();
   await expect(page.getByText("Данные для входа", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Демо-пользователь 1", { exact: true })).toHaveCount(0);
-  await expect(page.getByText("Demo2026!", { exact: true })).toHaveCount(0);
+  await expect(page.getByText(E2E_DEMO_PASSWORD, { exact: true })).toHaveCount(0);
   await expect(page.getByLabel("Логин")).toHaveValue("");
   await expect(page.getByLabel("Пароль")).toHaveValue("");
 });
 
 test("вход сохраняется после обновления, показывает пользователя и завершается выходом", async ({ page }) => {
   await page.goto("/login?next=%2Fagent");
-  await page.getByLabel("Логин").fill(DEMO_LOGIN);
-  await page.getByLabel("Пароль").fill(DEMO_PASSWORD);
+  await page.getByLabel("Логин").fill(E2E_DEMO_LOGIN);
+  await page.getByLabel("Пароль").fill(E2E_DEMO_PASSWORD);
   await page.getByRole("button", { name: "Войти" }).click();
 
-  await expect(page).toHaveURL(/\/agent$/u);
+  await expect(page).toHaveURL(/\/mtr-analysis$/u);
   await expect(page.locator("header").getByText("Демо-пользователь 1", { exact: true })).toBeVisible();
   expect((await page.request.get("/api/scenario-runs")).status()).toBe(200);
 
   await page.reload();
-  await expect(page).toHaveURL(/\/agent$/u);
+  await expect(page).toHaveURL(/\/mtr-analysis$/u);
   await expect(page.locator("header").getByText("Демо-пользователь 1", { exact: true })).toBeVisible();
 
   await page.goto("/");
   const userCard = page.getByText("Данные пользователя", { exact: true }).locator("..");
   await expect(userCard).toContainText("Демо-пользователь 1");
-  await expect(userCard).toContainText("Пользователь · Администратор");
+  await expect(userCard).toContainText("Менеджер проекта");
   await expect(userCard).toContainText("Спецификации");
   await expect(userCard).toContainText("Запуски");
   await expect(userCard).toContainText("Последний запуск");
@@ -81,7 +80,7 @@ test("защищённые retry и admin PATCH принимают только 
   test.skip(testInfo.project.name !== "chromium-desktop", "Проверка HTTP-контракта не зависит от viewport");
 
   const loginResponse = await request.post("/api/auth/login", {
-    data: { login: DEMO_LOGIN, password: DEMO_PASSWORD },
+    data: { login: E2E_DEMO_LOGIN, password: E2E_DEMO_PASSWORD },
   });
   expect(loginResponse.status()).toBe(200);
   const applicationOrigin = new URL(loginResponse.url()).origin;

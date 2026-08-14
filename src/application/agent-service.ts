@@ -574,7 +574,7 @@ export class AgentService {
         correlationId: context.correlationId,
         attempts: 1,
         promptVersion: context.promptVersion,
-        model: "Mock LLM",
+        ...llmAuditDetails(this.dependencies.llm),
       },
     }, context.correlationId);
     try {
@@ -603,7 +603,7 @@ export class AgentService {
           runId: context.runId,
           correlationId: context.correlationId,
           promptVersion: context.promptVersion,
-          model: "Mock LLM",
+          ...llmAuditDetails(this.dependencies.llm),
           citations: output.citations,
         },
       }, context.correlationId);
@@ -626,7 +626,7 @@ export class AgentService {
           runId: context.runId,
           correlationId: context.correlationId,
           promptVersion: context.promptVersion,
-          model: "Mock LLM",
+          ...llmAuditDetails(this.dependencies.llm),
           errorCode: providerFailure.code,
           errorMessage: providerFailure.message,
         },
@@ -681,7 +681,7 @@ export class AgentService {
         conversationId: context.threadId,
         runId: context.runId,
         promptVersion: context.promptVersion,
-        model: "Mock LLM",
+        ...llmAuditDetails(this.dependencies.llm),
         citations,
       },
     }, context.correlationId);
@@ -1251,7 +1251,7 @@ export class AgentService {
         runId: context.runId,
         correlationId: context.correlationId,
         promptVersion: context.promptVersion,
-        model: "Mock LLM",
+        ...llmAuditDetails(this.dependencies.llm),
       },
     }, context.correlationId);
     try {
@@ -1275,7 +1275,7 @@ export class AgentService {
           runId: context.runId,
           correlationId: context.correlationId,
           promptVersion: context.promptVersion,
-          model: "Mock LLM",
+          ...llmAuditDetails(this.dependencies.llm),
         },
       }, context.correlationId);
       return result;
@@ -1298,7 +1298,7 @@ export class AgentService {
           runId: context.runId,
           correlationId: context.correlationId,
           promptVersion: context.promptVersion,
-          model: "Mock LLM",
+          ...llmAuditDetails(this.dependencies.llm),
           errorCode: safe.code,
           errorMessage: safe.message,
         },
@@ -1853,10 +1853,37 @@ function safeLlmFailure(error: unknown): { code: string; message: string } {
         "Не удалось безопасно сформировать ответ: ответ LLM-провайдера не прошёл проверку контракта. Подтверждённые источники сохранены; повторите запрос позднее.",
     };
   }
+  if (/TIMEOUT/u.test(code)) {
+    return {
+      code: "LLM_TIMEOUT",
+      message:
+        "Не удалось безопасно сформировать ответ: LLM-провайдер не ответил в установленный срок. Подтверждённые источники сохранены; повторите запрос позднее.",
+    };
+  }
+  if (/DISABLED|CANCELLED|BUDGET/u.test(code)) {
+    return {
+      code: code.startsWith("LLM_") ? code : "LLM_UNAVAILABLE",
+      message:
+        "Не удалось безопасно сформировать ответ: выполнение остановлено политикой безопасности LLM. Подтверждённые источники сохранены; обратитесь к оператору или повторите запрос позднее.",
+    };
+  }
   return {
     code: "LLM_UNAVAILABLE",
     message:
       "Не удалось безопасно сформировать ответ: LLM-провайдер временно недоступен. Подтверждённые источники сохранены; повторите запрос позднее.",
+  };
+}
+
+function llmAuditDetails(provider: LLMProvider): Record<string, unknown> {
+  const metadata = provider.metadata;
+  if (!metadata) return { model: "Mock LLM" };
+  return {
+    provider: metadata.provider,
+    model: metadata.model,
+    modelVersion: metadata.version,
+    trainingAllowed: metadata.trainingAllowed,
+    retentionAllowed: metadata.retentionAllowed,
+    reasoningPersistence: metadata.reasoningPersistence,
   };
 }
 

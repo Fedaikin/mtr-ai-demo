@@ -25,7 +25,15 @@
     "perf:smoke": "tsx scripts/performance-smoke.ts",
     "privacy:scan": "tsx scripts/privacy-scan.ts",
     "eval:agent": "tsx scripts/eval-agent.ts",
-    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm privacy:scan && pnpm eval:agent && pnpm build"
+    "eval:agent:analytical": "node --conditions=react-server --import tsx scripts/eval-agent-analytical.ts",
+    "eval:agent:learning": "node --conditions=react-server --import tsx scripts/eval-agent-learning.ts",
+    "eval:agent:provider": "node --conditions=react-server --import tsx scripts/eval-agent-provider.ts",
+    "eval:agent:security": "node --conditions=react-server --import tsx scripts/eval-agent-security.ts",
+    "eval:agent:scale": "node --conditions=react-server --import tsx scripts/eval-agent-scale.ts",
+    "eval:agent:multi-turn": "node --conditions=react-server --import tsx scripts/eval-agent-multi-turn.ts",
+    "eval:agent:universal": "node --conditions=react-server --import tsx scripts/eval-agent-universal.ts",
+    "openai:models": "node --conditions=react-server --import tsx scripts/list-openai-chat-models.ts",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm privacy:scan && pnpm eval:agent && pnpm eval:agent:analytical && pnpm eval:agent:learning && pnpm eval:agent:provider && pnpm eval:agent:security && pnpm eval:agent:scale && pnpm eval:agent:multi-turn && pnpm eval:agent:universal && pnpm build"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
@@ -39,6 +47,7 @@
     "lucide-react": "^1.31.0",
     "mammoth": "^1.12.1",
     "next": "16.3.0",
+    "openai": "^7.4.0",
     "pdf-lib": "^1.17.1",
     "postgres": "^3.4.9",
     "react": "19.2.8",

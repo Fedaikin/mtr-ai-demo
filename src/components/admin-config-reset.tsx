@@ -52,7 +52,7 @@ export function AdminConfigReset({ available }: { available: boolean }) {
       <CardHeader className="border-b border-rose-100">
         <CardTitle>Сброс демонстрационного контура</CardTitle>
         <CardDescription>
-          Восстанавливает исходные интеграции, промпт, словари, 24 позиции Appius и 30 остатков SAP.
+          Восстанавливает исходные интеграции, промпт, словари, 83 спецификации Appius с 3 584 позициями и 30 остатков SAP.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

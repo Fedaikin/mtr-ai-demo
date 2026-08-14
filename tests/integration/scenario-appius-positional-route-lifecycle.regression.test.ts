@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/session", () => ({
+  requirePermission: vi.fn(async () => ({
+    user: { id: "demo-user-001", roles: ["USER", "ADMIN"] },
+  })),
   requireDemoRole: vi.fn(async () => ({
     user: { id: "demo-user-001", roles: ["USER", "ADMIN"] },
   })),

@@ -2,41 +2,40 @@
 
 ## Назначение
 
-«МТР-аналитик» отвечает на вопросы о демонстрационных спецификациях Appius, складских данных SAP, ответственности, аналогах, запусках сценариев и отчётах. Настройка выполнена через system prompt, инструменты, few-shot-примеры и eval-набор; fine-tuning не используется.
+«МТР-агент» отвечает на вопросы о демонстрационных спецификациях Appius, складских данных SAP, ответственности, аналогах, запусках сценариев и отчётах. Версия prompt `3.0.0` задаёт единый оркестратор `CHAT / COMMAND / EVENT`; rollback prompt `1.0.0` сохраняется неактивным. Fine-tuning не используется.
 
-Агент не является источником оперативных фактов. Факты получает `AgentService` через типизированные порты, а LLM-провайдер только превращает подтверждённые результаты в структурированный ответ.
+Агент не является источником оперативных фактов. `MtrAgentOrchestrator.handle(input, TrustedRequestContext)` выбирает capability, применяет canonical RBAC до retrieval и сохраняет bounded plan/audit. Legacy `AgentService` остаётся только chat-capability и rollback-путём; typed/natural commands используют один registry и production-shaped persistence ports.
 
 ## Инварианты
 
-1. `userId` берётся только из доверенной серверной сессии.
-2. Тело HTTP-запроса валидируется `agentInputSchema`, в котором поля `userId` нет.
-3. `user_id` в сообщении пользователя удаляется до маршрутизации и не попадает в аргументы инструментов.
-4. Перед фактическим ответом вызывается соответствующий источник.
-5. Сервис принимает только ответы инструментов, прошедшие Zod-валидацию.
-6. Citations создаёт `AgentService` из фактических результатов портов; LLM не может добавить неподтверждённую ссылку.
+1. Identity, permissions, active project, role assignments, source/catalog scopes, warehouse claims и `authorizationVersion` берутся только из доверенной серверной сессии или service identity.
+2. HTTP-схемы не принимают `userId`, permissions или role; selection является только hint и повторно проверяется.
+3. `user_id` в сообщении пользователя удаляется до маршрутизации и не попадает в аргументы capabilities.
+4. Перед фактическим ответом выполняется project/source/catalog/warehouse pre-filtered retrieval.
+5. Capability принимает только типизированные результаты портов с completeness/freshness.
+6. Citations создаются из фактических результатов и повторно авторизуются при каждом чтении; отозванный источник удаляется из публичной проекции.
 7. Допустимость аналога определяется найденным правилом Normative и доменной функцией `buildAnalogueCoverage`, а не LLM.
-8. Вызов и безопасная сводка результата каждого инструмента записываются через `AuditPort`.
-9. Отказ аудита не раскрывается пользователю и не открывает доступ к данным.
-10. Ошибка источника или LLM не заменяется предположением.
+8. Команда сохраняет received/completed/failed audit, durable case и bounded plan; критическое действие без обязательного аудита не коммитится.
+9. L2 action выполняется только после явного confirm, повторной авторизации и проверки idempotency.
+10. Partial/unknown/error не заменяются уверенным отрицательным или положительным выводом.
+11. Отзыв доступен только владельцу assistant message и создаёт идемпотентный `LearningCandidate` со статусом `QUARANTINED`.
+12. Feedback не меняет online behavior: approval требует `review.decide`, promotion/revoke — отдельного `prompt.activate`, а promotion невозможен без applicability, regression case и validation checksum.
 
 ## Поток запроса
 
 ```mermaid
 flowchart LR
-  U["Сообщение пользователя"] --> V["Zod: input без userId"]
-  S["Доверенная server session"] -->|"trusted userId"| A["AgentService"]
-  V --> A
-  A --> G{"Проверка injection / user_id"}
-  G -->|"атака"| B["Безопасный отказ"]
-  G -->|"предметный запрос"| R["Определение intent"]
-  R --> T["Вызовы Appius / SAP / гибридный Normative / Scenario / Report"]
-  T --> Z["Zod-валидация результатов"]
-  Z --> D["Доменный расчёт при необходимости"]
-  D --> L["LLMProvider"]
-  L --> C["Фильтрация citations и финальный контракт"]
-  A --> AU["AuditPort"]
-  T --> AU
-  L --> AU
+  I["CHAT / COMMAND / EVENT"] --> V["Строгая схема без identity/RBAC"]
+  S["Canonical session или service identity"] --> C["TrustedRequestContext"]
+  V --> O["MtrAgentOrchestrator"]
+  C --> O
+  O --> P["Permission + project/source/catalog/warehouse policy"]
+  P --> R["Capability registry"]
+  R --> T["Scoped ports: Appius / SAP / Normative / Runs / Tasks / Metrics"]
+  T --> E["Evidence, completeness, freshness"]
+  E --> B["Bounded plan + durable audit"]
+  B --> U["Русская safe projection"]
+  U --> X["Citation reauthorization on read"]
 ```
 
 ## Серверный контракт
@@ -44,28 +43,18 @@ flowchart LR
 Рекомендуемый вызов отделяет недоверенное тело от доверенной identity:
 
 ```ts
-const input = agentInputSchema.parse(await request.json());
-const userId = session.user.id;
-const result = await agentService.respond(input, userId);
+const input = publicAgentRequestSchema.parse(await request.json());
+const result = await orchestrator.handle(input, session.authorization);
 ```
 
-Для серверного кода также доступен эквивалентный overload:
-
-```ts
-const result = await agentService.respond({
-  userId: session.user.id,
-  message: input.message,
-  threadId: input.threadId,
-});
-```
-
-Внешний Route Handler не должен копировать `userId` из JSON в trusted request.
+Внешний Route Handler не копирует `userId`, role, scopes или grants из JSON в trusted request. Chat-capability получает legacy-compatible поля только из `TrustedRequestContext` внутри server composition.
 
 Фабрики:
 
 - `createAgentService(dependencies)` создаёт application service;
 - `createMockLLMProvider()` создаёт детерминированный offline-провайдер;
-- HTTP runtime оборачивает его в `IntegrationAwareLlmProvider`, поэтому состояние LLM из админки управляет реальным вызовом;
+- `IntegrationAwareLlmProvider` применяет управляемое состояние LLM из админки;
+- `ConformingLlmProvider` является внешней границей provider call: редактирует секреты, ограничивает token/cost/rate budgets, передаёт cancel, прерывает timeout, проверяет structured output и поддерживает `MTR_AGENT_LLM_ENABLED=false`;
 - `MockLLMProvider` реализует общий `LLMProvider` и не знает о базе или HTTP.
 
 ## Маршрутизация инструментов
@@ -134,7 +123,7 @@ const result = await agentService.respond({
 
 Это внутренний контракт application-слоя. Перед HTTP-ответом `toPublicAgentDecision` создаёт отдельную проекцию: пользователь получает только итоговый `content`, citations, `confidence` и `requiresHumanReview`. Facts, recommendations, tool names, arguments, raw JSON, prompt/model metadata и технические ошибки в user chat/API не сериализуются. Если итоговый текст сам содержит имя внутреннего инструмента, JSON или признаки internal reasoning, он заменяется безопасным сообщением с обязательной экспертной проверкой.
 
-ADMIN видит фактические операции отдельно на `/admin/agent-logs`: correlation, system/tool, редактированные args/result, duration, attempts, prompt/model metadata, citations и безопасный error code. Таким образом, наблюдаемость не расширяет публичную поверхность диалога.
+Пользователь с `agent.logs.read` видит фактические операции отдельно на `/admin/agent-logs`: correlation, system/tool, редактированные args/result, duration, attempts, prompt/model metadata, citations и безопасный error code. Там же рассчитываются persisted-метрики команд, планов, действий, insights и event failures без чтения личного текста, payload или raw tool output. Таким образом, наблюдаемость не расширяет публичную поверхность диалога.
 
 Если был фактический intent, но подтверждённых citations нет, сервис принудительно выставляет `confidence = 0` и `requiresHumanReview = true`.
 
@@ -149,7 +138,9 @@ ADMIN видит фактические операции отдельно на `
 - не добавляет citations, которых нет в envelope;
 - использует `ru-RU` для чисел и UTC для отображения snapshot.
 
-`IntegrationAwareLlmProvider` перед каждым ответом читает persisted state `LLM`: `AVAILABLE` вызывает mock сразу, `SLOW` — после контролируемой задержки, а `UNAVAILABLE`, `RATE_LIMITED` и `MALFORMED_RESPONSE` останавливают provider call с точным `LLM_*` code. `AgentService` тогда возвращает безопасный fallback с `confidence = 0` и `requiresHumanReview = true`; citations и tool calls, полученные до отказа LLM, сохраняются. Замена на внешний провайдер требует только другой реализации `LLMProvider`. Оркестрация, server-side identity, validation, citations, аудит и доменный расчёт остаются в application-слое.
+`IntegrationAwareLlmProvider` перед каждым ответом читает persisted state `LLM`: `AVAILABLE` вызывает mock сразу, `SLOW` — после контролируемой задержки, а `UNAVAILABLE`, `RATE_LIMITED` и `MALFORMED_RESPONSE` останавливают provider call с точным `LLM_*` code. Внешний `ConformingLlmProvider` охватывает весь вызов, включая эту задержку: вход очищается до делегирования, зависший вызов получает `AbortSignal`, а ответ проходит закрытую Zod-схему и выходной budget.
+
+Metadata границы фиксирует `provider / model / version`, запрет обучения и retention, `reasoningPersistence: NONE` и budgets. В audit сохраняются эти metadata и безопасный error code, но не prompt, raw response или chain-of-thought. Текущий offline provider имеет нулевую стоимость; внешний provider без отдельного разрешения не подключается. `AgentService` при любом безопасном отказе возвращает fallback с `confidence = 0` и `requiresHumanReview = true`; citations и tool calls, полученные до отказа LLM, сохраняются.
 
 ## Аналоги
 
@@ -183,6 +174,7 @@ ADMIN видит фактические операции отдельно на `
 | Scenario/Report недоступен | Не угадывать статус или сводку |
 | LLM `SLOW` | Вызвать offline mock после `delayMs` |
 | LLM `UNAVAILABLE`, `RATE_LIMITED`, `MALFORMED_RESPONSE` | Вернуть соответствующий безопасный `LLM_*` fallback без придуманного вывода, сохранив подтверждённые citations |
+| `MTR_AGENT_LLM_ENABLED=false`, timeout, cancel или budget violation | Не вызывать либо прервать provider; вернуть безопасный fallback с обязательной ручной проверкой |
 
 Пользовательские ошибки не содержат stack trace, SQL, connection string, секрет или внутренний endpoint. Технический аудит хранит только код ошибки и безопасную сводку.
 
@@ -201,6 +193,20 @@ ADMIN видит фактические операции отдельно на `
 - `agent.response.completed`.
 
 Repository-фильтры `/admin/agent-logs` применяются в параметризованном user-scoped SQL до pagination. Общие метрики request/success/failure, p50/p95, retry и review считаются по полному user-scoped набору независимо от страницы, а журнал показывает bounded page до 100 отфильтрованных операций и честные значения «найдено/показано»; старые correlations не теряются за лимитом последних событий.
+
+## Feedback и курируемое обучение
+
+Под каждым сохранённым ответом владелец может выбрать один из девяти закрытых типов отзыва: полезно, неверный факт/причина/прогноз, пропущенный фактор, неподходящая рекомендация, отсутствующий источник, неверно понятый вопрос или небезопасное действие. `POST /api/agent/messages/:id/feedback` не принимает identity, permission или project из body и возвращает только безопасную квитанцию карантина.
+
+Запись `agent_learning_candidates` связывает отзыв с assistant message, проектом, владельцем, prompt/model/rule/evidence versions и audit. Повторный отзыв на тот же ответ не создаёт второй кандидат. Свободный комментарий проходит redaction и не становится prompt, rule или knowledge автоматически.
+
+Каждый завершённый аналитический расчёт также создаёт личный durable case. В нём
+сохраняются версии dataset/semantic/forecast, краткий вывод, рекомендация и отдельные
+evidence facts. Повторный расчёт той же позиции сравнивается с предыдущим и показывает,
+изменился ли вывод. При каждом чтении источники авторизуются заново; потерявший доступ
+пользователь увидит число скрытых источников, но не их содержимое.
+
+Lifecycle закрыт состояниями `QUARANTINED → APPROVED → PROMOTED → REVOKED` либо `REJECTED`. Approval требует applicability, отдельный regression case и SHA-256 checksum validation; promotion и rollback проходят отдельную авторизацию и атомарный audit. Личные чаты не становятся общей памятью, а promoted-кандидат сам по себе не изменяет веса модели или operational state.
 
 ## Prompt injection и privacy
 
@@ -228,7 +234,15 @@ Repository-фильтры `/admin/agent-logs` применяются в пара
 
 Каждая строка — отдельный валидный JSON-объект с обязательными/запрещёнными инструментами, требованиями к citations и безопасному ответу.
 
-Отдельный integration-набор `tests/integration/normative-agent-runtime.test.ts` проверяет bilingual hybrid retrieval, влияние активного admin-словаря, точные `RAG_*`/`LLM_*` коды, audit и сохранение citations при отказе LLM.
+Отдельный integration-набор `tests/integration/normative-agent-runtime.test.ts` проверяет bilingual hybrid retrieval, влияние активного admin-словаря, точные `RAG_*`/`LLM_*` коды, audit и сохранение citations при отказе LLM. `tests/unit/agent-provider-conformance.test.ts` отдельно закрепляет redaction-before-provider, kill switch, rate/token/output limits, timeout/cancel и strict structured output.
+
+Versioned `evals/mtr-agent-provider-cases.jsonl` добавляет 20 исполняемых provider-boundary кейсов: 4 validation, 4 held-out и 12 adversarial. Они не дублируют общие unit assertions, а проверяют data-driven oracle для redaction, изоляции rate window, kill switch, token/cost budgets, timeout/cancel, unsafe data policy и невалидных ответов. Запуск: `pnpm eval:agent:provider`.
+
+Versioned `evals/mtr-agent-security-cases.jsonl` содержит ещё 32 исполняемых security-кейса. Набор проверяет разрешения всех команд до handler, project/resource/period/warehouse scope до retrieval, запрет подмены identity/grants во входе, повторную авторизацию сохранённых citations, отсутствие existence leak у cross-project case и повторную проверку `authorizationVersion`/permission перед L2-действием. Запуск: `pnpm eval:agent:security`.
+
+Versioned `evals/mtr-agent-scale-cases.jsonl` содержит 20 distinct ANALYSIS-кейсов по 12 спецификациям санкционированной когорты `g1-vertical-v1`: components, assemblies, intentional negatives и analogue boundaries. Runner выполняет два батча по 10 запросов к единому runtime, проверяет соответствие ответа позиции, отсутствие cross-request context mixing, bounded public payload и нулевое обращение к legacy/LLM capability. Запуск: `pnpm eval:agent:scale`.
+
+Versioned `evals/mtr-agent-multi-turn-cases.jsonl` завершает curriculum 27 трёхходовыми диалогами. Пятнадцать sensitivity-кейсов проверяют базовый анализ, эллиптический follow-up в том же thread/page context и детерминированное восстановление исходного расчёта. Двенадцать feedback-кейсов проверяют цепочку analysis → quarantined feedback → повторный analysis: поведение не меняется online, а prompt/model/rule/evidence provenance сохраняется. Запуск: `pnpm eval:agent:multi-turn`.
 
 ## Ограничения прототипа
 

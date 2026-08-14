@@ -39,6 +39,7 @@ export type Dimensions = Record<string, number | string | boolean | null>;
 export interface Specification {
   id: string;
   userId: string;
+  projectId?: string;
   projectCode: string;
   name: string;
   latestVersionId: string;
@@ -66,6 +67,7 @@ export interface SpecificationVersion {
 export interface Position {
   id: string;
   userId: string;
+  projectId?: string;
   internalCode: string;
   nameRu: string;
   nameEn?: string;
@@ -283,6 +285,7 @@ export interface ScenarioRunStep {
 export interface ScenarioRun {
   id: string;
   userId: string;
+  projectId?: string;
   scenarioId: string;
   specificationId: string;
   status: ScenarioRunStatus;
@@ -318,7 +321,20 @@ export interface ReportSummary {
 }
 
 export interface GroundedCitation {
-  sourceSystem: "APPIUS" | "SAP" | "CATALOG" | "NORMATIVE" | "SCENARIO" | "REPORT";
+  sourceSystem:
+    | "APPIUS"
+    | "SAP"
+    | "CATALOG"
+    | "NORMATIVE"
+    | "SCENARIO"
+    | "REPORT"
+    | "RAG"
+    | "LLM"
+    | "PROCESS_ENGINE"
+    | "TELEMETRY"
+    | "METRIC_REGISTRY"
+    | "TASK_STORE"
+    | "RISK_ENGINE";
   entityId: string;
   versionOrSnapshot: string;
   clauseId: string | null;

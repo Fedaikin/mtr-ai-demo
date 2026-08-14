@@ -1,0 +1,298 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { TrustedRequestContext } from "@/application/authorization-service";
+
+const mocks = vi.hoisted(() => ({
+  authorization: null as TrustedRequestContext | null,
+  handle: vi.fn(),
+  listAgentThreads: vi.fn(),
+  listAgentMessages: vi.fn(),
+  appendAgentMessage: vi.fn(),
+  getActivePrompt: vi.fn(),
+  listAgentMetricEvents: vi.fn(),
+  listMaterialMovements: vi.fn(),
+}));
+
+vi.mock("server-only", () => ({}));
+vi.mock("@/adapters/persistence/repository", () => ({
+  getRepository: vi.fn(async () => ({
+    listAgentThreads: mocks.listAgentThreads,
+    listAgentMessages: mocks.listAgentMessages,
+    appendAgentMessage: mocks.appendAgentMessage,
+    getActivePrompt: mocks.getActivePrompt,
+    listAgentMetricEvents: mocks.listAgentMetricEvents,
+    listMaterialMovements: mocks.listMaterialMovements,
+  })),
+}));
+vi.mock("@/lib/session", () => ({
+  requirePermission: vi.fn(async () => ({
+    user: { id: "legacy-user-id" },
+    authorization: mocks.authorization,
+  })),
+  SessionError: class SessionError extends Error {},
+}));
+vi.mock("@/app/api/agent/_shared", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/app/api/agent/_shared")>();
+  return {
+    ...actual,
+    createMtrAgentOrchestrator: vi.fn(() => ({ handle: mocks.handle })),
+  };
+});
+
+import { GET, POST } from "@/app/api/agent/threads/[id]/messages/route";
+
+describe("agent messages route canonical context handoff", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.authorization = trustedContext();
+    mocks.listAgentThreads.mockResolvedValue([{ id: "thread-1" }]);
+    mocks.listAgentMessages.mockResolvedValue([]);
+    mocks.getActivePrompt.mockResolvedValue({ promptVersion: "prompt-v2" });
+    mocks.listAgentMetricEvents.mockResolvedValue([{ id: "event-1" }]);
+    mocks.appendAgentMessage
+      .mockResolvedValueOnce(messageBundle("user-message", "user", "Покажи остатки"))
+      .mockResolvedValueOnce(messageBundle("assistant-message", "assistant", "Подтверждено"));
+    mocks.handle.mockResolvedValue({
+      kind: "CHAT",
+      output: {
+        answer: "Подтверждено",
+        facts: [],
+        recommendations: [],
+        citations: [],
+        confidence: 1,
+        requiresHumanReview: false,
+        toolCalls: [],
+      },
+    });
+  });
+
+  it("передаёт полный session.authorization и не конструирует identity из body", async () => {
+    const response = await POST(
+      jsonRequest({
+        message: "Покажи остатки",
+        threadId: "thread-1",
+        selection: { projectId: "project-1", positionId: "position-1" },
+      }),
+      routeContext("thread-1"),
+    );
+
+    expect(response.status).toBe(201);
+    expect(mocks.handle).toHaveBeenCalledWith(
+      {
+        kind: "CHAT",
+        message: "Покажи остатки",
+        threadId: "thread-1",
+        selection: { projectId: "project-1", positionId: "position-1" },
+        correlationId: expect.stringMatching(/^agent-/),
+        promptVersion: "prompt-v2",
+      },
+      mocks.authorization,
+    );
+    expect(mocks.listAgentThreads).toHaveBeenCalledWith("subject-1");
+    expect(mocks.appendAgentMessage).toHaveBeenCalledWith(
+      "subject-1",
+      expect.objectContaining({ role: "user" }),
+    );
+    expect(mocks.appendAgentMessage).toHaveBeenLastCalledWith(
+      "subject-1",
+      expect.objectContaining({
+        role: "assistant",
+        structuredOutput: expect.objectContaining({
+          learningProvenance: expect.objectContaining({ projectId: "project-1" }),
+        }),
+      }),
+    );
+  });
+
+  it("отклоняет поддельную identity до orchestrator", async () => {
+    const response = await POST(
+      jsonRequest({
+        message: "Покажи остатки",
+        threadId: "thread-1",
+        selection: { projectId: "project-1" },
+        userId: "foreign-user",
+      }),
+      routeContext("thread-1"),
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.handle).not.toHaveBeenCalled();
+  });
+
+  it("сохраняет естественную typed command как безопасный ответ того же диалога", async () => {
+    mocks.handle.mockResolvedValue({
+      kind: "COMMAND",
+      output: {
+        responseType: "KPI",
+        title: "KPI и SLA",
+        summary: "Доступны четыре подтверждённых показателя.",
+        metrics: [],
+        citations: [{
+          sourceKind: "PROCESS_EVENT",
+          sourceSystem: "PROCESS_ENGINE",
+          entityId: "event-1",
+          sourceSnapshot: "process-v1",
+          observedAt: "2026-08-13T00:00:00.000Z",
+        }],
+        missingData: [],
+        confidence: 0.9,
+        requiresHumanReview: false,
+        negativeEvidence: "NOT_EMPTY",
+        generatedAt: "2026-08-13T10:00:00.000Z",
+      },
+    });
+
+    const response = await POST(
+      jsonRequest({
+        message: "Покажи KPI и SLA",
+        threadId: "thread-1",
+        selection: { projectId: "project-1" },
+      }),
+      routeContext("thread-1"),
+    );
+
+    expect(response.status).toBe(201);
+    expect(mocks.appendAgentMessage).toHaveBeenLastCalledWith(
+      "subject-1",
+      expect.objectContaining({
+        role: "assistant",
+        content: "Доступны четыре подтверждённых показателя.",
+        structuredOutput: expect.objectContaining({
+          schemaVersion: "mtr-agent-command-public-v1",
+          responseLabel: "KPI и SLA",
+          technicalContentRemoved: false,
+          learningProvenance: expect.objectContaining({ projectId: "project-1" }),
+        }),
+        citations: [{
+          sourceSystem: "PROCESS_ENGINE",
+          entityId: "event-1",
+          versionOrSnapshot: "process-v1",
+          clauseId: null,
+        }],
+      }),
+    );
+  });
+
+  it("сохраняет universal answer без tool internals и с versioned provenance", async () => {
+    mocks.handle.mockResolvedValue({
+      kind: "UNIVERSAL",
+      output: {
+        summary: "Проект: дефицитных позиций 2.",
+        resolvedContext: {},
+        facts: [{ key: "shortages", label: "Дефицитных позиций", value: 2, status: "CRITICAL" }],
+        tables: [],
+        risks: [],
+        compatibility: [],
+        recommendations: [],
+        actions: [],
+        citations: [],
+        missingData: [],
+        confidence: 0.96,
+        requiresHumanReview: true,
+        generatedAt: "2026-08-13T09:15:00.000Z",
+        mode: "DETERMINISTIC_FALLBACK",
+      },
+    });
+
+    const response = await POST(
+      jsonRequest({
+        message: "Какой остаток по трубам?",
+        threadId: "thread-1",
+        selection: { projectId: "project-1" },
+      }),
+      routeContext("thread-1"),
+    );
+
+    expect(response.status).toBe(201);
+    expect(mocks.appendAgentMessage).toHaveBeenLastCalledWith(
+      "subject-1",
+      expect.objectContaining({
+        role: "assistant",
+        content: expect.stringContaining("Дефицитных позиций: 2"),
+        structuredOutput: expect.objectContaining({
+          schemaVersion: "universal-agent-answer-v1",
+          output: expect.objectContaining({ mode: "DETERMINISTIC_FALLBACK" }),
+          learningProvenance: expect.objectContaining({
+            modelVersion: "deterministic-universal-runtime-v1",
+            evidenceVersion: "universal-chat-v1@1.0.0-DEMO",
+          }),
+        }),
+        citations: [],
+      }),
+    );
+  });
+
+  it("повторно проверяет сохранённые citations после отзыва permission", async () => {
+    mocks.authorization = {
+      ...trustedContext(),
+      permissionKeys: new Set(["agent.chat"]),
+    };
+    mocks.listAgentMessages.mockResolvedValue([{
+      ...messageBundle("assistant-message", "assistant", "Старый ответ"),
+      citations: [{
+        id: "citation-1",
+        messageId: "assistant-message",
+        userId: "subject-1",
+        sourceSystem: "SAP",
+        entityId: "SAP-DEMO-0001",
+        versionOrSnapshot: "snapshot-1",
+        clauseId: null,
+      }],
+    }]);
+
+    const response = await GET(new Request("http://localhost"), routeContext("thread-1"));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      items: [expect.objectContaining({ content: "Старый ответ", citations: [] })],
+    });
+  });
+});
+
+function trustedContext(): TrustedRequestContext {
+  return {
+    subjectId: "subject-1",
+    displayName: "Тестовый пользователь",
+    activeRoleAssignmentIds: ["assignment-1"],
+    globalRoleKeys: [],
+    activeProjectId: "project-1",
+    projectRoleKeys: ["PROJECT_VIEWER"],
+    permissionKeys: new Set(["agent.chat"]),
+    catalogScopeIds: ["catalog-1"],
+    sourceScopeIds: ["source-1"],
+    accessClaims: { warehouseIds: ["warehouse-1"] },
+    authorizationVersion: 7,
+    requestId: "request-1",
+  };
+}
+
+function messageBundle(id: string, role: "user" | "assistant", content: string) {
+  return {
+    message: {
+      id,
+      threadId: "thread-1",
+      userId: "subject-1",
+      role,
+      content,
+      structuredOutput: null,
+      promptVersion: null,
+      createdAt: "2026-08-13T00:00:00.000Z",
+      updatedAt: "2026-08-13T00:00:00.000Z",
+      createdBy: "subject-1",
+      version: 1,
+    },
+    citations: [],
+  };
+}
+
+function jsonRequest(body: Record<string, unknown>) {
+  return new Request("http://localhost/api/agent/threads/thread-1/messages", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+function routeContext(id: string) {
+  return { params: Promise.resolve({ id }) };
+}

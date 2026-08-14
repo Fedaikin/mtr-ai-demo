@@ -5,7 +5,7 @@ async function main(): Promise<void> {
   const counts = await seedDatabase();
   const target = getDatabaseKind() === "postgres" ? "PostgreSQL" : "локальной PGlite";
   console.info(
-    `Канонический seed записан в ${target}: пользователей ${counts.users}, позиций Appius ${counts.canonicalPositions}, материалов SAP ${counts.sapMaterials}, остатков SAP ${counts.sapBalances}.`,
+    `Канонический seed записан в ${target}: пользователей ${counts.users}, спецификаций Appius ${counts.specifications}, позиций Appius ${counts.canonicalPositions}, материалов SAP ${counts.sapMaterials}, остатков SAP ${counts.sapBalances}.`,
   );
 }
 

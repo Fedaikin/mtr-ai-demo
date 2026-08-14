@@ -28,7 +28,7 @@ describe.sequential("audit persistence redaction boundary", () => {
       requestId: "agent-redaction-proof",
       details: {
         tool: "sap.getState",
-        arguments: { password: "Demo2026!", cookie: "session=unsafe" },
+        arguments: { password: "MtrLocalTestOnly!", cookie: "session=unsafe" },
         result: { count: 1 },
         documentContent: "full confidential document",
       },
@@ -42,7 +42,7 @@ describe.sequential("audit persistence redaction boundary", () => {
 
     expect(saved?.requestId).toBe("agent-redaction-proof");
     expect(serialized).toContain("[СКРЫТО]");
-    expect(serialized).not.toContain("Demo2026!");
+    expect(serialized).not.toContain("MtrLocalTestOnly!");
     expect(serialized).not.toContain("session=unsafe");
     expect(serialized).not.toContain("full confidential document");
   });
@@ -74,7 +74,12 @@ describe.sequential("audit persistence redaction boundary", () => {
             tool: "sap.getMaterialStock",
             attempts: 1,
             promptVersion: "mtr-agent-proof-v2",
-            model: "Mock LLM",
+            provider: "OFFLINE_DETERMINISTIC",
+            model: "mtr-grounded-demo",
+            modelVersion: "1.0.0",
+            trainingAllowed: false,
+            retentionAllowed: false,
+            reasoningPersistence: "NONE",
             correlationId: "agent-observability-proof",
             conversationId: "thread-observability-proof",
             durationMs: expect.any(Number),
@@ -89,7 +94,12 @@ describe.sequential("audit persistence redaction boundary", () => {
       details: {
         correlationId: "agent-observability-proof",
         promptVersion: "mtr-agent-proof-v2",
-        model: "Mock LLM",
+        provider: "OFFLINE_DETERMINISTIC",
+        model: "mtr-grounded-demo",
+        modelVersion: "1.0.0",
+        trainingAllowed: false,
+        retentionAllowed: false,
+        reasoningPersistence: "NONE",
         requiresHumanReview: false,
         citations: expect.any(Array),
       },

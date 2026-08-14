@@ -170,8 +170,28 @@ export interface GroundedAgentInput {
   facts: Array<{ source: string; payload: unknown }>;
 }
 
+export interface LlmProviderMetadata {
+  provider: string;
+  model: string;
+  version: string;
+  trainingAllowed: false;
+  retentionAllowed: false;
+  reasoningPersistence: "NONE";
+  maxInputTokens: number;
+  maxOutputTokens: number;
+  maxRequestCostUsd: number;
+}
+
+export interface LlmProviderRequestOptions {
+  signal?: AbortSignal;
+}
+
 export interface LLMProvider {
-  respond(input: GroundedAgentInput): Promise<GroundedAgentOutput>;
+  readonly metadata?: LlmProviderMetadata;
+  respond(
+    input: GroundedAgentInput,
+    options?: LlmProviderRequestOptions,
+  ): Promise<GroundedAgentOutput>;
 }
 
 export interface FileStoragePort {

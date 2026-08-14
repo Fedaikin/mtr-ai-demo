@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getSeedCounts } from "@/adapters/persistence/bootstrap";
+import { EXPECTED_BASE_COUNTS, getSeedCounts } from "@/adapters/persistence/bootstrap";
 import { getDatabase, getDatabaseKind } from "@/adapters/persistence/db";
 
 export const runtime = "nodejs";
@@ -36,10 +36,10 @@ export async function GET(request: Request) {
     const database = await getDatabase({ migrations: "skip" });
     const counts = await getSeedCounts(database);
     const seedReady =
-      counts.users === 1 &&
-      counts.canonicalPositions === 24 &&
-      counts.sapMaterials === 30 &&
-      counts.sapBalances === 30;
+      counts.users === EXPECTED_BASE_COUNTS.users &&
+      counts.canonicalPositions === EXPECTED_BASE_COUNTS.canonicalPositions &&
+      counts.sapMaterials === EXPECTED_BASE_COUNTS.sapMaterials &&
+      counts.sapBalances === EXPECTED_BASE_COUNTS.sapBalances;
     const status = seedReady ? 200 : 503;
 
     return NextResponse.json(

@@ -31,7 +31,7 @@ const ADMIN_NAVIGATION = [
   { name: "Аудит", href: "/admin/audit", permissions: ["audit.read.global", "audit.read.project"] },
 ] as const;
 
-export function AppShell({ children, displayName, login, permissionKeys, roleKeys, roleSelectorEnabled }: { children: ReactNode; displayName: string; login: string; permissionKeys: readonly string[]; roleKeys: readonly string[]; roleSelectorEnabled: boolean }) {
+export function AppShell({ children, displayName, login, subjectId, authorizationVersion, activeProjectId, permissionKeys, roleKeys, roleSelectorEnabled }: { children: ReactNode; displayName: string; login: string; subjectId: string; authorizationVersion: number; activeProjectId: string | null; permissionKeys: readonly string[]; roleKeys: readonly string[]; roleSelectorEnabled: boolean }) {
   const permissions = new Set(permissionKeys);
   const userItems = visibleItems(USER_NAVIGATION, permissions);
   const adminItems = visibleItems(ADMIN_NAVIGATION, permissions);
@@ -79,12 +79,12 @@ export function AppShell({ children, displayName, login, permissionKeys, roleKey
               <LogoutButton className="focus-ring rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60" />
             </div>
           </header>
-          <main id="main-content" className="px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+          <main id="main-content" className="min-w-0 max-w-full overflow-x-clip px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
             {children}
           </main>
         </div>
       </div>
-      {permissions.has("agent.chat") ? <AgentWidget displayName={displayName} /> : null}
+      {permissions.has("agent.chat") ? <AgentWidget key={`${subjectId}:${authorizationVersion}:${activeProjectId ?? "none"}`} displayName={displayName} subjectId={subjectId} authorizationVersion={authorizationVersion} activeProjectId={activeProjectId} /> : null}
     </div>
   );
 }

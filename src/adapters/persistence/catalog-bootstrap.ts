@@ -12,6 +12,11 @@ import {
   catalogStockBalances,
   users,
 } from "./schema";
+import {
+  deleteUniversalChatDatasetRows,
+  seedUniversalChatDataset,
+  universalChatDatasetEnabled,
+} from "./universal-chat-bootstrap";
 
 export const EXPECTED_INDUSTRIAL_CATALOGUE_COUNTS = {
   catalogItems: 4_800,
@@ -61,6 +66,7 @@ export async function seedIndustrialCatalogue(
       );
     }
 
+    await deleteUniversalChatDatasetRows(tx, userId);
     await deleteIndustrialCatalogueRows(tx, userId);
     await insertBatches(tx, catalogInterchangeabilityFamilies, catalogue.families);
     await insertBatches(tx, catalogItems, catalogue.items);
@@ -82,7 +88,11 @@ export async function seedIndustrialCatalogue(
     );
   });
 
-  return assertIndustrialCatalogueCounts(db, userId);
+  const counts = await assertIndustrialCatalogueCounts(db, userId);
+  if (universalChatDatasetEnabled()) {
+    await seedUniversalChatDataset(userId, db);
+  }
+  return counts;
 }
 
 export async function ensureIndustrialCatalogue(

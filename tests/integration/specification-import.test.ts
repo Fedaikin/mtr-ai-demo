@@ -36,6 +36,31 @@ describe.sequential("публикация импортированной спе�
     const file = await repository.saveUploadedFile(DEMO_USER_ID, { ...upload("upload-review", "scan.png"), parseStatus: "REVIEW_REQUIRED" });
     await expect(repository.publishSpecificationImport(DEMO_USER_ID, { fileId: file.id, mode: "NEW", projectCode: "P", name: "Скан", positions: [position("USR-001", 1)], validationSummary: {} })).rejects.toThrow(/ручной проверки/);
   });
+
+  it("публикует один upload ровно один раз при повторе idempotent-запроса", async () => {
+    const repository = await getRepository();
+    const file = await repository.saveUploadedFile(DEMO_USER_ID, upload("upload-idempotent", "idempotent.xlsx"));
+    const input = {
+      fileId: file.id,
+      mode: "NEW" as const,
+      projectCode: "PRJ-IDEMPOTENT",
+      name: "Идемпотентная спецификация",
+      positions: [position("IDEMP-001", 3)],
+      validationSummary: { validRows: 1, invalidRows: 0 },
+      instructionHash: "b".repeat(64),
+    };
+
+    const first = await repository.publishSpecificationImport(DEMO_USER_ID, input);
+    const replay = await repository.publishSpecificationImport(DEMO_USER_ID, input);
+
+    expect(replay).toEqual(first);
+    await expect(repository.listSpecificationVersions(DEMO_USER_ID, first.specification.id)).resolves.toHaveLength(1);
+    const audit = await repository.listAuditLogs(DEMO_USER_ID, { entityType: "specification", limit: 20 });
+    expect(audit.filter((event) => event.details.fileId === file.id)).toHaveLength(1);
+    expect(audit.find((event) => event.details.fileId === file.id)?.details).toMatchObject({
+      instructionHash: "b".repeat(64),
+    });
+  });
 });
 
 function position(internalCode: string, requiredQuantity: number) { return { internalCode, nameRu: `Позиция ${internalCode}`, requiredQuantity, unit: "шт." }; }

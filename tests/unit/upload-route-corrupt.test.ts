@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/session", () => ({
-  requireDemoRole: vi.fn(async () => ({ user: { id: "demo-user-001" } })),
+  requirePermission: vi.fn(async () => ({ user: { id: "demo-user-001" } })),
   SessionError: class SessionError extends Error {
     constructor(message: string, readonly status: 401 | 403) {
       super(message);

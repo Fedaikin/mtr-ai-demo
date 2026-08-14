@@ -1,6 +1,6 @@
 # Справочник HTTP API прототипа МТР
 
-Справочник описывает текущие Next.js Route Handlers из `src/app/api/**/route.ts`: 34 файла и 41 операцию «HTTP-метод + путь». Псевдонимы `:id`, `:runId`, `:positionId` и `:materialCode` ниже означают URL-encoded path parameters.
+Справочник описывает текущие Next.js Route Handlers из `src/app/api/**/route.ts`: 54 файла и 65 операций «HTTP-метод + путь». Псевдонимы `:id`, `:runId`, `:positionId` и `:materialCode` ниже означают URL-encoded path parameters.
 
 Для первого прохода используйте [демонстрацию за 7–10 минут](demo-guide.md). Команды диагностики, reset и ручного импорта приведены в [operations.md](operations.md).
 
@@ -12,18 +12,18 @@
 http://localhost:3000
 ```
 
-Все пользовательские и административные маршруты требуют persistent HttpOnly-сессию. В demo-контуре предусмотрен один пользователь:
+Все пользовательские и административные маршруты требуют persistent HttpOnly-сессию. Demo-контур содержит восемь синтетических субъектов: семь интерактивных персон и одну сервисную учётную запись. Пример безопасной проекции активной персоны:
 
 ```json
 {
   "id": "demo-user-001",
   "displayName": "Демо-пользователь 1",
-  "roles": ["USER", "ADMIN"],
+  "roles": ["USER"],
   "locale": "ru-RU"
 }
 ```
 
-Вход выполняется на `/login`; БД хранит только scrypt-хеш пароля, а cookie содержит opaque token, SHA-256-хеш которого сохранён в `auth_sessions`. Значения `userId`, `user_id`, query parameters и HTTP headers не заменяют trusted session. Строгие Zod-схемы отклоняют неизвестные поля; остальные обработчики их не используют. Поскольку фиксированный пользователь имеет роль `ADMIN`, Preview дополнительно закрыт Vercel Deployment Protection.
+Вход выполняется на `/login`; реквизиты выдаются приватно и не отображаются в UI/документации. БД хранит только scrypt-хеш пароля, а cookie содержит opaque token, SHA-256-хеш которого сохранён в `auth_sessions`. Сервер строит `TrustedRequestContext` из действующей session, memberships, assignments и scopes. Значения identity/permissions из body, query или headers не заменяют trusted context. Preview дополнительно закрывается Deployment Protection.
 
 ## Общие соглашения
 
@@ -91,6 +91,18 @@ http://localhost:3000
 | `POST` | `/api/agent/threads` | USER | Создать диалог |
 | `GET` | `/api/agent/threads/:id/messages` | USER | История принадлежащего user диалога |
 | `POST` | `/api/agent/threads/:id/messages` | USER | Сохранить вопрос, вызвать агента, сохранить ответ |
+| `POST` | `/api/agent/messages/:id/feedback` | `agent.chat`, владелец ответа | Идемпотентно сохранить тип отзыва как quarantined learning candidate |
+| `POST` | `/api/agent/commands/:commandKey` | `agent.chat` + permissions команды | Выполнить `SUMMARY`, `RISKS`, `STOCKS`, `KPI`, `MY_TASKS` или `ANALYSIS` через единый runtime |
+| `GET`, `POST` | `/api/agent/cases` | `agent.chat` | Список личных кейсов или создание scoped кейса |
+| `GET`, `DELETE` | `/api/agent/cases/:id` | `agent.chat` | Получить повторно авторизованный кейс или закрыть его |
+| `GET` | `/api/agent/digest` | `agent.chat` | Недельная сводка текущей и предыдущей календарной недели |
+| `GET` | `/api/agent/insights` | `agent.chat` | Активные proactive-сигналы доступного проекта |
+| `GET`, `POST` | `/api/agent/actions` | `agent.chat` + permission действия | Список личных предложений или создать proposal |
+| `GET` | `/api/agent/actions/:id` | `agent.chat` | Получить доступное предложение без закрытых параметров |
+| `POST` | `/api/agent/actions/:id/confirm` | permission действия | Повторно авторизовать и идемпотентно выполнить proposal |
+| `POST` | `/api/agent/actions/:id/cancel` | владелец | Отменить ещё не выполненное предложение |
+| `POST` | `/api/agent/events` | service secret | Идемпотентно принять и обработать platform event |
+| `POST` | `/api/agent/events/process` | service secret | Обработать следующий сохранённый event проекта |
 | `POST` | `/api/uploads` | USER | Загрузить и разобрать файл |
 | `POST` | `/api/manual-imports/specification` | USER | Валидировать upload как draft спецификации |
 | `POST` | `/api/manual-imports/sap` | USER | Валидировать upload как SAP snapshot |
@@ -182,27 +194,37 @@ http://localhost:3000
 
 ```json
 {
-  "sourceSystem": "APPIUS|SAP|NORMATIVE|SCENARIO|REPORT",
+  "sourceSystem": "APPIUS|SAP|CATALOG|NORMATIVE|SCENARIO|REPORT",
   "entityId": "точный ID источника",
   "versionOrSnapshot": "версия или timestamp",
   "clauseId": "пункт правила либо null"
 }
 ```
 
-Публичная проекция assistant message намеренно содержит только итоговый текст, citations и метаданные решения:
+Legacy/command assistant сохраняет компактную публичную проекцию. Universal assistant использует allowlist-схему `universal-agent-answer-public-v1`:
 
 ```json
 {
   "content": "Ответ на русском",
   "structuredOutput": {
-    "confidence": 1,
-    "requiresHumanReview": false
+    "schemaVersion": "universal-agent-answer-public-v1",
+    "output": {
+      "facts": [],
+      "tables": [],
+      "risks": [],
+      "compatibility": [],
+      "recommendations": [],
+      "actions": [],
+      "limitations": [],
+      "confidence": 1,
+      "requiresHumanReview": false
+    }
   },
   "citations": []
 }
 ```
 
-Внутренний `GroundedAgentOutput` дополнительно содержит facts, recommendations и фактические tool calls, но эта структура не сериализуется в пользовательский HTTP-контракт. Операции доступны только ADMIN в `/admin/agent-logs`; citations сохраняются отдельными rows и возвращаются в `message.citations`.
+Public universal output сохраняет проверяемые таблицы и выводы после reload, но удаляет `resolvedContext`, source copies, runtime/provider/model trace, tool calls, внутренние scores/IDs и raw JSON. Операции доступны только ADMIN в `/admin/agent-logs`; citations сохраняются отдельными rows, повторно авторизуются на каждом GET и возвращаются в `message.citations`.
 
 ### Report summary
 
@@ -231,7 +253,7 @@ http://localhost:3000
 Body строго ограничен полями `login` и `password`:
 
 ```json
-{ "login": "demo", "password": "Demo2026!" }
+{ "login": "demo", "password": "<приватно выданный пароль>" }
 ```
 
 Успех `200` возвращает безопасную проекцию пользователя и `expiresAt`, а также устанавливает cookie `mtr_session`: `HttpOnly`, `SameSite=Lax`, `Path=/`, срок 12 часов; `Secure` обязателен на Vercel. В БД сохраняется только SHA-256-хеш случайного 256-битного token. Ошибочные реквизиты дают `401 INVALID_CREDENTIALS`, cross-origin browser request — `403 INVALID_ORIGIN`.
@@ -260,7 +282,7 @@ curl --fail-with-body -sS 'http://localhost:3000/api/health?check=live'
 { "status": "ok", "check": "liveness", "service": "mtr-ai-demo" }
 ```
 
-Readiness открывает БД без применения DDL, одним точным немутирующим запросом проверяет ровно 1/24/30/30:
+Readiness открывает БД без применения DDL, одним точным немутирующим запросом проверяет ровно 8/3 584/30/30:
 
 ```json
 {
@@ -271,8 +293,8 @@ Readiness открывает БД без применения DDL, одним т
   "seed": {
     "status": "ok",
     "counts": {
-      "users": 1,
-      "canonicalPositions": 24,
+      "users": 8,
+      "canonicalPositions": 3584,
       "sapMaterials": 30,
       "sapBalances": 30
     }
@@ -339,6 +361,8 @@ Path `id`: после trim `1..200`. Сначала проверяется пр�
 |---|---|---|
 | `message` | string | После trim `1..4000` |
 | `threadId` | string | `1..160`, обязателен в HTTP route и должен точно совпадать с `:id` |
+| `selection` | object? | Только project/specification/position/run IDs и период; сервер повторно проверяет scope |
+| `attachments` | array? | До 4 ссылок `{ uploadId, purpose }`; purpose: `SPECIFICATION`, `SAP_IMPORT`, `REFERENCE`, `AUTO` |
 
 Ответ `201`:
 
@@ -356,7 +380,7 @@ Path `id`: после trim `1..200`. Сначала проверяется пр�
 }
 ```
 
-Несовпадение path/body: `400 AGENT_THREAD_MISMATCH`. Сервис получает identity только вторым trusted аргументом. Prompt injection возвращает сохранённый безопасный ответ без раскрытия prompt; поле `userId` в body возвращает `400 VALIDATION_ERROR`.
+`message` может быть пустым только при наличии вложения. Несовпадение path/body: `400 AGENT_THREAD_MISMATCH`. Сервис получает identity только вторым trusted аргументом. Prompt injection возвращает сохранённый безопасный ответ без раскрытия prompt; поле `userId` в body возвращает `400 VALIDATION_ERROR`.
 
 Проверенный пример:
 
@@ -372,6 +396,104 @@ curl --fail-with-body -sS \
   -H 'content-type: application/json' \
   --data "{\"threadId\":\"${THREAD_ID}\",\"message\":\"Какой остаток материала SAP-DEMO-0001?\"}"
 ```
+
+### `POST /api/agent/messages/:id/feedback`
+
+Path `id` — идентификатор сохранённого assistant message текущего пользователя. Чужой, пользовательский или отсутствующий message возвращает `404 AGENT_FEEDBACK_ACCESS_DENIED` без раскрытия существования.
+
+Строгий body:
+
+```json
+{
+  "feedbackKind": "INCORRECT_FORECAST",
+  "summary": "Прогноз не учитывает ожидаемую поставку."
+}
+```
+
+`feedbackKind` принимает `USEFUL`, `INCORRECT_FACT`, `INCORRECT_CAUSE`, `MISSING_FACTOR`, `INCORRECT_FORECAST`, `UNSUITABLE_RECOMMENDATION`, `MISSING_SOURCE`, `MISUNDERSTOOD_QUESTION` или `UNSAFE_ACTION`. `summary` необязателен, `1..500`, проходит redaction и не используется runtime как инструкция.
+
+Ответ `201`:
+
+```json
+{
+  "feedback": {
+    "candidateId": "learning-...",
+    "feedbackKind": "INCORRECT_FORECAST",
+    "status": "QUARANTINED",
+    "message": "Отзыв сохранён для проверки специалистом и не изменяет работу агента автоматически."
+  }
+}
+```
+
+Повтор владельца для того же assistant message возвращает тот же кандидат и не создаёт второй audit. Promotion не выполняется этим endpoint: отдельный curator lifecycle требует human approval, applicability, regression case, validation checksum и разрешение активации.
+
+### Orchestrator commands, cases, digest, insights и actions
+
+Новые endpoints fail-closed: без `MTR_AGENT_ORCHESTRATOR_ENABLED=true` возвращается `404`, при `MTR_AGENT_KILL_SWITCH=true` новое выполнение возвращает `503`. Actions и events дополнительно требуют собственные feature flags. Все ответы имеют `Cache-Control: private, no-store` там, где возвращают пользовательское состояние.
+
+Команда использует строгий body `{ context, filters? }`; identity, роли, permissions, authorization version и scopes в schema отсутствуют. `context` может содержать только выбранные `projectId`, `specificationId`, `positionId`, `runId` и период. Filters зависят от ключа команды и реально применяются до retrieval. Пример:
+
+```bash
+curl --fail-with-body -sS -b "$MTR_COOKIE_JAR" \
+  -X POST "$MTR_BASE_URL/api/agent/commands/STOCKS" \
+  -H 'content-type: application/json' \
+  --data '{"context":{"projectId":"demo-project-001"},"filters":{"materialCode":"SAP-DEMO-0001","warehouseIds":["WH-DEMO-01"]}}'
+```
+
+Успех возвращает `{ "result": PublicAgentCommandResult }`: русскую safe projection, correlation ID, confidence, `requiresHumanReview`, citations и missing-data summary без tool names, raw JSON и закрытых фильтров. Каждая команда сохраняет bounded plan из трёх шагов и correlated audit.
+
+#### Анализ позиции `ANALYSIS`
+
+Команда объясняет ожидаемый дефицит, строит deterministic forecast с rolling-origin backtest, сравнивает прямой остаток, одиночный/композитный аналог и закупку, затем пропускает результат через verifier. Команда read-only и всегда оставляет решение человеку.
+
+Требуемые permissions: `agent.chat`, `analysis.read`, `specification.read`, `catalog.read`, `stock.search`.
+
+```bash
+curl --fail-with-body -sS -b "$MTR_COOKIE_JAR" \
+  -X POST "$MTR_BASE_URL/api/agent/commands/ANALYSIS" \
+  -H 'content-type: application/json' \
+  --data '{
+    "context":{"projectId":"demo-project-001","positionId":"position-portfolio-072-003"},
+    "filters":{"horizonWeeks":8,"demandMultiplier":1.1,"deliveryDelayDays":7}
+  }'
+```
+
+| Поле | Тип | Ограничение / default |
+|---|---|---|
+| `context.positionId` или `filters.positionId` | string | Требуется позиция текущего проекта; отсутствие даёт `400 AGENT_POSITION_CONTEXT_REQUIRED` |
+| `filters.horizonWeeks` | integer | `1..26`, default `8` |
+| `filters.demandMultiplier` | number | `0.5..3`, default `1` |
+| `filters.deliveryDelayDays` | integer | `0..180`, default `0` |
+
+`result.analysis` содержит только публичные facts/findings/drivers, forecast model и backtest metrics, не более трёх сценариев, recommendation text, limitations и next actions. `technicalTrace`, internal evidence IDs и raw engine payload отсекаются. Полные формулы, source priorities, quality gate и ограничения описаны в [семантическом слое аналитики МТР](mtr-analytics-semantic-layer.md).
+
+`GET /api/agent/cases` возвращает только кейсы владельца в активном проекте. Завершённый `ANALYSIS` добавляет в `contextSnapshot.analysisHistory` безопасный versioned summary: dataset/semantic/forecast versions, рекомендацию, число доступных источников, ссылку на предыдущий case и признак изменения вывода. Внутренний fingerprint не сериализуется. `GET /api/agent/cases/:id` повторно проверяет resource и каждый Appius/SAP/catalog/normative evidence fact; отозванный источник скрывается, а чужой case даёт `404` без existence leak. `GET /api/agent/digest?timezone=Europe/Moscow` строит две полные календарные недели из persisted tasks, metrics и events. `GET /api/agent/insights` возвращает только активные сигналы разрешённого проекта.
+
+Actions работают по схеме `proposal → явное confirm → повторная авторизация → идемпотентное выполнение → audit`. `POST /api/agent/actions` принимает `caseId`, allowlisted `actionType`, resource descriptor текущего проекта, безопасные summary/consequences, scalar parameters и `requestKey`. Подтверждение с изменившимся `authorizationVersion`, permission, resource status или scope отклоняется; чат сам не принимает экспертное решение.
+
+Event ingress не использует browser session. Требуются `MTR_AGENT_EVENTS_ENABLED=true` и точное значение `x-mtr-event-secret`, совпадающее с `MTR_AGENT_EVENT_INGRESS_SECRET` длиной не менее 32 символов. Payload ограничен scalar/короткими string-array значениями, сохраняется после redaction, а `(sourceSystem, sourceEventId)` и idempotency key не позволяют создать повторный insight.
+
+### Universal chat, вложения и privileged actions
+
+При `MTR_AGENT_UNIVERSAL_CHAT_ENABLED=true` тот же `POST /api/agent/threads/:id/messages` маршрутизирует естественный запрос в project-aware runtime. Он разрешает бизнес-проект по названию или коду, но access scope и permissions всегда берёт из `session.authorization`. Основные read capabilities покрывают проекты, спецификации, intake/deadlines, материалы, balances/movements/inbound/reservations, BOM/substitutes, project allocation/reorder, compatibility и reliability.
+
+Universal response сохраняется как private `universal-agent-answer-v1`, а serializer возвращает `universal-agent-answer-public-v1`. Публичные массивы bounded: compatibility до 20, clarification candidates до 8, preview rows до 20. Неизвестный material/project, пустой или неполный scope возвращает clarification/missing-data с `requiresHumanReview`, а не утверждение об отсутствии риска.
+
+Для вложений сначала вызовите `/api/uploads`, затем передайте ссылку:
+
+```json
+{
+  "threadId": "thread-...",
+  "message": "",
+  "attachments": [
+    { "uploadId": "upload-...", "purpose": "SPECIFICATION" }
+  ]
+}
+```
+
+Без явного глагола публикации ответ имеет `attachmentImport.status: PREVIEW` либо `REVIEW_REQUIRED`. Явная команда с однозначным target и permissions `specification.upload` + `specification.publish` возвращает `PUBLISHED` и `{ specificationId, versionId, versionNumber, positionCount, href }`. Повтор file/instruction/target идемпотентен.
+
+Privileged natural-language request возвращает schema `agent-privileged-action-v1` и proposal card. Изменение выполняется только отдельным `POST /api/agent/actions/:id/confirm`; cancel использует `/cancel`. Confirm повторно проверяет owner, permission, project, current `authorizationVersion`, TTL, SoD, self/last-admin/last-manager и idempotency. Подробные контракты: [вложения](mtr-agent-attachments-import.md) и [RBAC-действия](mtr-agent-rbac-actions.md).
 
 ## Scenario API
 
@@ -396,7 +518,7 @@ Seeded scenario IDs:
 
 | ID | Scope по умолчанию |
 |---|---|
-| `scenario-full-analysis` | Все 24 актуальные позиции |
+| `scenario-full-analysis` | Эталонные 24 актуальные позиции из трёх базовых спецификаций |
 | `scenario-stock-search-only` | Все 24, сокращённая последовательность |
 | `scenario-sap-failure-manual-import` | `spec-demo-piping-001`, управляемый SAP failure |
 | `scenario-appius-new-version` | `spec-demo-piping-001`, транзакционное переключение current `v3 → v4`, перенос 8 позиций и аудит `NEW_VERSION_PROMOTED` |
@@ -669,7 +791,7 @@ Validation endpoint сохраняет audit/provenance и возвращает 
 ```json
 {
   "specifications": [],
-  "total": 3,
+  "total": 83,
   "integrationState": {},
   "source": "APPIUS_MOCK",
   "isSyntheticDemo": true
@@ -822,7 +944,7 @@ curl --fail-with-body -sS \
 | `safeMessage` | string или null | После trim максимум 240 |
 
 Allowed states: Appius как выше; SAP как выше; RAG/LLM: `AVAILABLE`, `UNAVAILABLE`, `SLOW`, `RATE_LIMITED`, `MALFORMED_RESPONSE`.
-Состояния всех четырёх систем исполняются runtime. RAG `AVAILABLE` выполняет гибридный нормативный поиск, `SLOW` добавляет контролируемую задержку, а остальные состояния дают точные коды `RAG_UNAVAILABLE`, `RAG_RATE_LIMITED` или `RAG_MALFORMED_RESPONSE` и безопасно останавливают соответствующий сценарный шаг/инструмент. LLM `AVAILABLE` и `SLOW` вызывают offline mock-provider; `LLM_UNAVAILABLE`, `LLM_RATE_LIMITED` и `LLM_MALFORMED_RESPONSE` дают безопасный ответ с `confidence: 0` и `requiresHumanReview: true`, сохраняя citations уже выполненных инструментов. Внешний LLM и API key не требуются.
+Состояния всех четырёх систем исполняются runtime. RAG `AVAILABLE` выполняет гибридный нормативный поиск, `SLOW` добавляет контролируемую задержку, а остальные состояния дают точные коды `RAG_UNAVAILABLE`, `RAG_RATE_LIMITED` или `RAG_MALFORMED_RESPONSE`. Legacy-контур LLM сохраняет offline provider. Universal chat при отдельном `MTR_AGENT_LIVE_LLM_ENABLED=true` использует официальный OpenAI Responses provider только при наличии server-side `OPENAI_API_KEY` и `OPENAI_MODEL`; любой provider/state/schema/timeout failure переключается на полезный deterministic answer с уже подтверждёнными facts/citations и явными limitations.
 
 Ответ: `{ integration, isSyntheticDemo: true }`.
 
@@ -912,7 +1034,7 @@ Query:
 {
   "reset": true,
   "counts": {
-    "canonicalPositions": 24,
+    "canonicalPositions": 3584,
     "sapMaterials": 30,
     "sapBalances": 30
   },
@@ -928,5 +1050,12 @@ Query:
 - [Демонстрация за 7–10 минут](demo-guide.md)
 - [Эксплуатационные инструкции](operations.md)
 - [Поведение МТР-аналитика](agent-behavior.md)
-- [Архитектура и доверительные границы](../../docs/architecture.md)
-- [Матрица требований](../../docs/requirements-traceability.md)
+- [Универсальный чат](mtr-agent-universal-chat.md)
+- [Модель бизнес-проектов и остатков](mtr-project-data-model.md)
+- [Совместимость и надёжность](mtr-compatibility-model.md)
+- [OpenAI provider и fallback](mtr-agent-llm-provider.md)
+- [Вложения и импорт](mtr-agent-attachments-import.md)
+- [RBAC-действия из чата](mtr-agent-rbac-actions.md)
+- [Семантический слой аналитики МТР](mtr-analytics-semantic-layer.md)
+- [Трассируемость и доверительные границы МТР-агента](mtr-agent-orchestrator-traceability.md)
+- [Scoped RBAC](RBAC.md)

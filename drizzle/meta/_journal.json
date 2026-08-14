@@ -43,6 +43,34 @@
       "when": 1786608000000,
       "tag": "0005_scoped_rbac",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786622350895,
+      "tag": "0006_mtr_agent_orchestrator",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786636074026,
+      "tag": "0007_mtr_agent_learning",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786642462578,
+      "tag": "0008_universal_chat",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786647174784,
+      "tag": "0009_chat_rbac_actions",
+      "breakpoints": true
     }
   ]
 }
