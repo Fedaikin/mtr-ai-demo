@@ -33,4 +33,4 @@ RUN chmod -R a-w /app \
   && chmod 0600 /opt/fastgate-control/* \
   && chmod 0700 /opt/fastgate-control/application-start.mjs
 USER 0:0
-CMD ["node", "/opt/fastgate-control/application-start.mjs"]
+CMD ["node", "--conditions=react-server", "/opt/fastgate-control/application-start.mjs"]

@@ -378,7 +378,11 @@ function attestApplicationImageIsolation(finalSha: string, expectedDigest: strin
     Cmd?: readonly string[];
     User?: string;
   };
-  if (canonicalJson(config.Cmd) !== canonicalJson(["node", "/opt/fastgate-control/application-start.mjs"])
+  if (canonicalJson(config.Cmd) !== canonicalJson([
+    "node",
+    "--conditions=react-server",
+    "/opt/fastgate-control/application-start.mjs",
+  ])
     || config.User !== "0:0") throw new Error("APPLICATION_CONTROL_WRAPPER_CONFIGURATION_INVALID");
   return Object.freeze({
     schemaVersion: "mtr-fastgate-application-image-isolation-v1",
