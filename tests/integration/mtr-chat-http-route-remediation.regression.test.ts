@@ -60,6 +60,25 @@ describe.sequential("real chat HTTP route corrective path", () => {
     expect((output.tables as Array<{ rows: Array<Record<string, unknown>> }>)[0]?.rows).toHaveLength(22);
   });
 
+  test("сохраняет входной correlation id для app→proxy→witness binding", async () => {
+    const repository = await getRepository();
+    const thread = await repository.createAgentThread(DEMO_USER_ID, "Correlation binding");
+    const correlationId = "fastgate-regression-correlation-01";
+    const response = await POST(
+      request(thread.id, "Покажи активные проекты", correlationId),
+      route(thread.id),
+    );
+    const audits = await repository.listAuditLogs(DEMO_USER_ID, {
+      action: "agent.universal.capability.completed",
+      limit: 20,
+    });
+
+    expect(response.status).toBe(201);
+    expect(audits).toEqual(expect.arrayContaining([
+      expect.objectContaining({ requestId: correlationId }),
+    ]));
+  });
+
   test("буквальный inventory input остаётся universal clarification через тот же HTTP route", async () => {
     const repository = await getRepository();
     const thread = await repository.createAgentThread(DEMO_USER_ID, "Проверка склада");
@@ -137,6 +156,33 @@ describe.sequential("real chat HTTP route corrective path", () => {
       expect(JSON.stringify(await denied.json())).not.toMatch(/SAP-CATALOG|WH-DEMO-CENTRAL|Шкаф управления/iu);
     }
   });
+  test("FG-03/11 сохраняет source-bound citation нормализованного складского представления", async () => {
+    const repository = await getRepository();
+    const [material] = rows(await (await getDatabase()).execute(`
+      select material_code, stock from operational_material_views
+      where source_kind='CATALOG_NORMALIZED'
+      order by material_code limit 1
+    `));
+    const materialCode = String(material?.material_code ?? "");
+    const stock = material?.stock as { snapshotId?: string; balances?: Array<{ warehouseId?: string }> } | undefined;
+    const warehouseId = String(stock?.balances?.[0]?.warehouseId ?? "");
+    session.authorization = await resolveAuthorizationContext("demo-analyst-001", "demo-project-001");
+    const thread = await repository.createAgentThread("demo-analyst-001", "Нормализованный остаток");
+    const response = await POST(request(
+      thread.id,
+      `Какой остаток ${materialCode} на складе ${warehouseId}?`,
+    ), route(thread.id));
+    const messages = await repository.listAgentMessages("demo-analyst-001", thread.id);
+
+    expect(response.status).toBe(201);
+    expect(messages.at(-1)?.citations).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourceSystem: "SAP",
+        entityId: materialCode,
+        versionOrSnapshot: stock?.snapshotId,
+      }),
+    ]));
+  });
 });
 
 function managerContext(): TrustedRequestContext {
@@ -188,10 +234,13 @@ function rows(result: unknown): Array<Record<string, unknown>> {
   return [];
 }
 
-function request(threadId: string, message: string) {
+function request(threadId: string, message: string, requestId?: string) {
   return new Request(`http://localhost/api/agent/threads/${threadId}/messages`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...(requestId ? { "x-request-id": requestId } : {}),
+    },
     body: JSON.stringify({ threadId, message, selection: { projectId: "demo-project-001" } }),
   });
 }

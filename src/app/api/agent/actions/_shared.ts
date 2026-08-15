@@ -39,6 +39,17 @@ export function assertActionsEnabled(): void {
   }
 }
 
+export function assertActionConfirmationAllowed(): void {
+  const policy = readAgentFeaturePolicy();
+  if (!policy.actionExecutionAllowed) {
+    throw new ApiError(
+      policy.actionsEnabled ? 409 : 503,
+      policy.actionsEnabled ? "MTR_AGENT_ACTION_CONFIRMATION_DISABLED" : "MTR_AGENT_KILL_SWITCH_ACTIVE",
+      "Подтверждение действий МТР-агента отключено",
+    );
+  }
+}
+
 export async function createActionService(): Promise<AgentActionService> {
   const [store, repository] = await Promise.all([createAgentActionStore(), getRepository()]);
   return new AgentActionService(

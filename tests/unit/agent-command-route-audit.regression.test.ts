@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
     actionsEnabled: false,
     eventsEnabled: false,
     executionAllowed: true,
+    actionExecutionAllowed: false,
   } as AgentFeaturePolicy,
 }));
 
@@ -40,6 +41,7 @@ describe("command route projection and feature gate", () => {
       actionsEnabled: false,
       eventsEnabled: false,
       executionAllowed: true,
+      actionExecutionAllowed: false,
     };
     mocks.writeAudit.mockResolvedValue({ id: "audit-1" });
     mocks.handle.mockResolvedValue({

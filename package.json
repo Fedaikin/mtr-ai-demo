@@ -32,6 +32,12 @@
     "eval:agent:scale": "node --conditions=react-server --import tsx scripts/eval-agent-scale.ts",
     "eval:agent:multi-turn": "node --conditions=react-server --import tsx scripts/eval-agent-multi-turn.ts",
     "eval:agent:universal": "node --conditions=react-server --import tsx scripts/eval-agent-universal.ts",
+    "eval:agent:fastgate": "pnpm fastgate:official",
+    "eval:agent:fastgate:single": "node --conditions=react-server --import tsx scripts/eval-agent-fastgate.ts",
+    "fastgate:doctor": "node --import tsx scripts/fastgate-doctor.ts",
+    "fastgate:official": "node --conditions=react-server --import tsx scripts/fastgate-official.ts",
+    "fastgate:verify": "node --import tsx scripts/fastgate-verify.ts",
+    "fastgate:cleanup": "node --import tsx scripts/fastgate-cleanup.ts",
     "openai:models": "node --conditions=react-server --import tsx scripts/list-openai-chat-models.ts",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm privacy:scan && pnpm eval:agent && pnpm eval:agent:analytical && pnpm eval:agent:learning && pnpm eval:agent:provider && pnpm eval:agent:security && pnpm eval:agent:scale && pnpm eval:agent:multi-turn && pnpm eval:agent:universal && pnpm build"
   },

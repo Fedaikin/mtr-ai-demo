@@ -191,6 +191,24 @@ export default async function MtrAnalysisPage() {
   );
 }
 
+function responsibilityManifest(value: unknown): {
+  activeRuleCount: number;
+  datasetVersion: string;
+  checksumSha256: string;
+} | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  return typeof record.activeRuleCount === "number" &&
+    typeof record.datasetVersion === "string" &&
+    typeof record.checksumSha256 === "string"
+    ? {
+        activeRuleCount: record.activeRuleCount,
+        datasetVersion: record.datasetVersion,
+        checksumSha256: record.checksumSha256,
+      }
+    : null;
+}
+
 function SectionLink({ href, number, title, description }: { href: string; number: string; title: string; description: string }) {
   return <Link href={href} className="focus-ring rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:border-teal-300 hover:bg-teal-50/40"><span className="text-xs font-semibold text-teal-700">{number}</span><span className="mt-2 block font-semibold text-slate-900">{title}</span><span className="mt-1 block text-xs leading-5 text-slate-500">{description}</span></Link>;
 }

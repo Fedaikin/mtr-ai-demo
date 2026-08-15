@@ -91,6 +91,7 @@ import {
   materialMovements,
   normativeChunks,
   normativeDocuments,
+  operationalMaterialViews,
   positionAnalysisResults,
   promptVersions,
   responsibilityRules,
@@ -1606,6 +1607,37 @@ export class MtrRepository {
   async getSapMaterialStock(userId: string, materialCode: string): Promise<SapMaterial[]> {
     const result = await this.searchSapMaterials(userId, { materialCode, limit: 500 });
     return result.items;
+  }
+
+  async canReadOperationalMaterialStock(input: Readonly<{
+    subjectId: string;
+    accessProjectId: string;
+    catalogScopeIds: readonly string[];
+    sourceScopeIds: readonly string[];
+    warehouseIds: readonly string[];
+    materialCode: string;
+    snapshotId: string;
+  }>): Promise<boolean> {
+    trustedUser(input.subjectId);
+    if (
+      !input.accessProjectId ||
+      input.catalogScopeIds.length === 0 ||
+      input.sourceScopeIds.length === 0 ||
+      input.warehouseIds.length === 0
+    ) return false;
+    const [row] = await this.db.select({ stock: operationalMaterialViews.stock })
+      .from(operationalMaterialViews)
+      .where(and(
+        eq(operationalMaterialViews.tenantId, "demo-tenant-001"),
+        eq(operationalMaterialViews.accessProjectId, input.accessProjectId),
+        inArray(operationalMaterialViews.catalogScopeId, [...input.catalogScopeIds]),
+        inArray(operationalMaterialViews.sourceScopeId, [...input.sourceScopeIds]),
+        eq(operationalMaterialViews.materialCode, input.materialCode),
+      ))
+      .limit(1);
+    if (!row || row.stock.snapshotId !== input.snapshotId) return false;
+    const allowedWarehouses = new Set(input.warehouseIds);
+    return row.stock.balances.some((balance) => allowedWarehouses.has(balance.warehouseId));
   }
 
   async searchCatalogItems(
@@ -5250,7 +5282,11 @@ function agentAuditOperationConditions(
 ): SQL[] {
   const conditions: SQL[] = [
     eq(auditLogs.userId, userId),
-    eq(auditLogs.action, "agent.tool.result"),
+    inArray(auditLogs.action, [
+      "agent.tool.result",
+      "agent.universal.capability.completed",
+      "agent.universal.capability.failed",
+    ]),
   ];
   const from = auditDateBoundary(options.from, false);
   const to = auditDateBoundary(options.to, true);
@@ -5281,7 +5317,7 @@ function agentAuditOperationConditions(
   const toolPattern = containsPattern(options.tool);
   if (toolPattern) {
     conditions.push(
-      ilike(sql<string>`coalesce(${auditLogs.details} ->> 'tool', '')`, toolPattern),
+      ilike(sql<string>`coalesce(${auditLogs.details} ->> 'tool', ${auditLogs.details} ->> 'capabilityKey', '')`, toolPattern),
     );
   }
 

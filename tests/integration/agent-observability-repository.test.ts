@@ -116,6 +116,30 @@ describe.sequential("agent observability repository", () => {
       lastFailureAt: timestamp(1),
     });
   });
+
+  it("queries universal capability events by capability key", async () => {
+    await repository.writeAudit(DEMO_USER_ID, {
+      actorDisplayName: DEMO_USER_DISPLAY_NAME,
+      action: "agent.universal.capability.completed",
+      entityType: "AGENT_CAPABILITY",
+      entityId: "material.search",
+      outcome: "SUCCESS",
+      details: { capabilityKey: "material.search", durationMs: 9 },
+      requestId: "universal-material-correlation",
+    });
+
+    const page = await repository.queryAgentAuditOperations(DEMO_USER_ID, {
+      tool: "material.search",
+      correlationId: "universal-material-correlation",
+    });
+    expect(page).toMatchObject({ total: 1 });
+    expect(page.entries).toEqual([
+      expect.objectContaining({
+        action: "agent.universal.capability.completed",
+        entityId: "material.search",
+      }),
+    ]);
+  });
 });
 
 function timestamp(seconds: number): string {

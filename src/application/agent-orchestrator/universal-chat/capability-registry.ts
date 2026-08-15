@@ -2,6 +2,10 @@ import { z } from "zod";
 
 import type { AgentExecutionContext } from "@/domain/agent/context";
 import type { PermissionKey } from "@/domain/rbac";
+import {
+  createSourceBinding,
+  type SourceBindingEnvelope,
+} from "@/application/agent-orchestrator/universal-chat/source-binding";
 
 const boundedText = z.string().trim().min(1).max(240);
 const optionalLimit = z.number().int().min(1).max(200).optional();
@@ -85,14 +89,26 @@ export interface UniversalCapabilityAuditPort {
       outcome: "SUCCESS" | "FAILURE";
       durationMs: number;
       safeErrorCode?: string;
+      sourceBinding?: SourceBindingEnvelope;
     }>,
   ): Promise<void>;
+}
+
+export interface UniversalCapabilityRemoteExecutor {
+  execute<K extends UniversalReadCapabilityKey>(
+    key: K,
+    context: AgentExecutionContext,
+    input: UniversalCapabilityInput<K>,
+  ): Promise<unknown>;
 }
 
 export class UniversalCapabilityRegistry {
   private readonly definitions = new Map<UniversalReadCapabilityKey, UniversalCapabilityDefinition<UniversalReadCapabilityKey>>();
 
-  constructor(private readonly audit?: UniversalCapabilityAuditPort) {}
+  constructor(
+    private readonly audit?: UniversalCapabilityAuditPort,
+    private readonly remote?: UniversalCapabilityRemoteExecutor,
+  ) {}
 
   register<K extends UniversalReadCapabilityKey>(definition: UniversalCapabilityDefinition<K>): void {
     if (this.definitions.has(definition.key)) throw new Error(`UNIVERSAL_CAPABILITY_DUPLICATE:${definition.key}`);
@@ -124,10 +140,12 @@ export class UniversalCapabilityRegistry {
     try {
       const input = UNIVERSAL_READ_CAPABILITY_SCHEMAS[key].parse(rawInput) as UniversalCapabilityInput<K>;
       const output = await withTimeout(
-        definition.execute(context, input as never),
+        this.remote
+          ? this.remote.execute(key, context, input)
+          : definition.execute(context, input as never),
         definition.timeoutMs,
       );
-      await this.writeAudit(context, key, "SUCCESS", startedAt);
+      await this.writeAudit(context, key, "SUCCESS", startedAt, undefined, input, output);
       return output;
     } catch (error) {
       await this.writeAudit(context, key, "FAILURE", startedAt, safeErrorCode(error));
@@ -155,6 +173,8 @@ export class UniversalCapabilityRegistry {
     outcome: "SUCCESS" | "FAILURE",
     startedAt: number,
     safeErrorCode?: string,
+    input?: unknown,
+    output?: unknown,
   ): Promise<void> {
     if (!this.audit) return;
     await this.audit.write(context, {
@@ -162,8 +182,30 @@ export class UniversalCapabilityRegistry {
       outcome,
       durationMs: Math.max(0, Math.round((performance.now() - startedAt) * 100) / 100),
       ...(safeErrorCode ? { safeErrorCode } : {}),
+      ...(input !== undefined && output !== undefined ? {
+        sourceBinding: createSourceBinding({
+          capabilityKey,
+          requestId: context.correlationId,
+          subjectId: context.trusted.subjectId,
+          connector: connectorForCapability(capabilityKey),
+          resultStatus: "SUCCESS",
+          deploymentSha: process.env.FASTGATE_DEPLOYMENT_SHA ?? process.env.VERCEL_GIT_COMMIT_SHA ?? "LOCAL_UNATTESTED",
+          datasetFingerprint: process.env.FASTGATE_DATASET_FINGERPRINT ?? "DATASET_UNATTESTED",
+          input,
+          output,
+          privateKey: process.env.FASTGATE_SOURCE_BINDING_PRIVATE_KEY,
+          publicKey: process.env.FASTGATE_SOURCE_BINDING_PUBLIC_KEY,
+        }),
+      } : {}),
     });
   }
+}
+
+function connectorForCapability(key: UniversalReadCapabilityKey): SourceBindingEnvelope["connector"] {
+  if (key.startsWith("project.") || key.startsWith("specification.")) return "APPIUS";
+  if (key.startsWith("material.") || key.startsWith("catalog.")) return "SAP";
+  if (key.startsWith("compatibility.") || key.startsWith("reliability.")) return "NORMATIVE";
+  return "PROCESS_ENGINE";
 }
 
 export class UniversalCapabilityError extends Error {

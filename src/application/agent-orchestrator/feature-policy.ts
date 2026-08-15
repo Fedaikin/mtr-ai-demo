@@ -5,11 +5,13 @@ export interface AgentFeaturePolicy {
   readonly universalChatEnabled?: boolean;
   readonly liveLlmEnabled?: boolean;
   readonly executionAllowed: boolean;
+  readonly actionExecutionAllowed: boolean;
 }
 
 type AgentFeatureEnvironment = Readonly<Partial<Record<
   | "MTR_AGENT_ORCHESTRATOR_ENABLED"
   | "MTR_AGENT_ACTIONS_ENABLED"
+  | "MTR_AGENT_ACTION_MODE"
   | "MTR_AGENT_EVENTS_ENABLED"
   | "MTR_AGENT_UNIVERSAL_CHAT_ENABLED"
   | "MTR_AGENT_LIVE_LLM_ENABLED"
@@ -24,9 +26,11 @@ export function readAgentFeaturePolicy(
   const orchestratorEnabled = enabled(values.MTR_AGENT_ORCHESTRATOR_ENABLED);
   const killed = enabled(values.MTR_AGENT_KILL_SWITCH);
   const executionAllowed = orchestratorEnabled && !killed;
+  const actionsEnabled = executionAllowed && enabled(values.MTR_AGENT_ACTIONS_ENABLED);
+  const actionExecutionAllowed = actionsEnabled && values.MTR_AGENT_ACTION_MODE?.trim().toUpperCase() !== "PROPOSE_ONLY";
   return Object.freeze({
     orchestratorEnabled,
-    actionsEnabled: executionAllowed && enabled(values.MTR_AGENT_ACTIONS_ENABLED),
+    actionsEnabled,
     eventsEnabled: executionAllowed && enabled(values.MTR_AGENT_EVENTS_ENABLED),
     ...(values.MTR_AGENT_UNIVERSAL_CHAT_ENABLED === undefined
       ? {}
@@ -41,6 +45,7 @@ export function readAgentFeaturePolicy(
             executionAllowed && enabled(values.MTR_AGENT_LIVE_LLM_ENABLED),
         }),
     executionAllowed,
+    actionExecutionAllowed,
   });
 }
 

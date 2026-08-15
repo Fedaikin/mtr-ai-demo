@@ -53,6 +53,97 @@ describe.sequential("corrective universal chat runtime", () => {
     expect(output.requiresHumanReview).toBe(false);
   });
 
+  test.each([
+    "Что у нас сейчас в работе?",
+    "Какие проекты сейчас активны?",
+    "Перечисли текущие рабочие проекты",
+    "Что из проектов находится в активной фазе?",
+    "Над какими проектами мы сейчас работаем?",
+    "Покажи проекты в работе",
+    "Текущие рабочие проекты",
+    "Какие проекты идут сейчас?",
+    "Что сейчас активно по проектам?",
+    "Дай список проектов, которые находятся в работе",
+  ])("FG-02 распознаёт разговорный запрос активных проектов: %s", async (message) => {
+    const output = await service.respond({ message }, context());
+    if (!output || "kind" in output) throw new Error("Ожидался структурированный ответ.");
+
+    expect(output.summary).toBe("Доступно 22 активных бизнес-проекта.");
+    expect(output.tables[0]?.rows).toHaveLength(22);
+    expect(output.tables[0]?.rows.every((row) => row["Статус"] === "Активен")).toBe(true);
+  });
+
+  test("FG-05 считает сегодняшнее поступление по полному status breakdown, даже если вопрос содержит очередь", async () => {
+    const output = await service.respond({
+      message: "Сколько спецификаций поступило сегодня, сколько обработано и что осталось в очереди?",
+    }, context());
+    if (!output || "kind" in output) throw new Error("Ожидался структурированный ответ.");
+
+    expect(output.facts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "received", value: 12 }),
+      expect.objectContaining({ key: "completed", value: 2 }),
+      expect.objectContaining({ key: "pending", value: 8 }),
+      expect.objectContaining({ key: "failed", value: 2 }),
+    ]));
+    expect(output.tables[0]?.totalRows).toBe(8);
+  });
+
+  test("FG-06 возвращает только незавершённые сроки в ближайшие три дня", async () => {
+    const output = await service.respond({
+      message: "Покажи доступные мне проекты и спецификации со сроком в ближайшие три дня и выдели риски",
+    }, context());
+    if (!output || "kind" in output) throw new Error("Ожидался структурированный ответ.");
+
+    const rows = output.tables[0]?.rows ?? [];
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((row) => String(row["Спецификации"] ?? "").trim().length > 0)).toBe(true);
+    expect(rows.every((row) => row["Статус"] !== "Выполнен")).toBe(true);
+    expect(rows.every((row) => {
+      const value = String(row["Срок"] ?? "");
+      return /^(?:13|14|15|16)\s+авг\./u.test(value);
+    })).toBe(true);
+  });
+
+  test.each([
+    "Покажи дедлайны доступных проектов до конца трёхдневного горизонта",
+    "Покажи дедлайны доступных проектов до конца трехдневного горизонта",
+  ])("FG-06 распознаёт словесный трёхдневный горизонт: %s", async (message) => {
+    const output = await service.respond({ message }, context());
+    if (!output || "kind" in output) throw new Error("Ожидался структурированный ответ.");
+
+    expect(output.facts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "deadline-count", value: expect.any(Number) }),
+    ]));
+    expect(output.tables[0]).toMatchObject({
+      id: "upcoming-deadlines",
+      columns: ["Проект", "Спецификации", "Событие", "Срок", "Статус"],
+    });
+  });
+
+  test("FG-10 неизвестный безопасный код маршрутизируется в доказательный NOT_FOUND", async () => {
+    const code = "ZX-A1B2C3D4E5F6";
+    const output = await service.respond({ message: `Какой остаток и назначение у ${code}?` }, context());
+    if (!output || "kind" in output) throw new Error("Ожидался структурированный ответ.");
+
+    expect(output.confidence).toBe(0);
+    expect(output.requiresHumanReview).toBe(true);
+    expect(output.citations).toEqual([]);
+    expect(output.missingData).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "MATERIAL_NOT_FOUND" }),
+    ]));
+  });
+
+  test("FG-09 фраза «работаем по проекту» выбирает один проект, а не весь активный портфель", async () => {
+    const output = await service.respond({
+      message: "Работаем по проекту PROJECT-MTR-013",
+    }, context());
+    if (!output || "kind" in output) throw new Error("Ожидался структурированный ответ.");
+
+    expect(output.resolvedContext.businessProject?.code).toBe("PROJECT-MTR-013");
+    expect(output.citations.filter((citation) => citation.entityId === output.resolvedContext.businessProject?.id))
+      .toHaveLength(1);
+  });
+
   test("TC-CHAT-04 использует material context потока и не выдумывает alias «второй склад»", async () => {
     const output = await service.respond({
       message: "Проверь этот шкаф на втором складе",

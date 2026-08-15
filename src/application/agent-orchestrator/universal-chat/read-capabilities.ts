@@ -16,6 +16,7 @@ import {
   UniversalCapabilityRegistry,
   type UniversalCapabilityDefinition,
   type UniversalCapabilityAuditPort,
+  type UniversalCapabilityRemoteExecutor,
   type UniversalReadCapabilityKey,
 } from "./capability-registry";
 
@@ -26,8 +27,9 @@ export function createUniversalReadCapabilityRegistry(
   port: UniversalAgentReadPort,
   clock: ScenarioClock = createSystemScenarioClock(),
   audit?: UniversalCapabilityAuditPort,
+  remote?: UniversalCapabilityRemoteExecutor,
 ): UniversalCapabilityRegistry {
-  const registry = new UniversalCapabilityRegistry(audit);
+  const registry = new UniversalCapabilityRegistry(audit, remote);
   const register = <K extends UniversalReadCapabilityKey>(
     definition: Omit<
       UniversalCapabilityDefinition<K>,
@@ -479,11 +481,16 @@ export function createUniversalReadCapabilityRegistry(
     execute: async (context, input) => {
       const now = clock.now().getTime();
       const dueBefore = new Date(now + input.withinDays * 86_400_000).toISOString();
-      const projects = await port.listProjects(context, universalAccessScope(context), { dueBefore, limit: input.limit });
+      // Project.needDate is not a deadline boundary. Pull the authorized
+      // project set first, then constrain the actual deadline timestamps.
+      const projects = await port.listProjects(context, universalAccessScope(context), { limit: input.limit });
       return projects
         .filter((project) => !input.projectId || project.id === input.projectId)
         .flatMap((project) => project.deadlines
-          .filter((deadline) => Date.parse(deadline.dueAt) <= Date.parse(dueBefore))
+          .filter((deadline) =>
+            deadline.status !== "MET" &&
+            Date.parse(deadline.dueAt) >= now &&
+            Date.parse(deadline.dueAt) <= Date.parse(dueBefore))
           .map((deadline) => ({ project, deadline })));
     },
   });

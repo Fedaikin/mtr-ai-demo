@@ -271,7 +271,6 @@ function stringArray(value: unknown): string[] {
     return [];
   }
 }
-
 const ORACLE_CONDITION_KEYS = new Set([
   "standard",
   "materialGrade",
