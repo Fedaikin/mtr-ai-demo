@@ -110,6 +110,10 @@ describe("official FastGate infrastructure contract", () => {
     const applicationDockerfile = readFileSync(join(root, "infra/fastgate/Dockerfile.application"), "utf8");
     expect(applicationDockerfile).toContain("/app/.next/standalone");
     expect(applicationDockerfile).toContain("/opt/fastgate-control/application-start.mjs");
+    expect(applicationDockerfile).toContain("--conditions=react-server");
+    expect(applicationDockerfile).toMatch(
+      /ESBUILD_BIN[\s\S]*--bundle --platform=node --format=esm --target=node24[\s\\]*--conditions=react-server/,
+    );
     expect(applicationDockerfile).toContain(
       'CMD ["node", "--conditions=react-server", "/opt/fastgate-control/application-start.mjs"]',
     );
