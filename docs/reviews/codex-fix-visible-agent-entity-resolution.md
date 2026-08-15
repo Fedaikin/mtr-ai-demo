@@ -7,9 +7,10 @@
 - Назначение: исправить фактический ответ МТР-агента на проверку позиции по Appius-коду и точному русскому названию.
 - База / merge base: `origin/main` / `b585b36c189f344c95809b59b5cb097b1a5d56fa`
 - Исходный Production SHA: `b585b36c189f344c95809b59b5cb097b1a5d56fa`
-- HEAD SHA: см. exact commit текущего Pull Request; review-файл входит в ветку.
-- Pull Request: ожидает первого push.
-- Vercel Preview URL / deployment ID: ожидает первого push.
+- Проверенный runtime SHA: `e47a3c73dd5628498026f9830e463a468b92228f`.
+- HEAD SHA: см. exact commit текущего Pull Request; финальный evidence commit меняет только этот review-файл.
+- Pull Request: [#5](https://github.com/Fedaikin/mtr-ai-demo/pull/5), draft.
+- Vercel Preview: `https://mtr-ai-demo-rl90dx2sa-fedaikin-7533s-projects.vercel.app`, deployment `5918868659`, exact SHA `e47a3c73…`, status `success`.
 - Дата проверки: 15.08.2026
 - Проверяющий: Codex
 
@@ -55,7 +56,8 @@
 - [x] Для найденного совпадения выводятся русские пояснения; английскими остаются только Appius, SAP и предметные коды/единицы.
 - [x] Для `APP-DEMO-BALL-021` ответ содержит `SAP-DEMO-0021`, совместимость `86%`, доступно `9 EA` и требование экспертной проверки.
 - [x] Layout, навигация, composer, accessibility и responsive CSS: Н/П — не изменялись.
-- [ ] Runtime UI smoke на exact Vercel Preview: ожидает deployment первого push.
+- [x] Vercel exact-SHA build/deployment: PASS. Интерактивный Preview login отклонил публичный demo-пароль, потому что окружение использует ротированный секрет; пароль не подбирался и не извлекался.
+- [x] Браузерный UI smoke выполнен на локальном runtime exact SHA `e47a3c73…` с изолированной in-memory PGlite: оба запроса создали сообщения в реальном чате и вернули одинаковый grounded-ответ с 5 citations.
 
 ## 7. Проверки
 
@@ -66,7 +68,7 @@
 - [x] `pnpm privacy:scan`: PASS, 319 candidate files.
 - [x] `pnpm eval:agent`: PASS, 34/34 cases.
 - [x] `pnpm build`: PASS, 23/23 static generation steps, 2/2 PDF runtime assets.
-- [x] Performance/load: Н/П — запрос добавляет последовательное чтение текущей позиции и SAP; фактическая Preview latency будет зафиксирована в runtime smoke.
+- [x] Browser UI latency локального exact-SHA runtime: первый запрос с созданием диалога — 1067 мс, второй запрос в прогретом диалоге — 330 мс; ошибок нет.
 
 ## 8. Риски, rollback и решение
 
@@ -77,8 +79,8 @@
 
 ### Итоговое решение
 
-- [ ] ГОТОВО К REVIEW
-- [x] НЕ ГОТОВО — локальный gate пройден, требуется exact-SHA Vercel Preview и UI smoke двух запросов.
+- [x] ГОТОВО К REVIEW — Vercel exact-SHA deployment и локальный exact-SHA browser smoke пройдены; PR остаётся draft.
+- [x] Н/П — НЕ ГОТОВО: обязательный локальный gate и deployment evidence получены.
 - [x] Н/П — внешнего блокера нет.
 
-Следующее действие: commit + push, дождаться Vercel Preview, повторить оба запроса в UI, записать URL/deployment/SHA/latency и перевести решение в «ГОТОВО К REVIEW» при успешном smoke.
+Следующее действие: владелец может проверить Preview со своим ротированным паролем; merge и переключение Production остаются отдельным решением.
