@@ -537,7 +537,7 @@ export class AgentService {
     if (intents.has("SPECIFICATION") && !catalogueRequest) {
       await this.collectSpecificationFacts(context, specificationId);
     }
-    if (intents.has("STOCK") && !catalogueRequest) {
+    if (intents.has("STOCK") && !intents.has("POSITION") && !catalogueRequest) {
       await this.collectStockFacts(context);
     }
 

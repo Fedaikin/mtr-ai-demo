@@ -102,6 +102,22 @@ describe("universal capability in the single MtrAgentOrchestrator", () => {
     expect(legacy.respond).not.toHaveBeenCalled();
   });
 
+  it("оставляет проверку Appius-позиции в подтверждённом legacy-контуре", async () => {
+    const legacy = { respond: vi.fn(async () => legacyOutput) };
+    const universal = { respond: vi.fn(async () => universalOutput) };
+    const execute = vi.fn();
+    const commands = { execute } as never;
+    const orchestrator = new MtrAgentOrchestrator(legacy, commands, undefined, universal);
+
+    await expect(orchestrator.handle({
+      kind: "CHAT",
+      message: "Проверь позицию APP-DEMO-BALL-021: остатки, дефицит, замены и риски",
+    }, trusted())).resolves.toEqual({ kind: "CHAT", output: legacyOutput });
+    expect(legacy.respond).toHaveBeenCalledOnce();
+    expect(universal.respond).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("оставляет legacy fallback для неподдержанного вопроса", async () => {
     const legacy = { respond: vi.fn(async () => legacyOutput) };
     const universal = { respond: vi.fn(async () => null) };

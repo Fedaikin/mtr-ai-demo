@@ -109,6 +109,7 @@ export interface UniversalAgentRolloutResult {
   promptVersionsAdded: number;
   catalogueAdded: boolean;
   universalDatasetAdded: boolean;
+  warehouseClaimsAdded: number;
 }
 
 // Deduplicates concurrent/repeated login bootstrap attempts while remaining
@@ -195,6 +196,8 @@ export async function rolloutUniversalAgentDataset(
     );
   }
 
+  const warehouseClaimsAdded = await ensureDemoWarehouseAccessClaims(db);
+
   const catalogueBefore = await getIndustrialCatalogueCounts(db, DEMO_USER_ID);
   assertEmptyOrExpectedCounts(
     "промышленного каталога",
@@ -221,6 +224,7 @@ export async function rolloutUniversalAgentDataset(
     promptVersionsAdded: Math.max(0, baseCounts.prompts - before.prompts),
     catalogueAdded: catalogue.seeded,
     universalDatasetAdded: universal.seeded,
+    warehouseClaimsAdded,
   };
 }
 
@@ -792,8 +796,18 @@ async function seedRbacSubjects(db: Database, fixtureHash: string): Promise<void
     ('assign-demo-admin','demo-user-001','role-system-admin','GLOBAL',null,'ACTIVE','demo-user-001'),('assign-demo-manager','demo-user-001','role-project-manager','PROJECT','demo-project-001','ACTIVE','demo-user-001'),
     ('assign-viewer','demo-viewer-001','role-project-viewer','PROJECT','demo-project-001','ACTIVE','demo-user-001'),('assign-analyst','demo-analyst-001','role-mtr-analyst','PROJECT','demo-project-001','ACTIVE','demo-user-001'),('assign-expert','demo-expert-001','role-mtr-expert','PROJECT','demo-project-001','ACTIVE','demo-user-001'),('assign-director','demo-director-001','role-project-viewer','PROJECT','demo-project-001','ACTIVE','demo-user-001'),
     ('assign-admin','demo-admin-001','role-system-admin','GLOBAL',null,'ACTIVE','demo-user-001'),('assign-auditor-global','demo-auditor-001','role-auditor','GLOBAL',null,'ACTIVE','demo-user-001'),('assign-auditor-project','demo-auditor-001','role-project-viewer','PROJECT','demo-project-001','ACTIVE','demo-user-001'),('assign-service','demo-service-001','role-integration-service','SERVICE',null,'ACTIVE','demo-user-001') on conflict do nothing`);
+  await ensureDemoWarehouseAccessClaims(db);
+}
+
+async function ensureDemoWarehouseAccessClaims(db: Database): Promise<number> {
   const warehouseIds = [...new Set(sapFixture.materials.map((item) => item.warehouse))];
-  const stockUsers = ["demo-user-001", "demo-analyst-001", "demo-expert-001", "demo-director-001"];
+  const stockUsers = [
+    "demo-user-001",
+    "demo-analyst-001",
+    "demo-expert-001",
+    "demo-director-001",
+  ] as const;
+  const before = await countDemoWarehouseAccessClaims(db, stockUsers);
   for (const stockUserId of stockUsers) {
     for (const warehouseId of warehouseIds) {
       await db.execute(sql`insert into user_source_access_claims
@@ -802,6 +816,28 @@ async function seedRbacSubjects(db: Database, fixtureHash: string): Promise<void
         on conflict (user_id,claim_type,claim_value,source) do nothing`);
     }
   }
+  const after = await countDemoWarehouseAccessClaims(db, stockUsers);
+  const expected = stockUsers.length * warehouseIds.length;
+  if (after !== expected) {
+    throw new Error(
+      `Проверка складских access-claims не пройдена: ожидалось ${expected}, получено ${after}.`,
+    );
+  }
+  return Math.max(0, after - before);
+}
+
+async function countDemoWarehouseAccessClaims(
+  db: Database,
+  stockUsers: readonly [string, string, string, string],
+): Promise<number> {
+  const result = await db.execute(sql`
+    select count(*)::int as value
+    from user_source_access_claims
+    where claim_type='warehouseIds'
+      and source='DEMO_SEED'
+      and user_id in (${stockUsers[0]},${stockUsers[1]},${stockUsers[2]},${stockUsers[3]})
+  `);
+  return Number(extractExecutedRows(result)[0]?.value ?? 0);
 }
 
 function requiredDemoPasswordHash(): string {

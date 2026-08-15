@@ -213,7 +213,8 @@ export class MtrAgentOrchestrator {
     const naturalCommand = this.commands
       ? routeNaturalAgentCommand(request.message, request.selection)
       : null;
-    if (naturalCommand && shouldPreferTypedCommand(naturalCommand)) {
+    const legacyPositionLookup = shouldUseLegacyPositionLookup(request.message);
+    if (naturalCommand && !legacyPositionLookup && shouldPreferTypedCommand(naturalCommand)) {
       const output = await executeNaturalCommand(
         this.commands!,
         executionContext,
@@ -223,12 +224,12 @@ export class MtrAgentOrchestrator {
       return Object.freeze({ kind: "COMMAND", output });
     }
 
-    if (this.universalChat) {
+    if (this.universalChat && !legacyPositionLookup) {
       const universal = await this.universalChat.respond(request, executionContext);
       if (universal) return Object.freeze({ kind: "UNIVERSAL", output: universal });
     }
 
-    if (naturalCommand) {
+    if (naturalCommand && !legacyPositionLookup) {
       const output = await executeNaturalCommand(
         this.commands!,
         executionContext,
@@ -242,6 +243,13 @@ export class MtrAgentOrchestrator {
 
     return Object.freeze({ kind: "CHAT", output });
   }
+}
+
+function shouldUseLegacyPositionLookup(message: string): boolean {
+  return (
+    /\bAPP-DEMO-[A-Z0-9-]+\b/iu.test(message) ||
+    /(?:проверь|проверить|найди|покажи)\s+(?:мтр[- ]?)?позици/iu.test(message)
+  );
 }
 
 function executeLegacyChat(

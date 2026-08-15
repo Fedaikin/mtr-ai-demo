@@ -1,6 +1,6 @@
 vi.mock("server-only", () => ({}));
 
-import { and, eq, like, ne } from "drizzle-orm";
+import { and, eq, like, ne, sql } from "drizzle-orm";
 
 import { createAppiusMockAdapter } from "@/adapters/mock/appius-adapter";
 import { createNormativeMockAdapter } from "@/adapters/mock/normative-adapter";
@@ -20,8 +20,9 @@ import {
   users,
 } from "@/adapters/persistence/schema";
 import { GET as healthCheck } from "@/app/api/health/route";
-import { ScenarioService } from "@/application/scenario-service";
 import { MTR_AGENT_ROLLBACK_VERSION } from "@/application/agent-orchestrator/system-prompt";
+import { resolveAuthorizationContext } from "@/application/authorization-service";
+import { ScenarioService } from "@/application/scenario-service";
 import { DEMO_USER_ID } from "@/domain/models";
 import { hashSessionToken, resolveDemoSession } from "@/lib/session-core";
 
@@ -198,11 +199,16 @@ describe.sequential("authenticated runtime seed boundary", () => {
           ne(promptVersions.promptVersion, MTR_AGENT_ROLLBACK_VERSION),
         ),
       );
+    await database.execute(sql`
+      delete from user_source_access_claims
+      where user_id=${userId} and claim_type='warehouseIds' and source='DEMO_SEED'
+    `);
 
     const first = await rolloutUniversalAgentDataset(database);
     expect(first).toMatchObject({
       portfolioAdded: true,
       promptVersionsAdded: 3,
+      warehouseClaimsAdded: 7,
       baseCounts: {
         specifications: 83,
         specificationVersions: 88,
@@ -222,6 +228,8 @@ describe.sequential("authenticated runtime seed boundary", () => {
     await expect(resolveDemoSession("A".repeat(43))).resolves.toMatchObject({
       user: { id: userId },
     });
+    const authorization = await resolveAuthorizationContext(userId, "demo-project-001");
+    expect(authorization.accessClaims.warehouseIds).toHaveLength(7);
 
     const second = await rolloutUniversalAgentDataset(database);
     expect(second).toMatchObject({
@@ -229,6 +237,7 @@ describe.sequential("authenticated runtime seed boundary", () => {
       promptVersionsAdded: 0,
       catalogueAdded: false,
       universalDatasetAdded: false,
+      warehouseClaimsAdded: 0,
     });
     expect(second.baseCounts).toEqual(first.baseCounts);
     expect(second.universalCounts).toEqual(first.universalCounts);

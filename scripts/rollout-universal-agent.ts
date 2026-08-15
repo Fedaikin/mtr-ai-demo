@@ -14,6 +14,7 @@ async function main(): Promise<void> {
   );
   console.info(
     `Изменения: portfolio=${result.portfolioAdded}, prompts_added=${result.promptVersionsAdded}, ` +
+      `warehouse_claims_added=${result.warehouseClaimsAdded}, ` +
       `catalogue=${result.catalogueAdded}, universal=${result.universalDatasetAdded}.`,
   );
 }
