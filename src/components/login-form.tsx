@@ -7,14 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DEMO_PERSONAS } from "@/domain/demo-personas";
 
-const DEMO_ACCESS_PASSWORD = "mtr2026";
-
 export function LoginForm({ returnTo, showPersonaSelector = false }: { returnTo: string; showPersonaSelector?: boolean }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [login, setLogin] = useState("");
-  const [password, setPassword] = useState("");
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -42,8 +39,7 @@ export function LoginForm({ returnTo, showPersonaSelector = false }: { returnTo:
 
   return (
     <form className="space-y-4" onSubmit={submit}>
-      {showPersonaSelector ? <label className="block space-y-1.5 text-sm font-medium text-slate-800"><span>Демо-персона</span><select value={login} onChange={(event) => { setLogin(event.target.value); setPassword(event.target.value ? DEMO_ACCESS_PASSWORD : ""); }} className="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"><option value="">Выберите роль…</option>{DEMO_PERSONAS.map((persona) => <option key={persona.login} value={persona.login}>{persona.label}</option>)}</select></label> : null}
-      {showPersonaSelector ? <p className="rounded-md border border-teal-100 bg-teal-50 px-3 py-2 text-xs leading-5 text-teal-900">Для всех демонстрационных ролей используется пароль: <span className="font-semibold">{DEMO_ACCESS_PASSWORD}</span></p> : null}
+      {showPersonaSelector ? <label className="block space-y-1.5 text-sm font-medium text-slate-800"><span>Демо-персона</span><select value={login} onChange={(event) => setLogin(event.target.value)} className="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"><option value="">Выберите роль…</option>{DEMO_PERSONAS.map((persona) => <option key={persona.login} value={persona.login}>{persona.label}</option>)}</select></label> : null}
       <label className="block space-y-1.5 text-sm font-medium text-slate-800">
         <span>Логин</span>
         <Input name="login" value={login} onChange={(event) => setLogin(event.target.value)} autoComplete="username" required maxLength={64} autoFocus />
@@ -53,8 +49,6 @@ export function LoginForm({ returnTo, showPersonaSelector = false }: { returnTo:
         <Input
           name="password"
           type="password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
           autoComplete="current-password"
           required
           maxLength={256}
