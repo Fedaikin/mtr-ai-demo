@@ -45,6 +45,7 @@ export interface PublicUniversalAnswer {
     requiresConfirmation: boolean;
   }>[];
   readonly limitations: readonly Readonly<{
+    status: "NOT_FOUND" | "UNAVAILABLE" | "PARTIAL" | "REVIEW_REQUIRED";
     message: string;
     impact: string;
   }>[];
@@ -179,6 +180,7 @@ export function projectUniversalAgentOutput(value: unknown): PublicUniversalResu
       const item = record(missing);
       if (!item) return [];
       return [{
+        status: publicLimitationStatus(item.code),
         message: text(item.message, 500, "Часть данных недоступна."),
         impact: text(item.impact, 500),
       }];
@@ -241,7 +243,14 @@ export function restorePublicUniversalResult(value: unknown): PublicUniversalRes
         return { ...value, kind: publicRecommendationKind(value.kindLabel), quantity: value.quantity ?? undefined };
       }),
       actions: root.actions,
-      missingData: root.limitations,
+      missingData: array(root.limitations, 16).map((item) => {
+        const value = record(item) ?? {};
+        return {
+          code: privateLimitationCode(value.status),
+          message: value.message,
+          impact: value.impact,
+        };
+      }),
       confidence: root.confidence,
       requiresHumanReview: root.requiresHumanReview,
       generatedAt: root.generatedAt,
@@ -314,6 +323,23 @@ function compatibilityVerdictLabel(value: unknown): string {
 
 function recommendationKindLabel(value: unknown): string {
   return { REORDER: "Дозаказ", REPLACEMENT: "Замена", EXPERT_REVIEW: "Экспертная проверка", MONITOR: "Мониторинг" }[String(value)] ?? "Рекомендация";
+}
+
+function publicLimitationStatus(value: unknown): PublicUniversalAnswer["limitations"][number]["status"] {
+  const code = String(value);
+  if (/(?:^|_)NOT_FOUND$/u.test(code)) return "NOT_FOUND";
+  if (/(?:DENIED|REVIEW|AMBIGUOUS|VALIDATION)/u.test(code)) return "REVIEW_REQUIRED";
+  if (/(?:PARTIAL|INCOMPLETE|STALE)/u.test(code)) return "PARTIAL";
+  return "UNAVAILABLE";
+}
+
+function privateLimitationCode(value: unknown): string {
+  return {
+    NOT_FOUND: "MATERIAL_NOT_FOUND",
+    UNAVAILABLE: "PUBLIC_DATA_UNAVAILABLE",
+    PARTIAL: "PUBLIC_PARTIAL_DATA",
+    REVIEW_REQUIRED: "PUBLIC_REVIEW_REQUIRED",
+  }[String(value)] ?? "PUBLIC_DATA_UNAVAILABLE";
 }
 
 function publicRiskLevel(value: unknown): string {

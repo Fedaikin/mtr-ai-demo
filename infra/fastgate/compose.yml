@@ -1,0 +1,207 @@
+name: ${FASTGATE_PROJECT_NAME:-mtr-fastgate-official-local}
+
+x-fastgate-security: &fastgate-security
+  read_only: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  user: "1000:1000"
+  init: true
+  restart: "no"
+  tmpfs:
+    - /tmp:size=128m,mode=1777
+
+services:
+  application:
+    <<: *fastgate-security
+    user: "0:0"
+    build:
+      context: ../..
+      dockerfile: infra/fastgate/Dockerfile.application
+    image: mtr-fastgate-application:${FASTGATE_IMAGE_TAG:-local}
+    environment:
+      APP_MODE: test
+      FASTGATE_OFFICIAL: "1"
+      FASTGATE_PUBLIC_FIXTURE_PATH: /run/fastgate-public/fixture.json
+      FASTGATE_APPLICATION_BOOTSTRAP_EVIDENCE: /run/fastgate-database/application-bootstrap.json
+      FASTGATE_POST_RUN_STATE_PATH: /run/fastgate-database/post-run-state.json
+      FASTGATE_APPLICATION_CONTROL_PORT: "4330"
+      FASTGATE_APPLICATION_CONTROL_TOKEN: ${FASTGATE_APPLICATION_CONTROL_TOKEN:?FASTGATE_APPLICATION_CONTROL_TOKEN required}
+      FASTGATE_FIXTURE_RUN_ID: run-fastgate-${FASTGATE_RUN_ID:?FASTGATE_RUN_ID required}
+      FASTGATE_WITNESS_URL: http://http-proxy:4310/__fastgate/witness
+      FASTGATE_DEPLOYMENT_SHA: ${FASTGATE_IMAGE_TAG:-local}
+      PGLITE_DATA_DIR: /run/fastgate-database/pglite
+      MTR_AGENT_ORCHESTRATOR_ENABLED: "true"
+      MTR_AGENT_UNIVERSAL_CHAT_ENABLED: "true"
+      MTR_AGENT_LIVE_LLM_ENABLED: "false"
+      MTR_AGENT_ACTIONS_ENABLED: "true"
+      MTR_AGENT_ACTION_MODE: PROPOSE_ONLY
+      DEMO_ROLE_SELECTOR: "true"
+      DEMO_PASSWORD_HASH: scrypt$$16384$$8$$1$$5Qr53Li_UbDOnhJzIumUzw$$OnJc6NYv7o1rF5xkdJKUCPb_QbSc9Yeuc-GaCB_KVuABn4SxmUKk2qYt0S3tNsUtAOQPHhIIkyVKn3l-leakrg
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+    expose:
+      - "3000"
+      - "4330"
+    networks:
+      - fastgate-proxy-application
+    volumes:
+      - fastgate-public:/run/fastgate-public:ro
+      - fastgate-database:/run/fastgate-database
+
+  http-proxy:
+    <<: *fastgate-security
+    build:
+      context: ../..
+      dockerfile: infra/fastgate/Dockerfile.proxy
+    image: mtr-fastgate-http-proxy:${FASTGATE_IMAGE_TAG:-local}
+    environment:
+      FASTGATE_UPSTREAM_URL: http://application:3000
+      FASTGATE_APPLICATION_CONTROL_URL: http://application:4330
+      FASTGATE_WITNESS_UPSTREAM_URL: http://connector-witness:4320
+      FASTGATE_PROXY_PORT: "4310"
+      FASTGATE_ARTIFACT_DIR: /run/fastgate-artifacts
+      FASTGATE_CONTROL_DIR: /run/fastgate-control
+    expose:
+      - "4310"
+    depends_on:
+      - application
+    networks:
+      - fastgate-supervisor-proxy
+      - fastgate-proxy-application
+      - fastgate-proxy-witness
+    volumes:
+      - fastgate-proxy-artifacts:/run/fastgate-artifacts
+      - fastgate-control:/run/fastgate-control:ro
+
+  connector-witness:
+    <<: *fastgate-security
+    build:
+      context: ../..
+      dockerfile: infra/fastgate/Dockerfile.witness
+    image: mtr-fastgate-connector-witness:${FASTGATE_IMAGE_TAG:-local}
+    environment:
+      FASTGATE_WITNESS_PORT: "4320"
+      FASTGATE_OFFICIAL: "1"
+      FASTGATE_DEPLOYMENT_SHA: ${FASTGATE_IMAGE_TAG:-local}
+      FASTGATE_PUBLIC_FIXTURE_PATH: /run/fastgate-public/fixture.json
+      FASTGATE_PRIVATE_DIR: /run/fastgate-private
+      FASTGATE_ARTIFACT_DIR: /run/fastgate-artifacts
+      FASTGATE_CONTROL_DIR: /run/fastgate-control
+      FASTGATE_FIXTURE_RUN_ID: run-fastgate-${FASTGATE_RUN_ID:?FASTGATE_RUN_ID required}
+      FASTGATE_WITNESS_IMAGE_DIGEST: ${FASTGATE_WITNESS_IMAGE_DIGEST:?witness digest required}
+      PGLITE_DATA_DIR: /run/fastgate-witness-database/pglite
+      MTR_AGENT_UNIVERSAL_CHAT_ENABLED: "true"
+      DEMO_PASSWORD_HASH: scrypt$$16384$$8$$1$$5Qr53Li_UbDOnhJzIumUzw$$OnJc6NYv7o1rF5xkdJKUCPb_QbSc9Yeuc-GaCB_KVuABn4SxmUKk2qYt0S3tNsUtAOQPHhIIkyVKn3l-leakrg
+    expose:
+      - "4320"
+    networks:
+      - fastgate-supervisor-witness
+      - fastgate-proxy-witness
+    volumes:
+      - fastgate-public:/run/fastgate-public:ro
+      - fastgate-private:/run/fastgate-private
+      - fastgate-witness-artifacts:/run/fastgate-artifacts
+      - fastgate-control:/run/fastgate-control:ro
+      - fastgate-witness-database:/run/fastgate-witness-database
+
+  supervisor:
+    <<: *fastgate-security
+    build:
+      context: ../..
+      dockerfile: infra/fastgate/Dockerfile.supervisor
+    image: mtr-fastgate-supervisor:${FASTGATE_IMAGE_TAG:-local}
+    environment:
+      FASTGATE_OFFICIAL: "1"
+      FASTGATE_APPLICATION_URL: http://http-proxy:4310
+      FASTGATE_WITNESS_URL: http://connector-witness:4320
+      FASTGATE_ARTIFACT_DIR: /run/fastgate-artifacts
+      FASTGATE_PROXY_ARTIFACT_DIR: /run/fastgate-proxy-artifacts
+      FASTGATE_WITNESS_ARTIFACT_DIR: /run/fastgate-witness-artifacts
+      FASTGATE_PUBLIC_FIXTURE_DIR: /run/fastgate-public
+      FASTGATE_PRIVATE_PROOF_DIR: /run/fastgate-private
+      FASTGATE_CONTROL_DIR: /run/fastgate-control
+      FASTGATE_APPLICATION_BOOTSTRAP_EVIDENCE: /run/fastgate-database/application-bootstrap.json
+      FASTGATE_POST_RUN_STATE_PATH: /run/fastgate-database/post-run-state.json
+      FASTGATE_RUN_ID: ${FASTGATE_RUN_ID:?FASTGATE_RUN_ID required}
+      FASTGATE_RUN_NONCE: ${FASTGATE_RUN_NONCE:?FASTGATE_RUN_NONCE required}
+      FASTGATE_SEED: ${FASTGATE_SEED:?FASTGATE_SEED required}
+      FASTGATE_APPLICATION_CONTROL_TOKEN: ${FASTGATE_APPLICATION_CONTROL_TOKEN:?application control token required}
+      FASTGATE_PROXY_CONTROL_TOKEN: ${FASTGATE_PROXY_CONTROL_TOKEN:?proxy control token required}
+      FASTGATE_WITNESS_CONTROL_TOKEN: ${FASTGATE_WITNESS_CONTROL_TOKEN:?witness control token required}
+      FASTGATE_WITNESS_GATEWAY_TOKEN: ${FASTGATE_WITNESS_GATEWAY_TOKEN:?witness gateway token required}
+      FASTGATE_DEPLOYMENT_SHA: ${FASTGATE_IMAGE_TAG:?FASTGATE_IMAGE_TAG required}
+      FASTGATE_SOURCE_TREE_SHA256: ${FASTGATE_SOURCE_TREE_SHA256:?FASTGATE_SOURCE_TREE_SHA256 required}
+      FASTGATE_APPLICATION_IMAGE_DIGEST: ${FASTGATE_APPLICATION_IMAGE_DIGEST:?application digest required}
+      FASTGATE_WITNESS_IMAGE_DIGEST: ${FASTGATE_WITNESS_IMAGE_DIGEST:?witness digest required}
+      FASTGATE_PROXY_IMAGE_DIGEST: ${FASTGATE_PROXY_IMAGE_DIGEST:?proxy digest required}
+      FASTGATE_SUPERVISOR_IMAGE_DIGEST: ${FASTGATE_SUPERVISOR_IMAGE_DIGEST:?supervisor digest required}
+      FASTGATE_VERIFIER_IMAGE_DIGEST: ${FASTGATE_VERIFIER_IMAGE_DIGEST:?verifier digest required}
+    depends_on:
+      - http-proxy
+      - connector-witness
+    networks:
+      - fastgate-supervisor-proxy
+      - fastgate-supervisor-witness
+    volumes:
+      - fastgate-public:/run/fastgate-public
+      - fastgate-private:/run/fastgate-private
+      - fastgate-supervisor-artifacts:/run/fastgate-artifacts
+      - fastgate-proxy-artifacts:/run/fastgate-proxy-artifacts:ro
+      - fastgate-witness-artifacts:/run/fastgate-witness-artifacts:ro
+      - fastgate-control:/run/fastgate-control
+      - fastgate-database:/run/fastgate-database:ro
+
+  offline-verifier:
+    <<: *fastgate-security
+    build:
+      context: ../..
+      dockerfile: infra/fastgate/Dockerfile.verifier
+    image: mtr-fastgate-offline-verifier:${FASTGATE_IMAGE_TAG:-local}
+    environment:
+      FASTGATE_ARTIFACT_DIR: /run/fastgate-artifacts
+    depends_on:
+      - supervisor
+    networks:
+      - fastgate-verification
+    volumes:
+      - fastgate-supervisor-artifacts:/run/fastgate-artifacts:ro
+
+networks:
+  fastgate-supervisor-proxy:
+    internal: true
+  fastgate-supervisor-witness:
+    internal: true
+  fastgate-proxy-application:
+    internal: true
+  fastgate-proxy-witness:
+    internal: true
+  fastgate-verification:
+    internal: true
+
+volumes:
+  fastgate-public:
+    labels:
+      mtr.fastgate.scope: official
+  fastgate-witness-database:
+    labels:
+      mtr.fastgate.scope: official
+  fastgate-control:
+    labels:
+      mtr.fastgate.scope: official
+  fastgate-private:
+    labels:
+      mtr.fastgate.scope: official
+  fastgate-supervisor-artifacts:
+    labels:
+      mtr.fastgate.scope: official
+  fastgate-proxy-artifacts:
+    labels:
+      mtr.fastgate.scope: official
+  fastgate-witness-artifacts:
+    labels:
+      mtr.fastgate.scope: official
+  fastgate-database:
+    labels:
+      mtr.fastgate.scope: official

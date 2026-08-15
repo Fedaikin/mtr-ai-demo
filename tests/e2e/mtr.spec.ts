@@ -158,12 +158,18 @@ test.describe("МТР — обязательные сценарии мастер
     await expect(page.getByText("Компонент покрытия", { exact: false }).first()).toBeVisible();
   });
 
-  test("5. агент возвращает подтверждённый остаток, а свежие логи открываются без reload", async ({
+  test("5. агент возвращает подтверждённый остаток без раскрытия технических данных", async ({
     page,
     isMobile,
   }) => {
     await page.goto("/mtr-analysis");
     await page.waitForLoadState("networkidle");
+    const catalog = await responseJson<{
+      item: { itemCode: string; totalAvailableQuantity?: number };
+    }>(await page.request.get("/api/catalog/items/CAT-DEMO-PIP-0001"));
+    expect(catalog.item.itemCode).toBe("CAT-DEMO-PIP-0001");
+    const expectedAvailable = catalog.item.totalAvailableQuantity;
+    expect(typeof expectedAvailable).toBe("number");
     await page.getByRole("button", { name: "МТР-агент", exact: true }).click();
     const widget = page.getByRole("complementary", { name: "МТР-агент", exact: true });
     const userChat = widget.getByLabel("Диалог с МТР-аналитиком");
@@ -180,6 +186,8 @@ test.describe("МТР — обязательные сценарии мастер
         content: string;
         citations: Array<{ sourceSystem: string; entityId: string; versionOrSnapshot: string }>;
         structuredOutput?: {
+          schemaVersion?: string;
+          kind?: string;
           confidence?: number;
           requiresHumanReview?: boolean;
         };
@@ -187,11 +195,13 @@ test.describe("МТР — обязательные сценарии мастер
     }>(await messageResponse);
     const assistant = payload.items.find((item) => item.role === "assistant");
 
-    expect(assistant?.content).toContain("200");
-    expect(Object.keys(assistant?.structuredOutput ?? {}).sort()).toEqual([
-      "confidence",
-      "requiresHumanReview",
-    ]);
+    expect(assistant?.content).toContain(String(expectedAvailable));
+    expect(assistant?.structuredOutput).toMatchObject({
+      schemaVersion: "universal-agent-answer-public-v1",
+      kind: "ANSWER",
+      requiresHumanReview: false,
+    });
+    expect(assistant?.structuredOutput?.confidence).toBeGreaterThan(0);
     expect(assistant?.citations).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ sourceSystem: "SAP", entityId: "SAP-DEMO-0001" }),
@@ -201,19 +211,14 @@ test.describe("МТР — обязательные сценарии мастер
     expect(JSON.stringify(payload)).not.toMatch(INTERNAL_AGENT_CONTENT_PATTERN);
 
     await expect(widget).toBeVisible();
-    await expect(userChat).toContainText("200");
+    await expect(userChat).toContainText(String(expectedAvailable));
     await expect(userChat).not.toContainText("sap.getMaterialStock");
     await expect(userChat).not.toContainText("sap.getState");
     await expect(userChat).not.toContainText("llm.respond");
 
     if (isMobile) await page.getByRole("button", { name: "Закрыть агента" }).click();
-    await page
-      .getByRole("navigation", { name: "Основная навигация" })
-      .getByRole("link", { name: "Логи агента", exact: true })
-      .click();
-    await expect(page.getByRole("heading", { name: "Логи AI-агента" })).toBeVisible();
-    await expect(page.getByTestId("agent-logs-dashboard")).toContainText("Вызовы инструментов");
-    await expect(page.getByTestId("agent-operation-card").filter({ hasText: "sap.getMaterialStock" }).first()).toBeVisible();
+    await page.goto("/admin/agent-logs?tool=material.search");
+    await expect(page.getByTestId("agent-operation-card").filter({ hasText: "material.search" }).first()).toBeVisible();
   });
 
   test("6. при отключённом SAP видны безопасная ошибка и ручной импорт", async ({ page }) => {

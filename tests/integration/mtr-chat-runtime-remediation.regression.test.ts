@@ -53,9 +53,111 @@ describe.sequential("corrective universal chat runtime", () => {
     expect(output.requiresHumanReview).toBe(false);
   });
 
-  test("TC-CHAT-04 не выдумывает alias «второй склад» и предлагает разрешённые склады объекта", async () => {
+  test.each([
+    "Что у нас сейчас в работе?",
+    "Какие проекты сейчас активны?",
+    "Перечисли текущие рабочие проекты",
+    "Что из проектов находится в активной фазе?",
+    "Над какими проектами мы сейчас работаем?",
+    "Покажи проекты в работе",
+    "Текущие рабочие проекты",
+    "Какие проекты идут сейчас?",
+    "Что сейчас активно по проектам?",
+    "Дай список проектов, которые находятся в работе",
+  ])("FG-02 распознаёт разговорный запрос активных проектов: %s", async (message) => {
+    const output = await service.respond({ message }, context());
+    if (!output || "kind" in output) throw new Error("Ожидался структурированный ответ.");
+
+    expect(output.summary).toBe("Доступно 22 активных бизнес-проекта.");
+    expect(output.tables[0]?.rows).toHaveLength(22);
+    expect(output.tables[0]?.rows.every((row) => row["Статус"] === "Активен")).toBe(true);
+  });
+
+  test("FG-05 считает сегодняшнее поступление по полному status breakdown, даже если вопрос содержит очередь", async () => {
     const output = await service.respond({
-      message: "Есть ли на втором складке шкаф управления электродвигателем № 0001?",
+      message: "Сколько спецификаций поступило сегодня, сколько обработано и что осталось в очереди?",
+    }, context());
+    if (!output || "kind" in output) throw new Error("Ожидался структурированный ответ.");
+
+    expect(output.facts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "received", value: 12 }),
+      expect.objectContaining({ key: "completed", value: 2 }),
+      expect.objectContaining({ key: "pending", value: 8 }),
+      expect.objectContaining({ key: "failed", value: 2 }),
+    ]));
+    expect(output.tables[0]?.totalRows).toBe(8);
+  });
+
+  test("FG-06 возвращает только незавершённые сроки в ближайшие три дня", async () => {
+    const output = await service.respond({
+      message: "Покажи доступные мне проекты и спецификации со сроком в ближайшие три дня и выдели риски",
+    }, context());
+    if (!output || "kind" in output) throw new Error("Ожидался структурированный ответ.");
+
+    const rows = output.tables[0]?.rows ?? [];
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((row) => String(row["Спецификации"] ?? "").trim().length > 0)).toBe(true);
+    expect(rows.every((row) => row["Статус"] !== "Выполнен")).toBe(true);
+    expect(rows.every((row) => {
+      const value = String(row["Срок"] ?? "");
+      return /^(?:13|14|15|16)\s+авг\./u.test(value);
+    })).toBe(true);
+  });
+
+  test.each([
+    "Покажи дедлайны доступных проектов до конца трёхдневного горизонта",
+    "Покажи дедлайны доступных проектов до конца трехдневного горизонта",
+  ])("FG-06 распознаёт словесный трёхдневный горизонт: %s", async (message) => {
+    const output = await service.respond({ message }, context());
+    if (!output || "kind" in output) throw new Error("Ожидался структурированный ответ.");
+
+    expect(output.facts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "deadline-count", value: expect.any(Number) }),
+    ]));
+    expect(output.tables[0]).toMatchObject({
+      id: "upcoming-deadlines",
+      columns: ["Проект", "Спецификации", "Событие", "Срок", "Статус"],
+    });
+  });
+
+  test("FG-10 неизвестный безопасный код маршрутизируется в доказательный NOT_FOUND", async () => {
+    const code = "ZX-A1B2C3D4E5F6";
+    const output = await service.respond({ message: `Какой остаток и назначение у ${code}?` }, context());
+    if (!output || "kind" in output) throw new Error("Ожидался структурированный ответ.");
+
+    expect(output.confidence).toBe(0);
+    expect(output.requiresHumanReview).toBe(true);
+    expect(output.citations).toEqual([]);
+    expect(output.missingData).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "MATERIAL_NOT_FOUND" }),
+    ]));
+  });
+
+  test("FG-09 фраза «работаем по проекту» выбирает один проект, а не весь активный портфель", async () => {
+    const output = await service.respond({
+      message: "Работаем по проекту PROJECT-MTR-013",
+    }, context());
+    if (!output || "kind" in output) throw new Error("Ожидался структурированный ответ.");
+
+    expect(output.resolvedContext.businessProject?.code).toBe("PROJECT-MTR-013");
+    expect(output.citations.filter((citation) => citation.entityId === output.resolvedContext.businessProject?.id))
+      .toHaveLength(1);
+  });
+
+  test("TC-CHAT-04 использует material context потока и не выдумывает alias «второй склад»", async () => {
+    const output = await service.respond({
+      message: "Проверь этот шкаф на втором складе",
+      memory: {
+        resolvedContext: {
+          material: {
+            kind: "MATERIAL",
+            id: "catalog-item-asm-elc-0001",
+            code: "SAP-CATALOG-ASM-ELC-0001",
+            name: "Шкаф управления электродвигателем № 0001",
+            confidence: 1,
+          },
+        },
+      },
     }, context());
 
     expect(output).toEqual({
@@ -66,6 +168,22 @@ describe.sequential("corrective universal chat runtime", () => {
         expect.objectContaining({ kind: "WAREHOUSE", code: "WH-DEMO-SOUTH" }),
       ],
     });
+  });
+
+  test("TC-CHAT-03 выполняет frozen составной запрос как три независимых status scope", async () => {
+    const output = await service.respond({
+      message: "Покажи активные проекты; затем отдельно запланированные; затем все доступные проекты",
+    }, context());
+    if (!output || "kind" in output) throw new Error("Ожидался структурированный ответ.");
+
+    expect(output.tables.map((table) => ({ id: table.id, count: table.totalRows }))).toEqual([
+      { id: "active-projects", count: 22 },
+      { id: "planned-projects", count: 0 },
+      { id: "all-projects", count: 22 },
+    ]);
+    expect(new Set(output.citations.map((citation) => citation.entityId))).toEqual(
+      new Set(datasetActiveProjectIds()),
+    );
   });
 
   test("TC-CHAT-02 отвечает по точному объекту и явному разрешённому складу", async () => {
@@ -168,4 +286,17 @@ function context() {
     requestId: "request-corrective-chat",
   };
   return createAgentExecutionContext(trusted);
+}
+
+function datasetActiveProjectIds(): string[] {
+  return [
+    "business-project-pipe-rich-project-mtr-006-project-mtr-007",
+    "business-project-project-project-demo-alpha",
+    "business-project-project-project-demo-beta",
+    "business-project-project-project-demo-gamma",
+    ...Array.from({ length: 5 }, (_, index) =>
+      `business-project-project-project-mtr-${String(index + 1).padStart(3, "0")}`),
+    ...Array.from({ length: 13 }, (_, index) =>
+      `business-project-project-project-mtr-${String(index + 8).padStart(3, "0")}`),
+  ];
 }

@@ -1,0 +1,14 @@
+FROM node:24.6.0-bookworm-slim@sha256:798837daa2a12bab9cdf53cf8779a05256c2ce08176f449e239e7577d26225e8
+WORKDIR /app
+RUN corepack enable
+RUN install -d -o 1000 -g 1000 -m 0750 /run/fastgate-artifacts
+COPY --chown=1000:1000 package.json pnpm-lock.yaml ./
+RUN pnpm config set --location project --json allowBuilds '{"esbuild":true,"unrs-resolver":false}'
+RUN pnpm install --frozen-lockfile
+COPY --chown=1000:1000 scripts/fastgate-container-verifier.ts scripts/fastgate-container-verifier.ts
+COPY --chown=1000:1000 scripts/fastgate-independent-review-witness.ts scripts/fastgate-independent-review-witness.ts
+COPY --chown=1000:1000 src/evals/fastgate src/evals/fastgate
+COPY --chown=1000:1000 infra/fastgate/trust/official-host-root.pem infra/fastgate/trust/official-host-root.pem
+COPY --chown=1000:1000 tsconfig.json ./
+USER 1000:1000
+CMD ["node", "--import", "tsx", "scripts/fastgate-container-verifier.ts"]

@@ -66,6 +66,22 @@ describe("universal chat public projection", () => {
     });
     expect(JSON.stringify(projected)).not.toContain("private-project-id");
   });
+
+  it("projects a stable structured NOT_FOUND status without leaking the private code", () => {
+    const value = privateAnswer();
+    value.output.missingData = [{
+      code: "MATERIAL_NOT_FOUND",
+      message: "Материал не найден.",
+      impact: "Расчёт не выполнен.",
+    }];
+    const projected = projectUniversalAgentOutput(value);
+    expect(projected).toMatchObject({
+      kind: "ANSWER",
+      limitations: [{ status: "NOT_FOUND", message: "Материал не найден." }],
+    });
+    expect(JSON.stringify(projected)).not.toContain("MATERIAL_NOT_FOUND");
+    expect(restorePublicUniversalResult(projected)).toEqual(projected);
+  });
 });
 
 function privateAnswer() {

@@ -32,21 +32,23 @@ test.describe("Corrective universal chat and responsibility analysis — busines
   });
 
   test("68. TC-CHAT-03-PROJECT-STATUS — active, planned и all не смешиваются", async ({ page }) => {
-    const active = await askApi(page.request, "Покажи активные проекты");
-    const planned = await askApi(page.request, "Покажи запланированные проекты");
-    const all = await askApi(page.request, "Покажи все проекты");
-
-    expect(answer(active).tables[0]?.totalRows).toBe(22);
-    expect(answer(active).tables[0]?.rows.every((row) => row["Статус"] === "Активен")).toBe(true);
-    expect(answer(planned).tables[0]?.totalRows).toBe(0);
-    expect(answer(all).tables[0]?.totalRows).toBe(22);
+    const output = answer(await askApi(
+      page.request,
+      "Покажи активные проекты; затем отдельно запланированные; затем все доступные проекты",
+    ));
+    expect(output.tables.map((table) => table.totalRows)).toEqual([22, 0, 22]);
+    expect(output.tables[0]?.rows.every((row) => row["Статус"] === "Активен")).toBe(true);
   });
 
   test("69. TC-CHAT-04-WAREHOUSE-AMBIGUITY — provider fallback keeps universal clarification", async ({ page }) => {
-    const result = await askApi(
+    const thread = await createThread(page.request, "Corrective frozen warehouse follow-up");
+    await send(
       page.request,
-      "Есть ли на неизвестном складе шкаф управления электродвигателем № 0001?",
+      thread.id,
+      "Есть ли на WH-DEMO-CENTRAL шкаф управления электродвигателем № 0001?",
     );
+    const assistant = await send(page.request, thread.id, "Проверь этот шкаф на втором складе");
+    const result = assistant.structuredOutput as unknown as PublicUniversal;
     expect(result).toMatchObject({
       kind: "CLARIFICATION",
       candidates: [
@@ -68,6 +70,12 @@ test.describe("Corrective universal chat and responsibility analysis — busines
     await expect(section).not.toContainText("45%");
     await expect(section).not.toContainText("UNRESOLVED");
     await expect(section).not.toContainText("Явное демонстрационное правило не найдено");
+    await expect(page.getByText("ID запуска", { exact: true }).locator(".."))
+      .toContainText(run.id);
+    await expect(page.getByText("Активный корпус правил", { exact: true }).locator(".."))
+      .toContainText("5 правил");
+    await expect(page.getByText("Контрольная сумма правил", { exact: true }).locator(".."))
+      .toContainText(/^[\s\S]*[a-f0-9]{64}[\s\S]*$/u);
     const report = await json<{ results: Array<{ responsibilityDecisionState: string; responsibilityCitation: unknown }> }>(
       await page.request.get(`/api/reports/${encodeURIComponent(run.id)}`),
     );

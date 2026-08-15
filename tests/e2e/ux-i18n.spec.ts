@@ -146,7 +146,8 @@ async function gotoStable(page: Page, path: string): Promise<void> {
     // A completed background run can refresh the current RSC tree at the same
     // instant as navigation. Chromium reports that harmless supersession as
     // ERR_ABORTED; retry the explicit user navigation once.
-    if (!(error instanceof Error) || !error.message.includes("ERR_ABORTED")) throw error;
+    if (!(error instanceof Error) || !/ERR_ABORTED|interrupted by another navigation/iu.test(error.message)) throw error;
+    await page.waitForTimeout(100);
     await page.goto(path, { waitUntil: "domcontentloaded" });
   }
 }

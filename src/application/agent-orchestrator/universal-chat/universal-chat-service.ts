@@ -62,6 +62,7 @@ export class UniversalChatService {
     const normalized = message.toLocaleLowerCase("ru-RU");
     if (!message) return null;
 
+    if (asksProjectStatusSequence(normalized)) return this.projectStatusSequence(context);
     if (asksPlannedProjects(normalized)) return this.projectsByStatus(context, ["PLANNED"], "Запланированные проекты");
     if (asksAllProjects(normalized)) return this.projectsByStatus(context, ["PLANNED", "ACTIVE", "ON_HOLD", "COMPLETED"], "Все доступные проекты");
     if (asksActiveProjects(normalized)) return this.activeProjects(context);
@@ -77,11 +78,15 @@ export class UniversalChatService {
     // such as «материал», which also appear in project-level questions. Resolve
     // it before project intent routing so an unknown code produces an honest
     // material answer instead of unrelated project candidates.
-    if (materialCodes.length > 0) {
+    if (materialCodes.length > 0 && !(/проект/iu.test(normalized) && asksProjectQuestion(normalized))) {
       return this.materialQuestion(context, message, normalized, materialCodes);
     }
     if (asksInventoryExistence(normalized)) {
       return this.materialQuestion(context, message, normalized, materialCodes);
+    }
+    const rememberedMaterialCode = request.memory?.resolvedContext?.material?.code;
+    if (rememberedMaterialCode && asksWarehouseFollowup(normalized)) {
+      return this.materialQuestion(context, message, normalized, [rememberedMaterialCode]);
     }
 
     const projects = await this.execute<readonly BusinessProject[]>("project.list", context, {
@@ -126,6 +131,54 @@ export class UniversalChatService {
 
   private async activeProjects(context: AgentExecutionContext): Promise<UniversalAgentAnswer> {
     return this.projectsByStatus(context, ["ACTIVE"], "Активные проекты");
+  }
+
+  private async projectStatusSequence(
+    context: AgentExecutionContext,
+  ): Promise<UniversalAgentAnswer> {
+    const [active, planned, all] = await Promise.all([
+      this.execute<readonly BusinessProject[]>("project.list", context, {
+        status: ["ACTIVE"],
+        limit: 200,
+      }),
+      this.execute<readonly BusinessProject[]>("project.list", context, {
+        status: ["PLANNED"],
+        limit: 200,
+      }),
+      this.execute<readonly BusinessProject[]>("project.list", context, {
+        status: ["PLANNED", "ACTIVE", "ON_HOLD", "COMPLETED"],
+        limit: 200,
+      }),
+    ]);
+    const table = (id: string, title: string, projects: readonly BusinessProject[]) => ({
+      id,
+      title,
+      columns: ["Проект", "Статус", "Фаза", "Дата потребности"],
+      rows: projects.map((project) => ({
+        "Проект": `${project.name} (${project.code})`,
+        "Статус": projectStatus(project.status),
+        "Фаза": projectPhase(project.phase),
+        "Дата потребности": localDate(project.needDate),
+      })),
+      totalRows: projects.length,
+    });
+    return answer({
+      summary: `Активных проектов: ${active.length}; запланированных: ${planned.length}; всего доступно: ${all.length}.`,
+      facts: [
+        fact("active-project-count", "Активных проектов", active.length),
+        fact("planned-project-count", "Запланированных проектов", planned.length),
+        fact("all-project-count", "Всего доступно проектов", all.length),
+      ],
+      tables: [
+        table("active-projects", "Активные проекты", active),
+        table("planned-projects", "Запланированные проекты", planned),
+        table("all-projects", "Все доступные проекты", all),
+      ],
+      citations: uniqueCitations(all.map(projectCitation)),
+      missingData: [],
+      confidence: 1,
+      requiresHumanReview: false,
+    }, this.clock);
   }
 
   private async projectsByStatus(
@@ -185,6 +238,15 @@ export class UniversalChatService {
       project: BusinessProject;
       deadline: BusinessProject["deadlines"][number];
     }>>("deadline.listUpcoming", context, { withinDays, limit: 200 });
+    const projectIds = [...new Set(rows.map(({ project }) => project.id))];
+    const specificationsByProject = new Map(await Promise.all(projectIds.map(async (projectId) => [
+      projectId,
+      await this.execute<readonly UniversalSpecificationRecord[]>(
+        "project.listSpecifications",
+        context,
+        { projectId, limit: 200 },
+      ),
+    ] as const)));
     return answer({
       summary: rows.length
         ? `В ближайшие ${withinDays} дн. найдено сроков: ${rows.length}.`
@@ -193,16 +255,24 @@ export class UniversalChatService {
       tables: [{
         id: "upcoming-deadlines",
         title: "Ближайшие сроки",
-        columns: ["Проект", "Событие", "Срок", "Статус"],
+        columns: ["Проект", "Спецификации", "Событие", "Срок", "Статус"],
         rows: rows.map(({ project, deadline }) => ({
           "Проект": project.name,
+          "Спецификации": (specificationsByProject.get(project.id) ?? [])
+            .map((specification) => specification.specificationId)
+            .sort((left, right) => left.localeCompare(right, "en"))
+            .join(", "),
           "Событие": deadlineKind(deadline.kind),
           "Срок": localDate(deadline.dueAt),
           "Статус": deadlineStatus(deadline.status),
         })),
         totalRows: rows.length,
       }],
-      citations: uniqueCitations(rows.map(({ project }) => projectCitation(project))),
+      citations: uniqueCitations([
+        ...rows.map(({ project }) => projectCitation(project)),
+        ...projectIds.flatMap((projectId) => (specificationsByProject.get(projectId) ?? [])
+          .map((specification) => specificationCitation(specification, this.clock.now().toISOString()))),
+      ]),
       missingData: rows.length ? [] : [{
         code: "DEADLINE_SCOPE_EMPTY",
         message: "В доступном контуре нет подтверждённых сроков для выбранного горизонта.",
@@ -218,19 +288,22 @@ export class UniversalChatService {
     message: string,
   ): Promise<UniversalAgentAnswer> {
     const day = moscowCalendarDay(this.clock);
-    const statuses = asksQueue(message)
-      ? ["RECEIVED", "VALIDATING", "QUEUED", "PROCESSING", "NEEDS_REVIEW", "FAILED"]
-      : undefined;
-    const rows = statuses
-      ? await this.execute<readonly SpecificationIntakeItem[]>("specification.getProcessingQueue", context, { limit: 200 })
-      : await this.execute<readonly SpecificationIntakeItem[]>("specification.getStatusBreakdown", context, {
-          from: day.startsAt,
-          to: day.endsAtExclusive,
-        });
+    // The summary and the queue must share one complete, time-bounded source
+    // population. Querying the open queue first silently dropped today's
+    // COMPLETED/CANCELLED rows and mixed older records into today's counts.
+    const rows = await this.execute<readonly SpecificationIntakeItem[]>("specification.getStatusBreakdown", context, {
+      from: day.startsAt,
+      to: day.endsAtExclusive,
+    });
     const statusCounts = countBy(rows, (item) => item.status);
     const failedOnly = asksFailedIntake(message);
-    const visibleRows = failedOnly ? rows.filter((item) => item.status === "FAILED") : rows;
-    const pending = rows.filter((item) => !["COMPLETED", "CANCELLED"].includes(item.status)).length;
+    const pendingRows = rows.filter((item) => !["COMPLETED", "CANCELLED"].includes(item.status));
+    const visibleRows = failedOnly
+      ? rows.filter((item) => item.status === "FAILED")
+      : asksQueue(message)
+        ? pendingRows
+        : rows;
+    const pending = pendingRows.length;
     return answer({
       summary: failedOnly
         ? `Сегодня с ошибкой: ${visibleRows.length}.`
@@ -570,12 +643,14 @@ export class UniversalChatService {
     previousShortages: readonly string[] = [],
   ): Promise<UniversalAgentAnswer> {
     const equipmentType = asksPipes(message) ? "PIPE" : undefined;
+    const requestedMaterialCode = extractMaterialCodes(message)[0];
     const input = await this.execute<ProjectMaterialCapabilityResult>(
       asksReorder(message) ? "analysis.reorderRecommendations" : "project.getMaterialCoverage",
       context,
       {
         projectId: project.id,
         ...(equipmentType ? { equipmentType } : {}),
+        ...(requestedMaterialCode ? { materialCode: requestedMaterialCode } : {}),
         ...(asksFollowupSubstitutes(message) && previousShortages.length === 1
           ? { materialCode: previousShortages[0] }
           : {}),
@@ -919,6 +994,13 @@ export class UniversalChatService {
             { materialCode: source.materialCode, limit: 4 },
           );
       for (const candidate of candidates.filter((item) => item.materialCode !== source.materialCode).slice(0, 3)) {
+        citations.push(materialStockCitation(candidate), {
+          sourceSystem: "CATALOG",
+          entityId: candidate.catalogItemCode,
+          versionOrSnapshot: candidate.datasetVersion,
+          label: `${candidate.nameRu} · каталог`,
+          observedAt: candidate.asOf,
+        });
         const evaluated = await this.execute<UniversalCompatibilityResult | null>(
           "compatibility.evaluate",
           context,
@@ -1204,8 +1286,9 @@ function mixedUnit(rows: readonly ProjectBalanceRow[]): string {
 }
 
 function extractMaterialCodes(message: string): string[] {
-  return [...new Set([...message.matchAll(/\b(?:SAP-(?:DEMO|CATALOG)-[A-Z0-9-]+|CAT-DEMO-(?:ASM-)?[A-Z0-9-]+)\b/giu)]
-    .map((match) => match[0].toLocaleUpperCase("en-US")))];
+  return [...new Set([...message.matchAll(/\b[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+\b/giu)]
+    .map((match) => match[0].toLocaleUpperCase("en-US"))
+    .filter((code) => !/^(?:WH|SPEC|RUN|PROJECT|BUSINESS)-/u.test(code) && code.length >= 8))];
 }
 
 function extractSpecificationId(message: string): string | null {
@@ -1249,7 +1332,9 @@ function requestedDays(message: string): number | null {
 }
 
 function asksActiveProjects(message: string): boolean {
-  return /(?:покажи|выведи|какие|список).{0,20}(?:активн|текущ).{0,10}проект/iu.test(message);
+  if (/по\s+проекту|контекст\s+проекта/iu.test(message)) return false;
+  if (!/проект/iu.test(message) && !/что\s+у\s+нас\s+сейчас\s+в\s+работ/iu.test(message)) return false;
+  return /(?:активн|текущ|рабоч|в\s+работ|работаем|идут\s+сейчас)/iu.test(message);
 }
 
 function asksPlannedProjects(message: string): boolean {
@@ -1261,13 +1346,24 @@ function asksAllProjects(message: string): boolean {
     /(?:все|полный\s+список).{0,20}проект/iu.test(message);
 }
 
+function asksProjectStatusSequence(message: string): boolean {
+  return /активн/iu.test(message) && /запланирован/iu.test(message) && /все\s+доступн/iu.test(message);
+}
+
 function asksInventoryExistence(message: string): boolean {
   return /(?:есть|имеется)\s+ли/iu.test(message) && /(?:склад|\bWH-[A-Z0-9-]+\b)/iu.test(message);
 }
 
+function asksWarehouseFollowup(message: string): boolean {
+  return /склад/iu.test(message) && /(?:этот|эта|это|данн|указан|проверь)/iu.test(message);
+}
+
 function asksUpcomingDeadlines(message: string): boolean {
-  return /(?:дедлайн|срок).{0,25}(?:ближайш|следующ|три\s+дн|3\s+дн)/iu.test(message) ||
-    /(?:ближайш|следующ|три\s+дн|3\s+дн).{0,25}(?:дедлайн|срок)/iu.test(message);
+  const horizon = /(?:ближайш|следующ|три\s+дн|3\s+дн|тр[её]хдневн)/iu;
+  return horizon.test(message) && (
+    /(?:дедлайн|срок)/iu.test(message) ||
+    /(?:успеть|контрольн|событи)/iu.test(message)
+  );
 }
 
 function asksPortfolioAttention(message: string): boolean {
@@ -1275,8 +1371,7 @@ function asksPortfolioAttention(message: string): boolean {
 }
 
 function asksSpecificationIntake(message: string): boolean {
-  return /(?:сколько|что).{0,35}(?:спецификац).{0,35}(?:упал|приш|поступ|загруз|обработ|очеред|ошиб|остал)/iu.test(message) ||
-    /(?:сколько|что).{0,35}(?:остал|очеред|обработ).{0,35}(?:спецификац)/iu.test(message) ||
+  return /спецификац/iu.test(message) && /(?:упал|приш|поступ|загруз|обработ|очеред|ошиб|остал|сводк|нов)/iu.test(message) ||
     /что\s+сейчас\s+в\s+очеред/iu.test(message);
 }
 

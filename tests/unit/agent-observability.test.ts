@@ -156,4 +156,28 @@ describe("agent observability aggregation", () => {
       result: { state: "AVAILABLE" },
     });
   });
+
+  it("shows universal read capabilities in the same safe operation journal", () => {
+    const operations = buildAgentOperations([
+      entry({
+        id: "universal-material-search",
+        action: "agent.universal.capability.completed",
+        outcome: "SUCCESS",
+        details: {
+          capabilityKey: "material.search",
+          durationMs: 12,
+          authorizationVersion: 3,
+        },
+      }),
+    ]);
+
+    expect(operations).toEqual([
+      expect.objectContaining({
+        id: "universal-material-search",
+        tool: "material.search",
+        status: "SUCCESS",
+        durationMs: 12,
+      }),
+    ]);
+  });
 });

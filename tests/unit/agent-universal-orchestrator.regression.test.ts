@@ -84,7 +84,7 @@ describe("universal capability in the single MtrAgentOrchestrator", () => {
     expect(universal.respond).not.toHaveBeenCalled();
   });
 
-  it("сохраняет подтверждённый SAP tool flow для прямого запроса материала", async () => {
+  it("направляет поддержанный прямой SAP stock intent в universal до legacy", async () => {
     const legacy = { respond: vi.fn(async () => legacyOutput) };
     const universal = { respond: vi.fn(async () => universalOutput) };
     const orchestrator = new MtrAgentOrchestrator(
@@ -97,9 +97,9 @@ describe("universal capability in the single MtrAgentOrchestrator", () => {
     await expect(orchestrator.handle({
       kind: "CHAT",
       message: "Каков текущий остаток материала SAP-DEMO-0001?",
-    }, trusted())).resolves.toEqual({ kind: "CHAT", output: legacyOutput });
-    expect(legacy.respond).toHaveBeenCalledOnce();
-    expect(universal.respond).not.toHaveBeenCalled();
+    }, trusted())).resolves.toEqual({ kind: "UNIVERSAL", output: universalOutput });
+    expect(universal.respond).toHaveBeenCalledOnce();
+    expect(legacy.respond).not.toHaveBeenCalled();
   });
 
   it("оставляет legacy fallback для неподдержанного вопроса", async () => {

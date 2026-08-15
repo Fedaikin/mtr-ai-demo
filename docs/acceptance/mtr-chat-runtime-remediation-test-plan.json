@@ -9,23 +9,6 @@
     "previewEvidenceStatus": "BLOCKED_BY_VERCEL_DEPLOYMENT_PROTECTION",
     "databaseIsolationStatus": "PREVIEW_DB_ISOLATION_UNPROVEN"
   },
-  "localExecution": {
-    "fixSha": "b4363fa3ecea402adae58907ef41ce86c3549472",
-    "status": "LOCAL_FIX_VERIFIED_PREVIEW_PENDING",
-    "gates": {
-      "drizzleCheck": "PASS",
-      "lintTypecheck": "PASS",
-      "vitest": {"files": 154, "tests": 617, "status": "PASS"},
-      "privacyScan": {"candidateFiles": 544, "status": "PASS"},
-      "runtimeEval": {"cases": 358, "passed": 358},
-      "correctiveBusinessE2e": {"cases": 6, "passed": 6},
-      "twoThreadTwoScope": "PASS",
-      "productionBuild": "PASS"
-    },
-    "previewStatus": "BLOCKED_BY_VERCEL_DEPLOYMENT_PROTECTION_AND_NO_EXACT_SHA_DEPLOYMENT",
-    "productionMutation": false,
-    "userRoleCredentialMutation": false
-  },
   "baselineUnion": {
     "runtimeEval": {
       "count": 350,

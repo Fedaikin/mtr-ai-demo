@@ -175,6 +175,30 @@ describe("universal read runtime domain gates", () => {
     expect(searchMaterials).not.toHaveBeenCalled();
   });
 
+  it("в official-контуре выполняет capability через внешний witness после локальной валидации и RBAC", async () => {
+    const listProjects = vi.fn(async () => [{ id: "local-result" }]);
+    const executeRemote = vi.fn(async () => [{ id: "witness-result" }]);
+    const registry = createUniversalReadCapabilityRegistry(
+      { listProjects } as unknown as UniversalAgentReadPort,
+      undefined,
+      undefined,
+      { execute: executeRemote },
+    );
+    const allowed = createAgentExecutionContext(trusted(new Set(["agent.chat", "project.read"])));
+
+    await expect(registry.execute("project.list", allowed, { limit: 10 })).resolves.toEqual([
+      { id: "witness-result" },
+    ]);
+    expect(executeRemote).toHaveBeenCalledWith("project.list", allowed, { limit: 10 });
+    expect(listProjects).not.toHaveBeenCalled();
+
+    const denied = createAgentExecutionContext(trusted(new Set(["agent.chat"])));
+    await expect(registry.execute("project.list", denied, { limit: 10 })).rejects.toBeInstanceOf(
+      UniversalCapabilityError,
+    );
+    expect(executeRemote).toHaveBeenCalledTimes(1);
+  });
+
   it("строгая capability schema отклоняет identity и неизвестные поля", async () => {
     const registry = createUniversalReadCapabilityRegistry({} as UniversalAgentReadPort);
     const context = createAgentExecutionContext(trusted(new Set(["agent.chat", "project.read"])));
@@ -204,13 +228,22 @@ describe("universal read runtime domain gates", () => {
 
     await registry.execute("project.list", context, { limit: 10 });
 
-    expect(writeAudit).toHaveBeenCalledWith(context, {
+    expect(writeAudit).toHaveBeenCalledWith(context, expect.objectContaining({
       capabilityKey: "project.list",
       outcome: "SUCCESS",
       durationMs: expect.any(Number),
-    });
+      sourceBinding: expect.objectContaining({
+        schemaVersion: "agent-source-binding-v1",
+        connector: "APPIUS",
+        resultStatus: "SUCCESS",
+        sourceBindingHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
+        inputHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
+        outputHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
+      }),
+    }));
     const persistedEvent = writeAudit.mock.calls[0]?.[1];
-    expect(JSON.stringify(persistedEvent)).not.toContain("subjectId");
+    expect(JSON.stringify(persistedEvent)).not.toContain('"subjectId":');
+    expect(JSON.stringify(persistedEvent)).toContain("subjectIdHash");
     expect(JSON.stringify(persistedEvent)).not.toContain("forged");
   });
 });

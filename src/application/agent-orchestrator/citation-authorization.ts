@@ -12,6 +12,15 @@ export interface AgentCitationReadPort {
   getSpecification(userId: string, specificationId: string): Promise<Specification | null>;
   getPosition(userId: string, positionId: string): Promise<Position | null>;
   getSapMaterialStock(userId: string, materialCode: string): Promise<SapMaterial[]>;
+  canReadOperationalMaterialStock?(input: Readonly<{
+    subjectId: string;
+    accessProjectId: string;
+    catalogScopeIds: readonly string[];
+    sourceScopeIds: readonly string[];
+    warehouseIds: readonly string[];
+    materialCode: string;
+    snapshotId: string;
+  }>): Promise<boolean>;
   getCatalogItemByCode(userId: string, itemCode: string): Promise<unknown | null>;
   getBusinessProjectInProject?(
     userId: string,
@@ -124,7 +133,16 @@ async function isReadable(
         return movements.some((movement) => movement.id === citation.entityId);
       }
       const stock = await repository.getSapMaterialStock(context.subjectId, citation.entityId);
-      return stock.some((item) => warehouseIds.has(item.storageLocation));
+      if (stock.some((item) => warehouseIds.has(item.storageLocation))) return true;
+      return repository.canReadOperationalMaterialStock?.({
+        subjectId: context.subjectId,
+        accessProjectId: projectId,
+        catalogScopeIds: context.catalogScopeIds,
+        sourceScopeIds: context.sourceScopeIds,
+        warehouseIds: [...warehouseIds],
+        materialCode: citation.entityId,
+        snapshotId: citation.versionOrSnapshot,
+      }) ?? false;
     }
     case "CATALOG": {
       if (!can(context, "catalog.read", { resourceType: "catalog", resourceId: citation.entityId, projectId })) return false;

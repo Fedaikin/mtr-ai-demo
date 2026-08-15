@@ -56,6 +56,7 @@ pnpm dev
 | Проверить формулы, качество данных, forecast и команду `ANALYSIS` | [Семантический слой аналитики МТР](docs/mtr-analytics-semantic-layer.md) | Reference / explanation / how-to |
 | Понять границы runtime, persistence и rollout | [Трассируемость МТР-агента](docs/mtr-agent-orchestrator-traceability.md) | Reference / explanation |
 | Проверить модель ролей, scopes и permissions | [Scoped RBAC](docs/RBAC.md) | Reference |
+| Проверить корректировку chat runtime и доказательного анализа | [Корректирующая приёмка](docs/acceptance/mtr-chat-runtime-remediation.md) | Acceptance evidence |
 | Увидеть исходные ограничения перед интеграцией | [Baseline МТР-агента](docs/mtr-agent-orchestrator-baseline.md) | Historical evidence |
 
 Все новые документы доступны непосредственно из этого README и ссылаются друг на друга.
@@ -101,9 +102,9 @@ Readiness и контроль canonical seed доступны по `/api/health`
 | `pnpm eval:agent:security` | Выполнить 32 проверки permission, scope, injection, citation/case/action reauthorization |
 | `pnpm eval:agent:scale` | Выполнить 20 портфельных ANALYSIS-кейсов двумя параллельными батчами по 10 |
 | `pnpm eval:agent:multi-turn` | Выполнить 27 трёхходовых sensitivity/feedback диалогов |
-| `pnpm eval:agent:universal` | Выполнить 150 production-shaped universal-chat cases на persisted PGlite dataset |
+| `pnpm eval:agent:universal` | Выполнить 158 production-shaped universal-chat cases на persisted PGlite dataset |
 | `pnpm perf:smoke` | Измерить готовность API и загрузку основных экранов; поддерживает локальный или Preview base URL |
-| `pnpm check` | `lint` → `typecheck` → `test` → `privacy:scan` → все eval-наборы (в сумме 350 кейсов) → `build` |
+| `pnpm check` | `lint` → `typecheck` → `test` → `privacy:scan` → все eval-наборы (в сумме 358 кейсов) → `build` |
 | `pnpm db:migrate` | Применить checked-in Drizzle migrations |
 | `pnpm db:seed` | Заменить demo-scoped данные каноническим seed |
 | `pnpm db:reset` | Атомарно восстановить demo-scoped данные; remote reset защищён флагом |

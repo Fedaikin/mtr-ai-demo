@@ -84,6 +84,20 @@ describe.sequential("privileged action HTTP lifecycle", () => {
     expect(confirmed.status).toBe(200);
     await expect(userStatus("demo-analyst-001")).resolves.toBe("BLOCKED");
   });
+
+  it("blocks confirm at the server boundary in PROPOSE_ONLY mode", async () => {
+    vi.stubEnv("MTR_AGENT_ACTION_MODE", "PROPOSE_ONLY");
+    const before = await userStatus("demo-analyst-001");
+    const response = await confirmAction(
+      new Request("http://localhost/api/agent/actions/action-does-not-matter/confirm", { method: "POST" }),
+      { params: Promise.resolve({ id: "action-does-not-matter" }) },
+    );
+    const body = await response.json() as { error?: { code?: string } };
+
+    expect(response.status).toBe(409);
+    expect(body.error?.code).toBe("MTR_AGENT_ACTION_CONFIRMATION_DISABLED");
+    await expect(userStatus("demo-analyst-001")).resolves.toBe(before);
+  });
 });
 
 async function userStatus(userId: string): Promise<string> {

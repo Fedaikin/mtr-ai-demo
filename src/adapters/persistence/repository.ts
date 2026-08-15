@@ -40,6 +40,7 @@ import {
   type SpecificationVersion,
   type UserRole,
 } from "@/domain/models";
+import { expandRolePermissions, type RoleKey } from "@/domain/rbac";
 import {
   CATALOGUE_CATEGORIES,
   type CatalogueCategory,
@@ -90,6 +91,7 @@ import {
   materialMovements,
   normativeChunks,
   normativeDocuments,
+  operationalMaterialViews,
   positionAnalysisResults,
   promptVersions,
   responsibilityRules,
@@ -727,6 +729,124 @@ export class MtrRepository {
     return rows.map(toSpecification);
   }
 
+  /**
+   * Project-scoped read used by server-side orchestration. The subject is
+   * checked against persisted membership; ownership of the imported Appius
+   * fixture is deliberately not used as an authorization boundary.
+   */
+  async listSpecificationsInProject(
+    subjectId: string,
+    projectId: string,
+  ): Promise<Specification[]> {
+    await this.requireActiveProjectMembership(subjectId, projectId);
+    const rows = await this.db
+      .select()
+      .from(specifications)
+      .where(eq(specifications.projectId, projectId))
+      .orderBy(asc(specifications.projectCode), asc(specifications.id));
+    return rows.map(toSpecification);
+  }
+
+  async isScenarioRunAuthorizationCurrent(
+    subjectId: string,
+    projectId: string,
+    authorizationVersion: number,
+    frozen: Readonly<{
+      activeRoleAssignmentIds: readonly string[];
+      accessClaims: Readonly<Record<string, readonly string[]>>;
+    }>,
+  ): Promise<boolean> {
+    trustedUser(subjectId);
+    const [row] = executedRows(await this.db.execute(sql`
+      select
+        exists (
+          select 1
+          from users u
+          join project_memberships pm
+            on pm.user_id = u.id
+           and pm.project_id = ${projectId}
+           and pm.status = 'ACTIVE'
+           and pm.valid_from <= now()
+           and (pm.valid_until is null or pm.valid_until > now())
+          where u.id = ${subjectId}
+            and u.status = 'ACTIVE'
+            and u.account_type <> 'SERVICE_ACCOUNT'
+            and u.authorization_version = ${authorizationVersion}
+        ) as current,
+        coalesce((
+          select jsonb_agg(jsonb_build_object('id', ra.id, 'roleKey', r.key) order by ra.id)
+          from role_assignments ra
+          join roles r on r.id = ra.role_id and r.active = true
+          where ra.user_id = ${subjectId}
+            and ra.status = 'ACTIVE'
+            and ra.valid_from <= now()
+            and (ra.valid_until is null or ra.valid_until > now())
+            and (ra.scope_type = 'GLOBAL' or (ra.scope_type = 'PROJECT' and ra.project_id = ${projectId}))
+        ), '[]'::jsonb) as assignments,
+        coalesce((
+          select jsonb_agg(jsonb_build_object('type', claim_type, 'value', claim_value) order by claim_type, claim_value)
+          from user_source_access_claims
+          where user_id = ${subjectId}
+            and (valid_until is null or valid_until > now())
+        ), '[]'::jsonb) as claims
+    `));
+    if (row?.current !== true) return false;
+    const assignments = recordArray(row.assignments);
+    const activeAssignmentIds = new Set(assignments.map((item) => String(item.id)));
+    if (frozen.activeRoleAssignmentIds.some((id) => !activeAssignmentIds.has(id))) return false;
+    const currentRoleKeys = assignments.map((item) => String(item.roleKey) as RoleKey);
+    if (!expandRolePermissions(currentRoleKeys).has("analysis.create")) return false;
+    const currentClaims = new Map<string, Set<string>>();
+    for (const claim of recordArray(row.claims)) {
+      const type = String(claim.type);
+      const values = currentClaims.get(type) ?? new Set<string>();
+      values.add(String(claim.value));
+      currentClaims.set(type, values);
+    }
+    return Object.entries(frozen.accessClaims).every(([type, values]) =>
+      values.every((value) => currentClaims.get(type)?.has(value) === true));
+  }
+
+  async getSpecificationInProject(
+    subjectId: string,
+    projectId: string,
+    specificationId: string,
+  ): Promise<Specification | null> {
+    await this.requireActiveProjectMembership(subjectId, projectId);
+    const [row] = await this.db
+      .select()
+      .from(specifications)
+      .where(and(
+        eq(specifications.projectId, projectId),
+        eq(specifications.id, specificationId),
+      ))
+      .limit(1);
+    return row ? toSpecification(row) : null;
+  }
+
+  async getScenarioAndSpecificationsInProject(
+    subjectId: string,
+    projectId: string,
+    scenarioId: string,
+  ): Promise<{
+    scenario: ScenarioDefinitionRecord | null;
+    specifications: Specification[];
+  }> {
+    await this.requireActiveProjectMembership(subjectId, projectId);
+    const [[scenario], specificationRows] = await Promise.all([
+      this.db.select().from(scenarios)
+        .where(and(eq(scenarios.id, scenarioId), eq(scenarios.enabled, true)))
+        .orderBy(asc(scenarios.userId)).limit(1),
+      this.db.select().from(specifications)
+        .where(eq(specifications.projectId, projectId))
+        .orderBy(asc(specifications.projectCode), asc(specifications.id)),
+    ]);
+    return {
+      scenario: scenario ? toScenarioDefinition(scenario) : null,
+      specifications: specificationRows.map(toSpecification),
+    };
+  }
+
   async publishSpecificationImport(
     userId: string,
     input: PublishSpecificationImportInput,
@@ -974,6 +1094,25 @@ export class MtrRepository {
 
   async getLatestVersion(userId: string, specificationId: string): Promise<SpecificationVersion | null> {
     return this.getLatestSpecificationVersion(userId, specificationId);
+  }
+
+  async getLatestVersionInProject(
+    subjectId: string,
+    projectId: string,
+    specificationId: string,
+  ): Promise<SpecificationVersion | null> {
+    await this.requireActiveProjectMembership(subjectId, projectId);
+    const [row] = await this.db
+      .select()
+      .from(specificationVersions)
+      .where(and(
+        eq(specificationVersions.projectId, projectId),
+        eq(specificationVersions.specificationId, specificationId),
+        eq(specificationVersions.isCurrent, true),
+      ))
+      .orderBy(desc(specificationVersions.versionNumber), desc(specificationVersions.id))
+      .limit(1);
+    return row ? toSpecificationVersion(row) : null;
   }
 
   async promoteNextSpecificationVersion(
@@ -1315,6 +1454,66 @@ export class MtrRepository {
     });
   }
 
+  async listPositionsInProject(
+    subjectId: string,
+    projectId: string,
+    options: PositionQuery = {},
+  ): Promise<Position[]> {
+    await this.requireActiveProjectMembership(subjectId, projectId);
+    const conditions: SQL[] = [
+      eq(specificationPositions.projectId, projectId),
+      eq(specificationVersions.projectId, projectId),
+      eq(specifications.projectId, projectId),
+    ];
+    if (options.specificationId) {
+      conditions.push(eq(specificationPositions.specificationId, options.specificationId));
+    }
+    if (options.versionId) conditions.push(eq(specificationPositions.versionId, options.versionId));
+    if (options.currentOnly ?? true) conditions.push(eq(specificationVersions.isCurrent, true));
+    if (options.equipmentType) {
+      conditions.push(eq(specificationPositions.equipmentType, options.equipmentType));
+    }
+    let query = this.db
+      .select({
+        position: specificationPositions,
+        versionNumber: specificationVersions.versionNumber,
+        isCurrentVersion: specificationVersions.isCurrent,
+        specificationName: specifications.name,
+      })
+      .from(specificationPositions)
+      .innerJoin(specificationVersions, eq(specificationVersions.id, specificationPositions.versionId))
+      .innerJoin(specifications, eq(specifications.id, specificationPositions.specificationId))
+      .where(and(...conditions))
+      .orderBy(asc(specificationPositions.id))
+      .$dynamic();
+    if (options.limit !== undefined) query = query.limit(validLimit(options.limit));
+    if (options.offset !== undefined) query = query.offset(validOffset(options.offset));
+    const rows = await query;
+    return rows.map(({ position, versionNumber, isCurrentVersion, specificationName }) => ({
+      id: position.id,
+      userId: subjectId,
+      projectId,
+      internalCode: position.internalCode,
+      nameRu: position.nameRu,
+      ...(position.nameEn ? { nameEn: position.nameEn } : {}),
+      synonyms: position.synonyms,
+      equipmentType: position.equipmentType,
+      ...(position.standard ? { standard: position.standard } : {}),
+      ...(position.materialGrade ? { materialGrade: position.materialGrade } : {}),
+      dimensions: position.dimensions,
+      requiredQuantity: Number(position.requiredQuantity),
+      unit: position.unit,
+      specificationId: position.specificationId,
+      specificationName,
+      versionId: position.versionId,
+      versionNumber,
+      isCurrentVersion,
+      classification: position.classification,
+      access: position.accessAttributes,
+      fixtureTags: position.fixtureTags,
+    }));
+  }
+
   async getPosition(userId: string, positionId: string): Promise<Position | null> {
     const rows = await this.listPositions(userId, { currentOnly: false });
     return rows.find((row) => row.id === positionId) ?? null;
@@ -1368,6 +1567,38 @@ export class MtrRepository {
     };
   }
 
+  async searchSapMaterialsInSourceScopes(
+    sourceScopeIds: readonly string[],
+    options: SapMaterialQuery = {},
+  ): Promise<SapSearchResult> {
+    if (sourceScopeIds.length === 0) return { items: [], total: 0, snapshotAt: "" };
+    const conditions = sapScopedConditions(sourceScopeIds, options);
+    const limit = validLimit(options.limit ?? options.top ?? 100, 500);
+    const offset = validOffset(options.offset ?? options.skip ?? 0);
+    const rows = await this.db
+      .select({ material: sapMaterials, balance: sapStockBalances })
+      .from(sapMaterials)
+      .innerJoin(sapStockBalances, eq(sapStockBalances.materialId, sapMaterials.id))
+      .where(and(...conditions))
+      .orderBy(asc(sapMaterials.materialCode), asc(sapStockBalances.id))
+      .limit(limit)
+      .offset(offset);
+    const [{ value: total = 0 } = { value: 0 }] = await this.db
+      .select({ value: count() })
+      .from(sapMaterials)
+      .innerJoin(sapStockBalances, eq(sapStockBalances.materialId, sapMaterials.id))
+      .where(and(...conditions));
+    const items = rows.map(({ material, balance }) => toSapMaterial(material, balance));
+    const numericTotal = Number(total);
+    const nextOffset = offset + items.length < numericTotal ? offset + items.length : undefined;
+    return {
+      items,
+      total: numericTotal,
+      snapshotAt: items[0]?.snapshotAt ?? "",
+      ...(nextOffset === undefined ? {} : { nextOffset, nextSkip: nextOffset }),
+    };
+  }
+
   async getSapMaterial(userId: string, materialCode: string): Promise<SapMaterial | null> {
     const result = await this.searchSapMaterials(userId, { materialCode, limit: 1 });
     return result.items[0] ?? null;
@@ -1376,6 +1607,37 @@ export class MtrRepository {
   async getSapMaterialStock(userId: string, materialCode: string): Promise<SapMaterial[]> {
     const result = await this.searchSapMaterials(userId, { materialCode, limit: 500 });
     return result.items;
+  }
+
+  async canReadOperationalMaterialStock(input: Readonly<{
+    subjectId: string;
+    accessProjectId: string;
+    catalogScopeIds: readonly string[];
+    sourceScopeIds: readonly string[];
+    warehouseIds: readonly string[];
+    materialCode: string;
+    snapshotId: string;
+  }>): Promise<boolean> {
+    trustedUser(input.subjectId);
+    if (
+      !input.accessProjectId ||
+      input.catalogScopeIds.length === 0 ||
+      input.sourceScopeIds.length === 0 ||
+      input.warehouseIds.length === 0
+    ) return false;
+    const [row] = await this.db.select({ stock: operationalMaterialViews.stock })
+      .from(operationalMaterialViews)
+      .where(and(
+        eq(operationalMaterialViews.tenantId, "demo-tenant-001"),
+        eq(operationalMaterialViews.accessProjectId, input.accessProjectId),
+        inArray(operationalMaterialViews.catalogScopeId, [...input.catalogScopeIds]),
+        inArray(operationalMaterialViews.sourceScopeId, [...input.sourceScopeIds]),
+        eq(operationalMaterialViews.materialCode, input.materialCode),
+      ))
+      .limit(1);
+    if (!row || row.stock.snapshotId !== input.snapshotId) return false;
+    const allowedWarehouses = new Set(input.warehouseIds);
+    return row.stock.balances.some((balance) => allowedWarehouses.has(balance.warehouseId));
   }
 
   async searchCatalogItems(
@@ -1708,6 +1970,37 @@ export class MtrRepository {
       }));
   }
 
+  async listNormativeChunksInSourceScopes(
+    sourceScopeIds: readonly string[],
+    options: { text?: string; equipmentType?: string; language?: string; limit?: number } = {},
+  ): Promise<Array<typeof normativeChunks.$inferSelect & { documentId: string; documentVersion: string }>> {
+    if (sourceScopeIds.length === 0) return [];
+    const conditions: SQL[] = [
+      inArray(normativeChunks.sourceScopeId, [...sourceScopeIds]),
+      inArray(normativeDocuments.sourceScopeId, [...sourceScopeIds]),
+    ];
+    if (options.language) conditions.push(eq(normativeChunks.language, options.language));
+    if (options.text?.trim()) {
+      const pattern = `%${escapeLike(options.text.trim())}%`;
+      conditions.push(or(ilike(normativeChunks.title, pattern), ilike(normativeChunks.text, pattern))!);
+    }
+    const rows = await this.db
+      .select({ chunk: normativeChunks, document: normativeDocuments })
+      .from(normativeChunks)
+      .innerJoin(normativeDocuments, eq(normativeDocuments.id, normativeChunks.normativeDocumentId))
+      .where(and(...conditions))
+      .orderBy(asc(normativeChunks.clauseId), asc(normativeChunks.language))
+      .limit(validLimit(options.limit ?? 100, 500));
+    return rows
+      .filter(({ chunk }) => !options.equipmentType ||
+        chunk.equipmentTypes.includes(options.equipmentType) || chunk.equipmentTypes.includes("*"))
+      .map(({ chunk, document }) => ({
+        ...chunk,
+        documentId: document.documentId,
+        documentVersion: document.documentVersion,
+      }));
+  }
+
   async listResponsibilityRules(
     userId: string,
     equipmentType?: string,
@@ -1732,6 +2025,36 @@ export class MtrRepository {
           rule.equipmentTypes.includes(equipmentType) ||
           rule.equipmentTypes.includes("*"),
       )
+      .map(({ rule, document }) => ({
+        documentId: document.documentId,
+        version: document.documentVersion,
+        clauseId: rule.clauseId,
+        title: document.title,
+        isSyntheticDemo: true,
+        equipmentTypes: rule.equipmentTypes,
+        responsibility: rule.responsibility as "CUSTOMER" | "CONTRACTOR",
+        conditions: rule.conditions,
+        text: rule.ruleText,
+      }));
+  }
+
+  async listResponsibilityRulesInSourceScopes(
+    sourceScopeIds: readonly string[],
+    equipmentType?: string,
+  ): Promise<ResponsibilityRule[]> {
+    if (sourceScopeIds.length === 0) return [];
+    const rows = await this.db
+      .select({ rule: responsibilityRules, document: normativeDocuments })
+      .from(responsibilityRules)
+      .innerJoin(normativeDocuments, eq(normativeDocuments.id, responsibilityRules.normativeDocumentId))
+      .where(and(
+        inArray(normativeDocuments.sourceScopeId, [...sourceScopeIds]),
+        eq(responsibilityRules.active, true),
+      ))
+      .orderBy(asc(responsibilityRules.id));
+    return rows
+      .filter(({ rule }) => !equipmentType ||
+        rule.equipmentTypes.includes(equipmentType) || rule.equipmentTypes.includes("*"))
       .map(({ rule, document }) => ({
         documentId: document.documentId,
         version: document.documentVersion,
@@ -1780,6 +2103,37 @@ export class MtrRepository {
       }));
   }
 
+  async listAnalogueRulesInSourceScopes(
+    sourceScopeIds: readonly string[],
+    equipmentType?: string,
+  ): Promise<AnalogueRule[]> {
+    if (sourceScopeIds.length === 0) return [];
+    const rows = await this.db
+      .select({ rule: analogueRules, document: normativeDocuments })
+      .from(analogueRules)
+      .innerJoin(normativeDocuments, eq(normativeDocuments.id, analogueRules.normativeDocumentId))
+      .where(and(
+        inArray(normativeDocuments.sourceScopeId, [...sourceScopeIds]),
+        eq(analogueRules.active, true),
+      ))
+      .orderBy(asc(analogueRules.id));
+    return rows
+      .filter(({ rule }) => !equipmentType ||
+        rule.equipmentTypes.includes(equipmentType) || rule.equipmentTypes.includes("*"))
+      .map(({ rule, document }) => ({
+        documentId: document.documentId,
+        version: document.documentVersion,
+        clauseId: rule.clauseId,
+        title: document.title,
+        isSyntheticDemo: true,
+        equipmentTypes: rule.equipmentTypes,
+        allowedStandardPairs: rule.allowedStandardPairs,
+        allowedMaterialPairs: rule.allowedMaterialPairs,
+        dimensionTolerances: rule.dimensionTolerances,
+        text: rule.ruleText,
+      }));
+  }
+
   async getIntegrationState(
     userId: string,
     system: IntegrationSystem,
@@ -1789,6 +2143,23 @@ export class MtrRepository {
       .select()
       .from(integrationStates)
       .where(and(eq(integrationStates.userId, userId), eq(integrationStates.system, system)))
+      .limit(1);
+    return row ? toIntegrationState(row) : null;
+  }
+
+  async getIntegrationStateInSourceScopes(
+    sourceScopeIds: readonly string[],
+    system: IntegrationSystem,
+  ): Promise<IntegrationStateRecord | null> {
+    if (sourceScopeIds.length === 0) return null;
+    const [row] = await this.db
+      .select()
+      .from(integrationStates)
+      .where(and(
+        inArray(integrationStates.sourceScopeId, [...sourceScopeIds]),
+        eq(integrationStates.system, system),
+      ))
+      .orderBy(asc(integrationStates.userId))
       .limit(1);
     return row ? toIntegrationState(row) : null;
   }
@@ -1866,6 +2237,21 @@ export class MtrRepository {
     return row ? toScenarioDefinition(row) : null;
   }
 
+  async getScenarioInProject(
+    subjectId: string,
+    projectId: string,
+    scenarioId: string,
+  ): Promise<ScenarioDefinitionRecord | null> {
+    await this.requireActiveProjectMembership(subjectId, projectId);
+    const [row] = await this.db
+      .select()
+      .from(scenarios)
+      .where(and(eq(scenarios.id, scenarioId), eq(scenarios.enabled, true)))
+      .orderBy(asc(scenarios.userId))
+      .limit(1);
+    return row ? toScenarioDefinition(row) : null;
+  }
+
   async setScenarioEnabled(
     userId: string,
     scenarioId: string,
@@ -1925,6 +2311,50 @@ export class MtrRepository {
     return toScenarioRun(row, []);
   }
 
+  async createScenarioRunInProject(
+    subjectId: string,
+    projectId: string,
+    input: CreateScenarioRunInput,
+  ): Promise<ScenarioRun> {
+    await this.requireActiveProjectMembership(subjectId, projectId);
+    const [[scenarioRow], [specificationRow]] = await Promise.all([
+      this.db.select().from(scenarios)
+        .where(and(eq(scenarios.id, input.scenarioId), eq(scenarios.enabled, true)))
+        .orderBy(asc(scenarios.userId)).limit(1),
+      this.db.select().from(specifications).where(and(
+        eq(specifications.projectId, projectId),
+        eq(specifications.id, input.specificationId),
+      )).limit(1),
+    ]);
+    const scenario = scenarioRow ? toScenarioDefinition(scenarioRow) : null;
+    const specification = specificationRow ? toSpecification(specificationRow) : null;
+    if (!scenario) throw new Error("Сценарий не найден в доверенном проектном контуре.");
+    if (!specification) throw new Error("Спецификация не найдена в доверенном проектном контуре.");
+    const status = input.status ?? "QUEUED";
+    const [row] = await this.db.insert(scenarioRuns).values({
+      id: input.id ?? `run-${randomUUID()}`,
+      userId: subjectId,
+      projectId,
+      scenarioId: scenario.id,
+      specificationId: specification.id,
+      retryOfRunId: input.retryOfRunId,
+      status,
+      currentStep: input.currentStep ?? status,
+      progress: input.progress ?? 0,
+      mode: input.mode ?? "NORMAL",
+      seed: input.seed ?? "base",
+      startedAt: input.startedAt,
+      completedAt: input.completedAt,
+      inputSnapshot: input.inputSnapshot ?? {},
+      outputSnapshot: input.outputSnapshot ?? {},
+      errorCode: input.errorCode,
+      errorMessage: input.errorMessage,
+      createdBy: subjectId,
+    }).returning();
+    if (!row) throw new Error("Не удалось создать проектный запуск сценария.");
+    return toScenarioRun(row, []);
+  }
+
   async createRun(userId: string, input: CreateScenarioRunInput): Promise<ScenarioRun> {
     return this.createScenarioRun(userId, input);
   }
@@ -1946,25 +2376,69 @@ export class MtrRepository {
   }
 
   async getScenarioRunInProject(
-    userId: string,
+    subjectId: string,
     projectId: string,
     runId: string,
   ): Promise<ScenarioRun | null> {
-    trustedUser(userId);
+    if (!await this.hasActiveProjectMembership(subjectId, projectId)) return null;
     const [row] = await this.db
       .select()
       .from(scenarioRuns)
       .where(
         and(
-          eq(scenarioRuns.userId, userId),
           eq(scenarioRuns.projectId, projectId),
           eq(scenarioRuns.id, runId),
         ),
       )
       .limit(1);
     if (!row) return null;
-    const steps = await this.listScenarioRunSteps(userId, runId);
+    const stepRows = await this.db
+      .select()
+      .from(scenarioRunSteps)
+      .where(and(
+        eq(scenarioRunSteps.projectId, projectId),
+        eq(scenarioRunSteps.runId, runId),
+      ))
+      .orderBy(asc(scenarioRunSteps.startedAt), asc(scenarioRunSteps.id));
+    const steps = stepRows.map(toScenarioRunStep);
     return toScenarioRun(row, steps);
+  }
+
+  async listScenarioRunsInProject(
+    subjectId: string,
+    projectId: string,
+    options: ScenarioRunQuery = {},
+  ): Promise<ScenarioRun[]> {
+    await this.requireActiveProjectMembership(subjectId, projectId);
+    const conditions: SQL[] = [eq(scenarioRuns.projectId, projectId)];
+    if (options.scenarioId) conditions.push(eq(scenarioRuns.scenarioId, options.scenarioId));
+    if (options.status) conditions.push(eq(scenarioRuns.status, options.status));
+    const rows = await this.db
+      .select()
+      .from(scenarioRuns)
+      .where(and(...conditions))
+      .orderBy(desc(scenarioRuns.createdAt), desc(scenarioRuns.id))
+      .limit(validLimit(options.limit ?? 50, 200))
+      .offset(validOffset(options.offset ?? 0));
+    if (rows.length === 0 || options.includeSteps === false) {
+      return rows.map((row) => toScenarioRun(row, []));
+    }
+    const runIds = rows.map((row) => row.id);
+    const stepRows = await this.db
+      .select()
+      .from(scenarioRunSteps)
+      .where(and(
+        eq(scenarioRunSteps.projectId, projectId),
+        inArray(scenarioRunSteps.runId, runIds),
+      ))
+      .orderBy(asc(scenarioRunSteps.startedAt), asc(scenarioRunSteps.id));
+    const stepsByRun = new Map<string, ScenarioRunStep[]>();
+    for (const step of stepRows) {
+      const list = stepsByRun.get(step.runId) ?? [];
+      list.push(toScenarioRunStep(step));
+      stepsByRun.set(step.runId, list);
+    }
+    return rows.map((row) => toScenarioRun(row, stepsByRun.get(row.id) ?? []));
   }
 
   async listScenarioRuns(
@@ -2668,6 +3142,7 @@ export class MtrRepository {
         select
           updated_run.id,
           updated_run.user_id as "userId",
+          updated_run.project_id as "projectId",
           updated_run.scenario_id as "scenarioId",
           updated_run.specification_id as "specificationId",
           updated_run.retry_of_run_id as "retryOfRunId",
@@ -2880,12 +3355,15 @@ export class MtrRepository {
         .filter((input) => input.sourceKind !== "MANUAL_IMPORT")
         .map((input) => input.positionId);
       if (canonicalPositionIds.length > 0) {
+        const projectId = lockedRun.project_id === null
+          ? "demo-project-001"
+          : String(lockedRun.project_id);
         const persistedPositions = await tx
           .select({ id: specificationPositions.id })
           .from(specificationPositions)
           .where(
             and(
-              eq(specificationPositions.userId, userId),
+              eq(specificationPositions.projectId, projectId),
               inArray(specificationPositions.id, canonicalPositionIds),
             ),
           );
@@ -2951,6 +3429,27 @@ export class MtrRepository {
       )
       .orderBy(asc(positionAnalysisResults.positionId));
     return rows.map(toAnalysisResult);
+  }
+
+  async listAnalysisResultsInProject(
+    subjectId: string,
+    projectId: string,
+    runId: string,
+  ): Promise<AnalysisResultRecord[]> {
+    await this.requireActiveProjectMembership(subjectId, projectId);
+    const rows = await this.db
+      .select({ result: positionAnalysisResults })
+      .from(positionAnalysisResults)
+      .innerJoin(scenarioRuns, and(
+        eq(scenarioRuns.id, positionAnalysisResults.runId),
+        eq(scenarioRuns.projectId, projectId),
+      ))
+      .where(and(
+        eq(positionAnalysisResults.projectId, projectId),
+        eq(positionAnalysisResults.runId, runId),
+      ))
+      .orderBy(asc(positionAnalysisResults.positionId));
+    return rows.map((row) => toAnalysisResult(row.result));
   }
 
   async ensureAnalysisReviews(userId: string, inputs: AnalysisReviewSeed[]) {
@@ -4336,6 +4835,33 @@ export class MtrRepository {
       .limit(1);
     if (!row) throw new Error("Запуск сценария не найден.");
   }
+
+  private async requireActiveProjectMembership(
+    subjectId: string,
+    projectId: string,
+  ): Promise<void> {
+    if (!await this.hasActiveProjectMembership(subjectId, projectId)) {
+      throw new Error("Нет доступа к проектному контуру.");
+    }
+  }
+
+  private async hasActiveProjectMembership(
+    subjectId: string,
+    projectId: string,
+  ): Promise<boolean> {
+    trustedUser(subjectId);
+    const [membership] = executedRows(await this.db.execute(sql`
+      select 1 as active
+      from project_memberships
+      where user_id = ${subjectId}
+        and project_id = ${projectId}
+        and status = 'ACTIVE'
+        and valid_from <= now()
+        and (valid_until is null or valid_until > now())
+      limit 1
+    `));
+    return Boolean(membership);
+  }
 }
 
 export function createRepository(database: Database): MtrRepository {
@@ -4461,6 +4987,7 @@ function toScenarioRun(
   return {
     id: row.id,
     userId: row.userId,
+    ...(row.projectId ? { projectId: row.projectId } : {}),
     scenarioId: row.scenarioId,
     specificationId: row.specificationId,
     status: row.status,
@@ -4721,13 +5248,45 @@ function sapConditions(userId: string, options: SapMaterialQuery): SQL[] {
   return conditions;
 }
 
+function sapScopedConditions(
+  sourceScopeIds: readonly string[],
+  options: SapMaterialQuery,
+): SQL[] {
+  const conditions: SQL[] = [
+    inArray(sapMaterials.sourceScopeId, [...sourceScopeIds]),
+    inArray(sapStockBalances.sourceScopeId, [...sourceScopeIds]),
+  ];
+  if (options.equipmentType) conditions.push(eq(sapMaterials.equipmentType, options.equipmentType));
+  if (options.materialCode) conditions.push(eq(sapMaterials.materialCode, options.materialCode));
+  if (options.warehouseIds) {
+    conditions.push(options.warehouseIds.length > 0
+      ? inArray(sapStockBalances.storageLocation, [...options.warehouseIds])
+      : sql<boolean>`false`);
+  }
+  if (options.text?.trim()) {
+    const pattern = `%${escapeLike(options.text.trim())}%`;
+    conditions.push(or(
+      ilike(sapMaterials.materialCode, pattern),
+      ilike(sapMaterials.nameRu, pattern),
+      ilike(sapMaterials.nameEn, pattern),
+      ilike(sapMaterials.legacyCode, pattern),
+      sql<boolean>`${sapMaterials.synonyms}::text ILIKE ${pattern}`,
+    )!);
+  }
+  return conditions;
+}
+
 function agentAuditOperationConditions(
   userId: string,
   options: AgentAuditOperationQuery,
 ): SQL[] {
   const conditions: SQL[] = [
     eq(auditLogs.userId, userId),
-    eq(auditLogs.action, "agent.tool.result"),
+    inArray(auditLogs.action, [
+      "agent.tool.result",
+      "agent.universal.capability.completed",
+      "agent.universal.capability.failed",
+    ]),
   ];
   const from = auditDateBoundary(options.from, false);
   const to = auditDateBoundary(options.to, true);
@@ -4758,7 +5317,7 @@ function agentAuditOperationConditions(
   const toolPattern = containsPattern(options.tool);
   if (toolPattern) {
     conditions.push(
-      ilike(sql<string>`coalesce(${auditLogs.details} ->> 'tool', '')`, toolPattern),
+      ilike(sql<string>`coalesce(${auditLogs.details} ->> 'tool', ${auditLogs.details} ->> 'capabilityKey', '')`, toolPattern),
     );
   }
 
@@ -5102,6 +5661,19 @@ function oneCalendarYearAfterSql(value: SQL): SQL {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function recordArray(value: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(value)) return value.filter(isRecord);
+  if (typeof value === "string") {
+    try {
+      const parsed: unknown = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed.filter(isRecord) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
 }
 
 function escapeLike(value: string): string {

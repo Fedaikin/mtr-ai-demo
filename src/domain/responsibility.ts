@@ -22,15 +22,22 @@ export interface ResponsibilityRuleManifest {
   schemaVersion: "responsibility-rule-manifest-v1";
   projectId: string;
   sourceScopeId: string;
+  trustedScope: {
+    projectId: string;
+    sourceScopeId: string;
+  };
   datasetVersion: string;
   ruleCount: number;
+  activeRuleCount: number;
   equipmentTypes: string[];
+  coveredEquipmentTypes: string[];
   documents: Array<{
     documentId: string;
     version: string;
     clauses: string[];
   }>;
   checksum: string;
+  checksumSha256: string;
 }
 
 export interface ResponsibilityResultProjection {
@@ -173,10 +180,17 @@ export function buildResponsibilityRuleManifest(
   return {
     schemaVersion: "responsibility-rule-manifest-v1",
     ...scope,
+    trustedScope: {
+      projectId: scope.projectId,
+      sourceScopeId: scope.sourceScopeId,
+    },
     ruleCount: sortedRules.length,
+    activeRuleCount: sortedRules.length,
     equipmentTypes,
+    coveredEquipmentTypes: equipmentTypes,
     documents,
     checksum: createHash("sha256").update(canonical, "utf8").digest("hex"),
+    checksumSha256: createHash("sha256").update(canonical, "utf8").digest("hex"),
   };
 }
 

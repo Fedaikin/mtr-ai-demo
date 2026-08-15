@@ -54,9 +54,11 @@ type ODataField = (typeof ODATA_FIELDS)[number];
 type SapRepository = Pick<
   MtrRepository,
   | "getIntegrationState"
+  | "getIntegrationStateInSourceScopes"
   | "getSapMaterialStock"
   | "resetDemoData"
   | "searchSapMaterials"
+  | "searchSapMaterialsInSourceScopes"
   | "setIntegrationState"
   | "writeAuditLog"
 >;
@@ -122,6 +124,22 @@ export class SapMockAdapter implements SapStockPort {
     const result = await this.repository.searchSapMaterials(userId, {
       text: query.text,
       equipmentType: query.equipmentType,
+      top: normalizeTop(query.top),
+      skip: normalizeSkip(query.skip),
+    });
+    return applySnapshotState(result, state);
+  }
+
+  async searchMaterialStockInScope(
+    query: StockQuery,
+    sourceScopeIds: readonly string[],
+    warehouseIds: readonly string[],
+  ): Promise<SapOperationalSnapshot> {
+    const state = await this.assertReadableInScope(sourceScopeIds);
+    const result = await this.repository.searchSapMaterialsInSourceScopes(sourceScopeIds, {
+      text: query.text,
+      equipmentType: query.equipmentType,
+      warehouseIds,
       top: normalizeTop(query.top),
       skip: normalizeSkip(query.skip),
     });
@@ -230,6 +248,24 @@ export class SapMockAdapter implements SapStockPort {
       `SAP_${state.state}`,
       state.safeMessage ?? SAFE_MESSAGES[state.state] ?? SAFE_MESSAGES.UNAVAILABLE,
       { state: state.state },
+    );
+  }
+
+  private async assertReadableInScope(
+    sourceScopeIds: readonly string[],
+  ): Promise<IntegrationStateRecord> {
+    const state = await this.repository.getIntegrationStateInSourceScopes(sourceScopeIds, "SAP");
+    if (!state) {
+      throw new SapMockError(503, "SAP_STATE_NOT_CONFIGURED", "Состояние SAP не настроено.");
+    }
+    if (state.state === "SLOW") await controlledDelay(state.delayMs);
+    if (state.state === "AVAILABLE" || state.state === "SLOW" || state.state === "STALE") {
+      return state;
+    }
+    throw new SapMockError(
+      state.state === "RATE_LIMITED" ? 429 : 503,
+      `SAP_${state.state}`,
+      state.safeMessage ?? SAFE_MESSAGES[state.state] ?? "SAP временно недоступен.",
     );
   }
 

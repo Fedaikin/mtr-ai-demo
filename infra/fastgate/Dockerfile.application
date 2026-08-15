@@ -1,0 +1,36 @@
+FROM node:24.6.0-bookworm-slim@sha256:798837daa2a12bab9cdf53cf8779a05256c2ce08176f449e239e7577d26225e8 AS build
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN corepack enable
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm config set --location project --json allowBuilds '{"esbuild":true,"unrs-resolver":false}'
+RUN pnpm install --frozen-lockfile
+COPY . .
+RUN pnpm build
+RUN ESBUILD_BIN="$(find node_modules/.pnpm -path '*/node_modules/esbuild/bin/esbuild' -type f | sort -V | tail -1)" \
+  && test -x "$ESBUILD_BIN" \
+  && install -d -m 0700 /opt/fastgate-control \
+  && "$ESBUILD_BIN" scripts/fastgate-application-start.ts \
+    --bundle --platform=node --format=esm --target=node24 \
+    --alias:@=./src --outfile=/opt/fastgate-control/application-start.mjs \
+  && cp node_modules/.pnpm/@electric-sql+pglite@*/node_modules/@electric-sql/pglite/dist/pglite.wasm /opt/fastgate-control/pglite.wasm \
+  && cp node_modules/.pnpm/@electric-sql+pglite@*/node_modules/@electric-sql/pglite/dist/initdb.wasm /opt/fastgate-control/initdb.wasm \
+  && cp node_modules/.pnpm/@electric-sql+pglite@*/node_modules/@electric-sql/pglite/dist/pglite.data /opt/fastgate-control/pglite.data
+
+FROM node:24.6.0-bookworm-slim@sha256:798837daa2a12bab9cdf53cf8779a05256c2ce08176f449e239e7577d26225e8
+WORKDIR /app
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
+RUN install -d -o 1000 -g 1000 -m 0750 /run/fastgate-public /run/fastgate-database \
+  && install -d -o 0 -g 0 -m 0555 /app/.next /app/public /app/drizzle \
+  && install -d -o 0 -g 0 -m 0700 /opt/fastgate-control
+COPY --from=build --chown=0:0 /app/.next/standalone/ /app/
+COPY --from=build --chown=0:0 /app/.next/static/ /app/.next/static/
+COPY --from=build --chown=0:0 /app/public/ /app/public/
+COPY --from=build --chown=0:0 /app/drizzle/ /app/drizzle/
+COPY --from=build --chown=0:0 /opt/fastgate-control/ /opt/fastgate-control/
+RUN chmod -R a-w /app \
+  && chmod 0700 /opt/fastgate-control \
+  && chmod 0600 /opt/fastgate-control/* \
+  && chmod 0700 /opt/fastgate-control/application-start.mjs
+USER 0:0
+CMD ["node", "/opt/fastgate-control/application-start.mjs"]

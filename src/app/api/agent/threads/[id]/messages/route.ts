@@ -7,6 +7,7 @@ import { reauthorizeSavedAgentCitations } from "@/application/agent-orchestrator
 import { AgentContextError } from "@/domain/agent/context";
 import { createAgentExecutionContext } from "@/domain/agent/context";
 import { composeUniversalChatResult } from "@/application/agent-orchestrator/universal-chat/answer-composer";
+import { UniversalCapabilityError } from "@/application/agent-orchestrator/universal-chat/capability-registry";
 import { ApiError, created, ok, parseJson, toErrorResponse } from "@/lib/api";
 import { requirePermission } from "@/lib/session";
 
@@ -261,6 +262,9 @@ export async function POST(request: Request, { params }: MessagesRouteContext) {
     }
     if (error instanceof AuthorizationError) {
       return toErrorResponse(new ApiError(403, "AGENT_PERMISSION_DENIED", error.message));
+    }
+    if (error instanceof UniversalCapabilityError) {
+      return toErrorResponse(new ApiError(403, error.code, "Запрошенные данные недоступны в текущем контуре"));
     }
     return toErrorResponse(error);
   }

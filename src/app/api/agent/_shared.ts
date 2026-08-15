@@ -6,6 +6,7 @@ import { AppiusMockAdapter } from "@/adapters/mock/appius-adapter";
 import { IntegrationAwareLlmProvider } from "@/adapters/mock/integration-aware-llm-provider";
 import { createMockLLMProvider } from "@/adapters/mock/mock-llm-provider";
 import { createModelAnalyticalReadPort } from "@/adapters/mock/agent-analytical-read-port";
+import { createFastGateUniversalCapabilityClient } from "@/adapters/fastgate/fastgate-universal-capability-client";
 import { NormativeMockAdapter } from "@/adapters/mock/normative-adapter";
 import { SapMockAdapter } from "@/adapters/mock/sap-adapter";
 import { createCatalogRepositoryPort } from "@/adapters/persistence/catalog-port";
@@ -195,12 +196,16 @@ function createUniversalService(
             projectId: context.trusted.activeProjectId,
             authorizationVersion: context.trusted.authorizationVersion,
             durationMs: event.durationMs,
+            ...(event.sourceBinding ? { sourceBinding: event.sourceBinding } : {}),
             ...(event.safeErrorCode ? { safeErrorCode: event.safeErrorCode } : {}),
           },
           requestId: context.correlationId,
         });
       },
     },
+    process.env.FASTGATE_OFFICIAL === "1"
+      ? createFastGateUniversalCapabilityClient()
+      : undefined,
   );
   const deterministic = new UniversalChatService(registry);
   const config = liveLlmEnabled ? readOpenAIResponsesPlannerConfig() : null;
