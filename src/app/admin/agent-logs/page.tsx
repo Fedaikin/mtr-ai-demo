@@ -66,6 +66,7 @@ export default async function AdminAgentLogsPage({
   const metrics = buildAgentObservabilityFromSummary(auditMetrics, integrationStates, runs);
   const operations = buildAgentOperations(operationPage.entries);
   const statesBySystem = new Map(integrationStates.map((state) => [state.system, state]));
+  const deployment = deploymentInfo();
 
   return (
     <div className="space-y-6" data-testid="agent-logs-dashboard">
@@ -74,6 +75,17 @@ export default async function AdminAgentLogsPage({
         title="Логи AI-агента"
         description="Рабочее состояние агента и безопасно очищенный журнал технических операций. Секреты, cookie, токены, пароли и полный текст документов не сохраняются."
       />
+
+      <section aria-labelledby="deployment-version-title" data-testid="deployment-version">
+        <h2 id="deployment-version-title" className="mb-3 text-base font-semibold text-slate-950">
+          Версия развертывания
+        </h2>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <MetricCard label="Git SHA" value={deployment.sha} />
+          <MetricCard label="Ветка" value={deployment.branch} />
+          <MetricCard label="Окружение" value={deployment.environment} />
+        </div>
+      </section>
 
       <section aria-labelledby="agent-state-title">
         <h2 id="agent-state-title" className="mb-3 text-base font-semibold text-slate-950">
@@ -239,6 +251,14 @@ export default async function AdminAgentLogsPage({
       </section>
     </div>
   );
+}
+
+function deploymentInfo(): Readonly<{ sha: string; branch: string; environment: string }> {
+  return Object.freeze({
+    sha: process.env.VERCEL_GIT_COMMIT_SHA?.trim() || "Локальная сборка",
+    branch: process.env.VERCEL_GIT_COMMIT_REF?.trim() || "Локальная ветка",
+    environment: process.env.VERCEL_ENV?.trim() || process.env.NODE_ENV || "не определено",
+  });
 }
 
 function MetricCard({
