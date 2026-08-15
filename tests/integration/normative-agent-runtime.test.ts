@@ -160,6 +160,37 @@ describe.sequential("normative RAG and executable agent integration states", () 
     });
   });
 
+  it.each([
+    "проверь позицию APP-DEMO-BALL-021",
+    "проверь позицию Кран шаровой DN 25 PN 40",
+  ])("checks an Appius position by code or exact Russian name: %s", async (message) => {
+    const output = await createAgentRuntime(repository).respond(
+      { message },
+      DEMO_USER_ID,
+    );
+
+    expect(output.answer).toContain("APP-DEMO-BALL-021");
+    expect(output.answer).toContain("Кран шаровой DN 25 PN 40");
+    expect(output.answer).toContain("SAP-DEMO-0021");
+    expect(output.answer).toContain("86%");
+    expect(output.answer).toContain("9 EA");
+    expect(output.answer).not.toContain("Уточните объект запроса");
+    expect(output.requiresHumanReview).toBe(true);
+    expect(output.confidence).toBeLessThanOrEqual(0.75);
+    expect(output.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ tool: "appius.getPositions", outcome: "OK" }),
+        expect.objectContaining({ tool: "sap.searchMaterialStock", outcome: "OK" }),
+      ]),
+    );
+    expect(output.citations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sourceSystem: "APPIUS", entityId: "position-021" }),
+        expect.objectContaining({ sourceSystem: "SAP", entityId: "SAP-DEMO-0021" }),
+      ]),
+    );
+  });
+
   it("persists an exact RAG failure code when a server scenario reaches classification", async () => {
     await repository.setIntegrationState(DEMO_USER_ID, "RAG", {
       state: "MALFORMED_RESPONSE",
