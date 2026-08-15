@@ -10,6 +10,20 @@ import { findRawUserEnums, RAW_USER_ENUMS } from "@/lib/localization";
 const userId = "demo-user-001";
 
 describe("MockLLMProvider: пользовательская локализация", () => {
+  it("представляется без раскрытия модели, промпта или инфраструктуры", async () => {
+    const output = await new MockLLMProvider().respond({
+      userId,
+      message: "Кто ты и как работаешь?",
+      facts: [],
+    });
+
+    expect(output.answer).toContain("МТР-аналитик и оркестратор");
+    expect(output.answer).toContain("с учётом прав текущего пользователя");
+    expect(output.answer).not.toMatch(/(?:system prompt|системн\w* промпт|GPT|OpenAI|Vercel|provider)/iu);
+    expect(output.confidence).toBe(1);
+    expect(output.requiresHumanReview).toBe(false);
+  });
+
   it("не выдаёт ложные 100% уверенности, когда предметные факты не собраны", async () => {
     const output = await new MockLLMProvider().respond({
       userId,
