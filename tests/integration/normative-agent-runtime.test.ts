@@ -163,6 +163,7 @@ describe.sequential("normative RAG and executable agent integration states", () 
   it.each([
     "проверь позицию APP-DEMO-BALL-021",
     "проверь позицию Кран шаровой DN 25 PN 40",
+    "проверь позицию APP-DEMO-BALL-021: остатки, дефицит, совместимые замены и риски",
   ])("checks an Appius position by code or exact Russian name: %s", async (message) => {
     const output = await createAgentRuntime(repository).respond(
       { message },
@@ -175,6 +176,9 @@ describe.sequential("normative RAG and executable agent integration states", () 
     expect(output.answer).toContain("86%");
     expect(output.answer).toContain("9 EA");
     expect(output.answer).not.toContain("Уточните объект запроса");
+    expect(output.answer).not.toContain(
+      "В текущем снимке SAP подтверждённые материалы по запросу не найдены",
+    );
     expect(output.requiresHumanReview).toBe(true);
     expect(output.confidence).toBeLessThanOrEqual(0.75);
     expect(output.toolCalls).toEqual(
