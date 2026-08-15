@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { chownSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
 
@@ -21,6 +21,7 @@ const fixtureSchema = z.object({
 
 async function main(): Promise<void> {
   assertApplicationEnvironment();
+  removeLoadedBootstrapEntrypoint();
   const fixturePath = resolve(requiredEnv("FASTGATE_PUBLIC_FIXTURE_PATH"));
   const fixture = fixtureSchema.parse(await waitForJson(fixturePath));
   await initializeDatabase();
@@ -41,7 +42,6 @@ async function main(): Promise<void> {
     baselineDatabaseStateChecksum: baseline.databaseState.checksumSha256,
   }, null, 2)}\n`, { mode: 0o600 });
   await closeDatabase();
-  chownTree(resolve(requiredEnv("PGLITE_DATA_DIR")), 1000, 1000);
 
   const child = spawn(process.execPath, ["/app/server.js"], {
     cwd: "/app",
@@ -120,11 +120,12 @@ async function main(): Promise<void> {
   });
 }
 
-function chownTree(path: string, uid: number, gid: number): void {
-  const stat = lstatSync(path);
-  chownSync(path, uid, gid);
-  if (!stat.isDirectory()) return;
-  for (const name of readdirSync(path)) chownTree(resolve(path, name), uid, gid);
+function removeLoadedBootstrapEntrypoint(): void {
+  const entrypoint = resolve(process.argv[1] ?? "");
+  if (entrypoint !== "/opt/fastgate-control/application-start.mjs") {
+    throw new Error("FASTGATE_APPLICATION_BOOTSTRAP_ENTRYPOINT_FORBIDDEN");
+  }
+  unlinkSync(entrypoint);
 }
 
 function sanitizedApplicationEnvironment(

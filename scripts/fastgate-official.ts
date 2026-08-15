@@ -369,7 +369,7 @@ function attestApplicationImageIsolation(finalSha: string, expectedDigest: strin
     "--security-opt", "no-new-privileges:true", "--user", "1000:1000", "--entrypoint", "/bin/sh",
     image, "-c",
     "test -r /app/server.js"
-      + " && test ! -r /opt/fastgate-control/application-start.mjs"
+      + " && test -r /opt/fastgate-control/application-start.mjs"
       + " && test ! -e /app/scripts/eval-agent-fastgate.ts"
       + " && test ! -e /app/evals/mtr-agent-fastgate-v1.json"
       + " && test ! -e /app/src/evals/fastgate/scoring.ts",
@@ -383,7 +383,13 @@ function attestApplicationImageIsolation(finalSha: string, expectedDigest: strin
     "--conditions=react-server",
     "/opt/fastgate-control/application-start.mjs",
   ])
-    || config.User !== "0:0") throw new Error("APPLICATION_CONTROL_WRAPPER_CONFIGURATION_INVALID");
+    || config.User !== "1000:1000") throw new Error("APPLICATION_CONTROL_WRAPPER_CONFIGURATION_INVALID");
+  const bootstrapSource = readFileSync(resolve("scripts/fastgate-application-start.ts"), "utf8");
+  const removalIndex = bootstrapSource.indexOf("removeLoadedBootstrapEntrypoint();");
+  const applicationSpawnIndex = bootstrapSource.indexOf("const child = spawn(");
+  if (removalIndex < 0 || applicationSpawnIndex < 0 || removalIndex >= applicationSpawnIndex) {
+    throw new Error("APPLICATION_CONTROL_WRAPPER_SELF_REMOVAL_INVALID");
+  }
   return Object.freeze({
     schemaVersion: "mtr-fastgate-application-image-isolation-v1",
     imageDigest: expectedDigest,
@@ -392,6 +398,7 @@ function attestApplicationImageIsolation(finalSha: string, expectedDigest: strin
     manifestReadableByApplication: false,
     scoringReadableByApplication: false,
     controlWrapperReadableByApplication: false,
+    controlWrapperRemovedBeforeApplicationSpawn: true,
     verified: true,
   });
 }

@@ -31,8 +31,9 @@ COPY --from=build --chown=0:0 /app/public/ /app/public/
 COPY --from=build --chown=0:0 /app/drizzle/ /app/drizzle/
 COPY --from=build --chown=0:0 /opt/fastgate-control/ /opt/fastgate-control/
 RUN chmod -R a-w /app \
+  && chown -R 1000:1000 /opt/fastgate-control \
   && chmod 0700 /opt/fastgate-control \
   && chmod 0600 /opt/fastgate-control/* \
   && chmod 0700 /opt/fastgate-control/application-start.mjs
-USER 0:0
+USER 1000:1000
 CMD ["node", "--conditions=react-server", "/opt/fastgate-control/application-start.mjs"]

@@ -15,7 +15,6 @@ x-fastgate-security: &fastgate-security
 services:
   application:
     <<: *fastgate-security
-    user: "0:0"
     build:
       context: ../..
       dockerfile: infra/fastgate/Dockerfile.application
@@ -49,6 +48,7 @@ services:
     volumes:
       - fastgate-public:/run/fastgate-public:ro
       - fastgate-database:/run/fastgate-database
+      - fastgate-application-bootstrap:/opt/fastgate-control
 
   http-proxy:
     <<: *fastgate-security
@@ -181,6 +181,9 @@ networks:
     internal: true
 
 volumes:
+  fastgate-application-bootstrap:
+    labels:
+      mtr.fastgate.scope: official
   fastgate-public:
     labels:
       mtr.fastgate.scope: official

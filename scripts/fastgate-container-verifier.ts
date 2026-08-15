@@ -62,6 +62,7 @@ function verifyArtifactPackage(aggregate: OfficialFastGateAggregate): string[] {
       || isolation.manifestReadableByApplication !== false
       || isolation.scoringReadableByApplication !== false
       || isolation.controlWrapperReadableByApplication !== false
+      || isolation.controlWrapperRemovedBeforeApplicationSpawn !== true
       || isolation.imageDigest !== aggregate.runs[0]?.applicationImageDigest) {
       errors.push("APPLICATION_IMAGE_ISOLATION_ATTESTATION_INVALID");
     }

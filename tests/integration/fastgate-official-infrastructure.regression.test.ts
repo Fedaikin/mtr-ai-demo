@@ -92,6 +92,8 @@ describe("official FastGate infrastructure contract", () => {
     expect(compose.slice(compose.indexOf("  connector-witness:"), compose.indexOf("  supervisor:")))
       .toContain("FASTGATE_FIXTURE_RUN_ID:");
     const applicationService = compose.slice(compose.indexOf("  application:"), compose.indexOf("  http-proxy:"));
+    expect(applicationService).not.toContain('user: "0:0"');
+    expect(applicationService).toContain("fastgate-application-bootstrap:/opt/fastgate-control");
     expect(applicationService).toContain("FASTGATE_APPLICATION_CONTROL_TOKEN:");
     expect(applicationService).not.toContain("FASTGATE_WITNESS_CONTROL_TOKEN:");
     expect(applicationService).not.toContain("FASTGATE_CONTROL_TOKEN:");
@@ -113,6 +115,10 @@ describe("official FastGate infrastructure contract", () => {
     expect(applicationStart).toContain("uid: 1000");
     expect(applicationStart).toContain("sanitizedApplicationEnvironment");
     expect(applicationStart).not.toContain('spawn("pnpm"');
+    expect(applicationStart).toContain("removeLoadedBootstrapEntrypoint");
+    expect(applicationStart).not.toContain("chownTree");
+    expect(applicationStart.indexOf("removeLoadedBootstrapEntrypoint();"))
+      .toBeLessThan(applicationStart.indexOf("const child = spawn("));
     const applicationDockerfile = readFileSync(join(root, "infra/fastgate/Dockerfile.application"), "utf8");
     expect(applicationDockerfile).toContain("/app/.next/standalone");
     expect(applicationDockerfile).toContain("/opt/fastgate-control/application-start.mjs");
@@ -123,6 +129,8 @@ describe("official FastGate infrastructure contract", () => {
     expect(applicationDockerfile).toContain(
       'CMD ["node", "--conditions=react-server", "/opt/fastgate-control/application-start.mjs"]',
     );
+    expect(applicationDockerfile).toContain("USER 1000:1000");
+    expect(applicationDockerfile).not.toContain("USER 0:0");
     expect(applicationDockerfile).not.toContain("COPY --from=build --chown=1000:1000 /app ./");
     const evaluator = readFileSync(join(root, "scripts/eval-agent-fastgate.ts"), "utf8");
     expect(evaluator).not.toContain('resolve("test-results/mtr-agent-fastgate/browser-failures")');
