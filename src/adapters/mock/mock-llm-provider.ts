@@ -4,6 +4,7 @@ import type {
   GroundedAgentOutput,
   GroundedCitation,
   IntegrationState,
+  MatchExplanation,
   Position,
   PositionAnalysisResult,
   ReportSummary,
@@ -52,6 +53,11 @@ interface AnalogueFact {
   position: Position;
   rules: AnalogueRule[];
   coverage?: AnalogueCoverage;
+}
+
+interface PositionCheckFact {
+  position: Position;
+  match: MatchExplanation;
 }
 
 interface SafeToolError {
@@ -150,6 +156,46 @@ export class MockLLMProvider implements LLMProvider {
               .join("; ")}${positions.length > 6 ? "; …" : "."}`,
       );
       facts.push(`Appius подтвердил ${positions.length} позиций в запрошенной версии.`);
+    }
+
+    for (const result of factsBySource<PositionCheckFact>(input.facts, "POSITION.check")) {
+      const { position, match } = result;
+      const material = match.material;
+      if (!material) {
+        sections.push(
+          `Позиция Appius ${position.internalCode} — ${position.nameRu}: требуется ${formatQuantity(position.requiredQuantity)} ${position.unit}. Подтверждённое совпадение в текущем снимке SAP S/4HANA не найдено.`,
+        );
+        facts.push(`По позиции ${position.internalCode} оценка совпадения: ${match.score}%.`);
+        recommendations.push("Передайте позицию на подбор аналога или закупку после экспертной проверки.");
+        requiresHumanReview = true;
+        confidence = Math.min(confidence, 0.2);
+        continue;
+      }
+
+      const shortage = Math.max(0, position.requiredQuantity - material.availableQuantity);
+      sections.push(
+        `Позиция Appius ${position.internalCode} — ${position.nameRu}: требуется ${formatQuantity(position.requiredQuantity)} ${position.unit}. ` +
+          `Лучшее подтверждённое совпадение SAP S/4HANA — ${material.materialCode} (${material.nameRu}), оценка совместимости ${match.score}%; ` +
+          `доступно ${formatQuantity(material.availableQuantity)} ${material.unit} на складе ${material.storageLocation}, снимок ${formatDate(material.snapshotAt)}.`,
+      );
+      facts.push(
+        shortage > 0
+          ? `Подтверждённый дефицит по выбранному совпадению: ${formatQuantity(shortage)} ${position.unit}.`
+          : `Подтверждённого дефицита по выбранному совпадению нет; запас после обеспечения: ${formatQuantity(material.availableQuantity - position.requiredQuantity)} ${position.unit}.`,
+      );
+      if (match.differences.length > 0) {
+        facts.push(`Выявленные отличия: ${match.differences.join("; ")}.`);
+      }
+      if (shortage > 0) {
+        recommendations.push("Проверьте допустимые аналоги и сформируйте предложение на покрытие дефицита.");
+        requiresHumanReview = true;
+        confidence = Math.min(confidence, 0.65);
+      }
+      if (match.requiresHumanReview || match.category === "REVIEW") {
+        recommendations.push("Совместимость требует подтверждения профильным специалистом до применения позиции.");
+        requiresHumanReview = true;
+        confidence = Math.min(confidence, 0.75);
+      }
     }
 
     for (const materials of factsBySource<SapMaterial[]>(input.facts, "SAP.material-stock")) {
@@ -385,8 +431,8 @@ export class MockLLMProvider implements LLMProvider {
         facts: [],
         recommendations: ["Например: «Какой остаток SAP-DEMO-0001?» или «Статус запуска run-demo-001»."],
         citations: [],
-        confidence: 1,
-        requiresHumanReview: false,
+        confidence: 0,
+        requiresHumanReview: true,
         toolCalls: [],
       };
     }

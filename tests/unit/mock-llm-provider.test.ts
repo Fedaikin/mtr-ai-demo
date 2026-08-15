@@ -10,6 +10,18 @@ import { findRawUserEnums, RAW_USER_ENUMS } from "@/lib/localization";
 const userId = "demo-user-001";
 
 describe("MockLLMProvider: пользовательская локализация", () => {
+  it("не выдаёт ложные 100% уверенности, когда предметные факты не собраны", async () => {
+    const output = await new MockLLMProvider().respond({
+      userId,
+      message: "проверь позицию UNKNOWN",
+      facts: [],
+    });
+
+    expect(output.answer).toContain("Уточните объект запроса");
+    expect(output.confidence).toBe(0);
+    expect(output.requiresHumanReview).toBe(true);
+  });
+
   it("не раскрывает raw enum и английские служебные слова в ответах о состоянии, запуске и позиции", async () => {
     const provider = new MockLLMProvider();
     const outputs = await Promise.all([
