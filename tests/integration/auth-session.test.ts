@@ -1,6 +1,6 @@
 vi.mock("server-only", () => ({}));
 
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { NextRequest } from "next/server";
 
 import { AppiusMockAdapter } from "@/adapters/mock/appius-adapter";
@@ -99,6 +99,37 @@ describe.sequential("persistent demo authentication", () => {
       process.env.DEMO_PASSWORD_HASH = await hashPassword("Next-test-only-password!");
       await expect(resolveDemoSession(created?.token)).resolves.toBeNull();
     } finally {
+      if (previousHash === undefined) delete process.env.DEMO_PASSWORD_HASH;
+      else process.env.DEMO_PASSWORD_HASH = previousHash;
+    }
+  });
+
+  it("honours an individual demo credential without rotating the shared demo password", async () => {
+    const database = await getDatabase();
+    const accountId = "demo-individual-auth-test";
+    const previousHash = process.env.DEMO_PASSWORD_HASH;
+    process.env.DEMO_PASSWORD_HASH = await hashPassword("Shared-test-password!");
+    await database.insert(users).values({
+      id: accountId,
+      userId: accountId,
+      login: "customer-auth-test",
+      passwordHash: await hashPassword("mtr2026"),
+      displayName: "Тестовый заказчик",
+      roles: ["USER"],
+      locale: "ru-RU",
+      isSyntheticDemo: true,
+      createdBy: DEMO_USER_ID,
+      status: "ACTIVE",
+      accountType: "HUMAN",
+      authSource: "DEMO_INDIVIDUAL",
+    });
+    try {
+      await expect(authenticateDemoCredentials("customer-auth-test", "Shared-test-password!")).resolves.toBeNull();
+      const created = await authenticateDemoCredentials("customer-auth-test", "mtr2026");
+      expect(created?.user.id).toBe(accountId);
+    } finally {
+      await database.delete(authSessions).where(eq(authSessions.userId, accountId));
+      await database.delete(users).where(eq(users.id, accountId));
       if (previousHash === undefined) delete process.env.DEMO_PASSWORD_HASH;
       else process.env.DEMO_PASSWORD_HASH = previousHash;
     }
