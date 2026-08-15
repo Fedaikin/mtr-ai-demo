@@ -31,11 +31,40 @@ export interface OfficialFastGateRunEvidence {
   readonly criticalBlockers: readonly string[];
 }
 
+export interface OfficialFastGateSecurityCheck {
+  readonly id: string;
+  readonly expectedStatuses: readonly number[];
+  readonly actualStatus: number | null;
+  readonly responseSha256: string;
+  readonly responseBytes: number;
+  readonly setCookiePresent: boolean;
+  readonly leak: boolean;
+  readonly passed: boolean;
+}
+
+export interface OfficialFastGateSecuritySummary {
+  readonly schemaVersion: "mtr-fastgate-security-gate-v2";
+  readonly requestedSessions: number;
+  readonly authenticatedSessions: number;
+  readonly uniqueAuthenticatedSessions: number;
+  readonly passedSessions: number;
+  readonly leaks: number;
+  readonly violations: number;
+  readonly rbacIsolationVerified: boolean;
+  readonly anonymousDenied: boolean;
+  readonly serviceAccountInteractiveDenied: boolean;
+  readonly crossProjectDenied: boolean;
+  readonly adminBoundaryVerified: boolean;
+  readonly activeSessionContinuityVerified: boolean;
+  readonly activeSessionEvidenceSha256: string;
+  readonly checks: readonly OfficialFastGateSecurityCheck[];
+}
+
 export interface OfficialFastGateAggregate {
   readonly schemaVersion: "mtr-agent-fastgate-official-aggregate-v1";
   readonly generatedAt: string;
   readonly runs: readonly OfficialFastGateRunEvidence[];
-  readonly security: Readonly<{ requestedSessions: number; passedSessions: number; leaks: number; violations: number }>;
+  readonly security: OfficialFastGateSecuritySummary;
   readonly load: Readonly<{
     requestedSessions: number;
     authenticatedSessions: number;
@@ -49,7 +78,7 @@ export interface OfficialFastGateAggregate {
     maxInFlightRequests: number;
     limitMs: number;
   }>;
-  readonly securityRuns: readonly Readonly<{ requestedSessions: number; passedSessions: number; leaks: number; violations: number }>[];
+  readonly securityRuns: readonly OfficialFastGateSecuritySummary[];
   readonly loadRuns: readonly Readonly<{
     requestedSessions: number;
     authenticatedSessions: number;
@@ -136,11 +165,11 @@ export function verifyOfficialFastGateAggregate(aggregate: OfficialFastGateAggre
   const minimumAcceptanceReadiness = scores[0] ?? 0;
   const medianAcceptanceReadiness = scores.length === 3 ? scores[1]! : 0;
   if (medianAcceptanceReadiness < 95) errors.push("MEDIAN_READINESS_BELOW_95");
-  if (aggregate.security.requestedSessions !== 10 || aggregate.security.passedSessions !== 10 || aggregate.security.leaks !== 0 || aggregate.security.violations !== 0) {
+  if (!securitySummaryValid(aggregate.security, false)) {
     errors.push("SECURITY_10_SESSION_GATE_FAILED");
   }
   aggregate.securityRuns.forEach((security, index) => {
-    if (security.requestedSessions !== 10 || security.passedSessions !== 10 || security.leaks !== 0 || security.violations !== 0) {
+    if (!securitySummaryValid(security, true)) {
       errors.push(`SECURITY_RUN_FAILED:${index + 1}`);
     }
   });
@@ -175,6 +204,23 @@ export function verifyOfficialFastGateAggregate(aggregate: OfficialFastGateAggre
     medianAcceptanceReadiness,
     errors: Object.freeze(errors),
   });
+}
+
+function securitySummaryValid(security: OfficialFastGateSecuritySummary, requireChecks: boolean): boolean {
+  const ids = new Set(security.checks.map((check) => check.id));
+  return security.schemaVersion === "mtr-fastgate-security-gate-v2"
+    && security.requestedSessions === 10 && security.passedSessions === 10
+    && security.authenticatedSessions === 10 && security.uniqueAuthenticatedSessions === 10
+    && security.leaks === 0 && security.violations === 0
+    && security.rbacIsolationVerified && security.anonymousDenied
+    && security.serviceAccountInteractiveDenied && security.crossProjectDenied
+    && security.adminBoundaryVerified
+    && security.activeSessionContinuityVerified
+    && /^[a-f0-9]{64}$/u.test(security.activeSessionEvidenceSha256)
+    && (!requireChecks || (security.checks.length === 10 && ids.size === 10
+      && security.checks.every((check) => check.passed && !check.leak
+        && /^[a-f0-9]{64}$/u.test(check.responseSha256)
+        && Number.isInteger(check.responseBytes) && check.responseBytes >= 0)));
 }
 
 function isSafeArtifactPath(path: string): boolean {

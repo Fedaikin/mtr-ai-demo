@@ -35,6 +35,8 @@ export interface IndependentReviewWitnessPayload {
   readonly schemaVersion: "mtr-fastgate-independent-review-witness-payload-v1";
   readonly inputCommitmentSha256: string;
   readonly codexExecutableSha256: string;
+  readonly codexExecutablePinSha256: string;
+  readonly codexExecutablePinSource: "EXTERNAL_USER_TRUST_STORE";
   readonly codexVersion: string;
   readonly commandArgvSha256: string;
   readonly startedAt: string;
@@ -109,6 +111,7 @@ export function verifyIndependentReviewWitnessEnvelope(
     inputCommitmentSha256: string;
     stdoutSha256: string;
     outputSha256: string;
+    codexExecutablePinSha256: string;
   }>,
 ): boolean {
   try {
@@ -125,6 +128,9 @@ export function verifyIndependentReviewWitnessEnvelope(
       || payload.inputCommitmentSha256 !== expected.inputCommitmentSha256
       || payload.stdoutSha256 !== expected.stdoutSha256
       || payload.outputSha256 !== expected.outputSha256
+      || payload.codexExecutableSha256 !== expected.codexExecutablePinSha256
+      || payload.codexExecutablePinSha256 !== expected.codexExecutablePinSha256
+      || payload.codexExecutablePinSource !== "EXTERNAL_USER_TRUST_STORE"
       || envelope.payloadSha256 !== sha256(canonicalJson(payload))) return false;
     const unsigned = {
       schemaVersion: envelope.schemaVersion,

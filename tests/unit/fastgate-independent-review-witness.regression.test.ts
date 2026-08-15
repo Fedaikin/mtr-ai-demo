@@ -22,6 +22,8 @@ describe("independent reviewer-origin witness", () => {
     const envelope = signer.sign({
       inputCommitmentSha256: "d".repeat(64),
       codexExecutableSha256: "e".repeat(64),
+      codexExecutablePinSha256: "e".repeat(64),
+      codexExecutablePinSource: "EXTERNAL_USER_TRUST_STORE",
       codexVersion: "codex-cli-test",
       commandArgvSha256: "f".repeat(64),
       startedAt: "2026-08-15T00:00:01.000Z",
@@ -42,6 +44,7 @@ describe("independent reviewer-origin witness", () => {
       inputCommitmentSha256: "d".repeat(64),
       stdoutSha256: hashLike(transcript),
       outputSha256: hashLike(parsed.outputText),
+      codexExecutablePinSha256: "e".repeat(64),
     })).toBe(true);
     expect(parsed.threadId).toBe("review-thread-1");
   });
@@ -56,6 +59,8 @@ describe("independent reviewer-origin witness", () => {
     const envelope = signer.sign({
       inputCommitmentSha256: "d".repeat(64),
       codexExecutableSha256: "e".repeat(64),
+      codexExecutablePinSha256: "e".repeat(64),
+      codexExecutablePinSource: "EXTERNAL_USER_TRUST_STORE",
       codexVersion: "codex-cli-test",
       commandArgvSha256: "f".repeat(64),
       startedAt: "2026-08-15T00:00:01.000Z",
@@ -76,6 +81,7 @@ describe("independent reviewer-origin witness", () => {
       inputCommitmentSha256: "d".repeat(64),
       stdoutSha256: "0".repeat(64),
       outputSha256: "3".repeat(64),
+      codexExecutablePinSha256: "e".repeat(64),
     })).toBe(false);
   });
 });

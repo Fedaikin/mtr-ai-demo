@@ -1,7 +1,8 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { canonicalJson } from "@/evals/fastgate/official/attestation";
@@ -18,6 +19,7 @@ const sourceTreeSha256 = requiredHash("FASTGATE_REVIEW_SOURCE_TREE_SHA256", 64);
 const reviewerNonce = requiredHash("FASTGATE_REVIEWER_NONCE", 64);
 const witnessScriptPath = fileURLToPath(import.meta.url);
 const witnessScriptSha256 = fileSha(witnessScriptPath);
+const codexExecutablePinSha256 = readPinnedCodexDigest();
 
 const inputArtifact = readJson<{
   reviewPrompt: string;
@@ -31,6 +33,10 @@ if (typeof inputArtifact.reviewPrompt !== "string" || !inputArtifact.reviewPromp
 }
 
 const codex = resolveCodex();
+const codexExecutableSha256 = fileSha(codex);
+if (codexExecutableSha256 !== codexExecutablePinSha256) {
+  throw new Error("BLOCKED_BY_ENVIRONMENT:INDEPENDENT_REVIEWER_DIGEST_MISMATCH");
+}
 const argv = [
   "exec", "--json", "--sandbox", "read-only", "--ephemeral", "--ignore-user-config",
   "--cd", process.cwd(), "--output-schema", schemaPath, "-",
@@ -58,7 +64,9 @@ const signer = createIndependentReviewWitnessSigner({
 });
 const envelope = signer.sign({
   inputCommitmentSha256: sha256(canonicalJson(inputArtifact)),
-  codexExecutableSha256: fileSha(codex),
+  codexExecutableSha256,
+  codexExecutablePinSha256,
+  codexExecutablePinSource: "EXTERNAL_USER_TRUST_STORE",
   codexVersion,
   commandArgvSha256: sha256(canonicalJson(argv)),
   startedAt,
@@ -88,6 +96,24 @@ function resolveCodex(): string {
   const value = result.stdout?.trim();
   if (result.status !== 0 || !value || !existsSync(value)) throw new Error("BLOCKED_BY_ENVIRONMENT:READ_ONLY_REVIEWER_UNAVAILABLE");
   return resolve(value);
+}
+
+function readPinnedCodexDigest(): string {
+  const repositoryPin = readFileSync(resolve("infra/fastgate/trust/official-codex-reviewer.sha256"), "utf8").trim();
+  const externalPath = resolve(
+    process.env.FASTGATE_REVIEWER_DIGEST_PIN_PATH?.trim()
+      || join(homedir(), ".config/mtr-fastgate/official-codex-reviewer.sha256"),
+  );
+  const repositoryPrefix = `${resolve(process.cwd())}${sep}`;
+  if (externalPath.startsWith(repositoryPrefix)) throw new Error("INDEPENDENT_REVIEWER_EXTERNAL_PIN_REQUIRED");
+  const metadata = statSync(externalPath);
+  if (!metadata.isFile() || (metadata.mode & 0o077) !== 0) throw new Error("INDEPENDENT_REVIEWER_EXTERNAL_PIN_PERMISSIONS_INVALID");
+  const externalPin = readFileSync(externalPath, "utf8").trim();
+  if (!/^[a-f0-9]{64}$/u.test(repositoryPin) || !/^[a-f0-9]{64}$/u.test(externalPin)) {
+    throw new Error("INDEPENDENT_REVIEWER_DIGEST_PIN_INVALID");
+  }
+  if (repositoryPin !== externalPin) throw new Error("BLOCKED_BY_ENVIRONMENT:INDEPENDENT_REVIEWER_TRUST_ANCHOR_MISMATCH");
+  return externalPin;
 }
 
 function capture(command: string, args: readonly string[]): string {

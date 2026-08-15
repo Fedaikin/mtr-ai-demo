@@ -50,6 +50,10 @@ describe("offline official FastGate verifier", () => {
       runs: value.runs.map((run, index) => index === 0 ? { ...run, assessmentConfidence: "MEDIUM" as const } : run),
     })],
     ["security gate missing", (value: ReturnType<typeof validAggregate>) => ({ ...value, security: { ...value.security, passedSessions: 9 } })],
+    ["RBAC isolation not proven", (value: ReturnType<typeof validAggregate>) => ({
+      ...value,
+      securityRuns: value.securityRuns.map((security, index) => index === 0 ? { ...security, rbacIsolationVerified: false } : security),
+    })],
     ["load gate missing", (value: ReturnType<typeof validAggregate>) => ({ ...value, load: { ...value.load, completedSessions: 49 } })],
     ["load sessions are not unique", (value: ReturnType<typeof validAggregate>) => ({
       ...value,
@@ -101,9 +105,9 @@ describe("offline official FastGate verifier", () => {
         { ...common, runId: "run-2", seed: "7".repeat(64), acceptanceReadinessScore: 96 },
         { ...common, runId: "run-3", seed: "8".repeat(64), acceptanceReadinessScore: 100 },
       ],
-      security: { requestedSessions: 10, passedSessions: 10, leaks: 0, violations: 0 },
+      security: securityGate(false),
       load: loadGate(),
-      securityRuns: Array.from({ length: 3 }, () => ({ requestedSessions: 10, passedSessions: 10, leaks: 0, violations: 0 })),
+      securityRuns: Array.from({ length: 3 }, () => securityGate(true)),
       loadRuns: Array.from({ length: 3 }, () => loadGate()),
       artifactFiles: [{ path: "run-1/run-evidence.json", bytes: 100, sha256: "a".repeat(64) }],
       independentReview: {
@@ -129,6 +133,35 @@ describe("offline official FastGate verifier", () => {
       queueWaitP95Ms: 3_500,
       maxInFlightRequests: 10,
       limitMs: 5_000,
+    };
+  }
+
+  function securityGate(withChecks: boolean) {
+    return {
+      schemaVersion: "mtr-fastgate-security-gate-v2" as const,
+      requestedSessions: 10,
+      authenticatedSessions: 10,
+      uniqueAuthenticatedSessions: 10,
+      passedSessions: 10,
+      leaks: 0,
+      violations: 0,
+      rbacIsolationVerified: true,
+      anonymousDenied: true,
+      serviceAccountInteractiveDenied: true,
+      crossProjectDenied: true,
+      adminBoundaryVerified: true,
+      activeSessionContinuityVerified: true,
+      activeSessionEvidenceSha256: "b".repeat(64),
+      checks: withChecks ? Array.from({ length: 10 }, (_, index) => ({
+        id: `SECURITY_${index + 1}`,
+        expectedStatuses: [200],
+        actualStatus: 200,
+        responseSha256: String(index).padStart(64, "a").slice(-64),
+        responseBytes: 10,
+        setCookiePresent: false,
+        leak: false,
+        passed: true,
+      })) : [],
     };
   }
 });

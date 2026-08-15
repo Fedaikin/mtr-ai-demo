@@ -328,6 +328,14 @@ async function main(): Promise<void> {
       || !sourceBindingVerified
       || !databaseMutationAttestation.valid
       || security.passedSessions !== 10
+      || security.authenticatedSessions !== 10
+      || security.uniqueAuthenticatedSessions !== 10
+      || !security.activeSessionContinuityVerified
+      || !security.rbacIsolationVerified
+      || !security.anonymousDenied
+      || !security.serviceAccountInteractiveDenied
+      || !security.crossProjectDenied
+      || !security.adminBoundaryVerified
       || load.authenticatedSessions !== LOAD_SESSION_COUNT
       || load.uniqueAuthenticatedSessions !== LOAD_SESSION_COUNT
       || load.completedSessions !== LOAD_SESSION_COUNT
@@ -417,28 +425,202 @@ function isDatabaseStateSnapshot(value: unknown): value is FastGateDatabaseState
 }
 
 async function runSecurityGate(): Promise<Readonly<{
+  schemaVersion: "mtr-fastgate-security-gate-v2";
   requestedSessions: number;
+  authenticatedSessions: number;
+  uniqueAuthenticatedSessions: number;
   passedSessions: number;
   leaks: number;
   violations: number;
+  rbacIsolationVerified: boolean;
+  anonymousDenied: boolean;
+  serviceAccountInteractiveDenied: boolean;
+  crossProjectDenied: boolean;
+  adminBoundaryVerified: boolean;
+  activeSessionContinuityVerified: boolean;
+  activeSessionEvidenceSha256: string;
+  checks: readonly SecurityCheckEvidence[];
 }>> {
-  const sessions = await Promise.all(Array.from({ length: 10 }, async (_, index) => {
+  const activeSessions = await Promise.all(Array.from({ length: 10 }, async (_, index) => {
     const login = ["demo", "viewer", "analyst"][index % 3]!;
-    const cookie = await loginSession(login);
-    const response = await fetch(`${applicationUrl}/api/agent/threads`, {
-      headers: { cookie },
-      cache: "no-store",
-    });
-    const text = await response.text();
-    const leak = /MtrLocalTestOnly|scrypt\$|authorization\s*[:=]|cookie\s*[:=]/iu.test(text);
-    return { passed: response.ok && !leak, leak };
+    return { login, cookie: await loginSession(login) };
   }));
+  const uniqueAuthenticatedSessions = new Set(activeSessions.map((session) => session.cookie)).size;
+  const activeSessionProbes = await Promise.all(activeSessions.map((session, index) => securityProbe(
+    `ACTIVE_SESSION_${index + 1}_${session.login.toUpperCase()}`,
+    "/api/agent/threads",
+    [200],
+    { cookie: session.cookie },
+  )));
+  const activeSessionContinuityVerified = uniqueAuthenticatedSessions === 10
+    && activeSessionProbes.every((probe) => probe.passed);
+  const activeSessionEvidenceSha256 = sha256Hex(JSON.stringify(activeSessionProbes.map(publicEvidence)));
+  const demoCookie = activeSessions.find((session) => session.login === "demo")!.cookie;
+  const viewerCookie = activeSessions.find((session) => session.login === "viewer")!.cookie;
+  const analystCookie = activeSessions.find((session) => session.login === "analyst")!.cookie;
+  const anonymous = await securityProbe("ANONYMOUS_THREADS_DENIED", "/api/agent/threads", [401]);
+  const demoThreads = await securityProbe("DEMO_THREADS_SCOPED", "/api/agent/threads", [200], { cookie: demoCookie });
+  const viewerThreads = await securityProbe("VIEWER_THREADS_SCOPED", "/api/agent/threads", [200], { cookie: viewerCookie });
+  const analystThreads = await securityProbe("ANALYST_THREADS_SCOPED", "/api/agent/threads", [200], { cookie: analystCookie });
+  const demoIds = threadIds(demoThreads.responseText);
+  const viewerIds = threadIds(viewerThreads.responseText);
+  const analystIds = threadIds(analystThreads.responseText);
+  const subjectsDisjoint = setsDisjoint(demoIds, viewerIds) && setsDisjoint(demoIds, analystIds) && setsDisjoint(viewerIds, analystIds);
+  const isolation: SecurityCheckEvidence = Object.freeze({
+    id: "CROSS_SUBJECT_THREAD_ISOLATION",
+    expectedStatuses: Object.freeze([]),
+    actualStatus: null,
+    responseSha256: sha256Hex(JSON.stringify([
+      [...demoIds].sort(), [...viewerIds].sort(), [...analystIds].sort(),
+    ])),
+    responseBytes: 0,
+    setCookiePresent: false,
+    leak: !subjectsDisjoint,
+    passed: subjectsDisjoint,
+  });
+  const viewerStocks = await securityProbe("VIEWER_STOCK_PERMISSION_DENIED", "/api/agent/commands/STOCKS", [403], {
+    cookie: viewerCookie,
+    method: "POST",
+    body: { context: { projectId: "demo-project-001" }, filters: { materialCode: "SAP-CATALOG-ELC-0001" } },
+    forbidden: /SAP-CATALOG-ELC-0001|warehouse|availableQuantity/iu,
+  });
+  const viewerAudit = await securityProbe("VIEWER_GLOBAL_AUDIT_DENIED", "/api/admin/audit", [403], {
+    cookie: viewerCookie,
+    forbidden: /AUTH_LOGIN|AGENT_CAPABILITY|correlationId/iu,
+  });
+  const analystAudit = await securityProbe("ANALYST_GLOBAL_AUDIT_DENIED", "/api/admin/audit", [403], {
+    cookie: analystCookie,
+    forbidden: /AUTH_LOGIN|AGENT_CAPABILITY|correlationId/iu,
+  });
+  const foreignProject = await securityProbe("FOREIGN_PROJECT_SELECTION_DENIED", "/api/agent/commands/SUMMARY", [403, 404, 409], {
+    cookie: viewerCookie,
+    method: "POST",
+    body: { context: { projectId: "forbidden-project-001" } },
+    forbidden: /forbidden-project-001|specificationId|positionId|runId/iu,
+  });
+  const serviceLogin = await securityProbe("SERVICE_ACCOUNT_INTERACTIVE_LOGIN_DENIED", "/api/auth/login", [401, 403], {
+    method: "POST",
+    body: { login: "integration-service", password: LOCAL_PASSWORD },
+    requireNoCookie: true,
+  });
+  const checks = Object.freeze([
+    publicEvidence(anonymous), publicEvidence(demoThreads), publicEvidence(viewerThreads), publicEvidence(analystThreads), isolation,
+    publicEvidence(viewerStocks), publicEvidence(viewerAudit), publicEvidence(analystAudit), publicEvidence(foreignProject), publicEvidence(serviceLogin),
+  ]);
+  const rbacIsolationVerified = subjectsDisjoint && viewerStocks.passed && viewerAudit.passed && analystAudit.passed;
   return {
+    schemaVersion: "mtr-fastgate-security-gate-v2",
     requestedSessions: 10,
-    passedSessions: sessions.filter((item) => item.passed).length,
-    leaks: sessions.filter((item) => item.leak).length,
-    violations: sessions.filter((item) => !item.passed && !item.leak).length,
+    authenticatedSessions: activeSessions.length,
+    uniqueAuthenticatedSessions,
+    passedSessions: checks.filter((item) => item.passed).length,
+    leaks: checks.filter((item) => item.leak).length,
+    violations: checks.filter((item) => !item.passed && !item.leak).length,
+    rbacIsolationVerified,
+    anonymousDenied: anonymous.passed,
+    serviceAccountInteractiveDenied: serviceLogin.passed,
+    crossProjectDenied: foreignProject.passed,
+    adminBoundaryVerified: viewerAudit.passed && analystAudit.passed,
+    activeSessionContinuityVerified,
+    activeSessionEvidenceSha256,
+    checks,
   };
+}
+
+interface SecurityCheckEvidence {
+  readonly id: string;
+  readonly expectedStatuses: readonly number[];
+  readonly actualStatus: number | null;
+  readonly responseSha256: string;
+  readonly responseBytes: number;
+  readonly setCookiePresent: boolean;
+  readonly leak: boolean;
+  readonly passed: boolean;
+}
+
+interface SecurityProbeResult extends SecurityCheckEvidence {
+  readonly responseText: string;
+}
+
+async function securityProbe(
+  id: string,
+  path: string,
+  expectedStatuses: readonly number[],
+  options: Readonly<{
+    cookie?: string;
+    method?: "GET" | "POST";
+    body?: unknown;
+    forbidden?: RegExp;
+    requireNoCookie?: boolean;
+  }> = {},
+): Promise<SecurityProbeResult> {
+  try {
+    const headers: Record<string, string> = { origin: applicationUrl };
+    if (options.cookie) headers.cookie = options.cookie;
+    if (options.body !== undefined) headers["content-type"] = "application/json";
+    const response = await fetch(`${applicationUrl}${path}`, {
+      method: options.method ?? "GET",
+      headers,
+      ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
+      cache: "no-store",
+      redirect: "manual",
+    });
+    const responseText = await response.text();
+    const setCookiePresent = response.headers.getSetCookie().length > 0;
+    const sensitive = /MtrLocalTestOnly|scrypt\$|BEGIN[^\n]{0,40}PRIVATE KEY|bearer\s+[A-Za-z0-9._~-]+|session[_-]?token|password(?:Hash)?["'\s:=]|authorizationVersion|permissionKeys|activeRoleAssignmentIds/iu;
+    const leak = sensitive.test(responseText) || Boolean(options.forbidden?.test(responseText));
+    const passed = expectedStatuses.includes(response.status) && !leak && (!options.requireNoCookie || !setCookiePresent);
+    return Object.freeze({
+      id,
+      expectedStatuses: Object.freeze([...expectedStatuses]),
+      actualStatus: response.status,
+      responseSha256: sha256Hex(responseText),
+      responseBytes: Buffer.byteLength(responseText),
+      setCookiePresent,
+      leak,
+      passed,
+      responseText,
+    });
+  } catch {
+    return Object.freeze({
+      id,
+      expectedStatuses: Object.freeze([...expectedStatuses]),
+      actualStatus: null,
+      responseSha256: sha256Hex("REQUEST_FAILED"),
+      responseBytes: 0,
+      setCookiePresent: false,
+      leak: false,
+      passed: false,
+      responseText: "",
+    });
+  }
+}
+
+function publicEvidence(result: SecurityProbeResult): SecurityCheckEvidence {
+  return Object.freeze({
+    id: result.id,
+    expectedStatuses: result.expectedStatuses,
+    actualStatus: result.actualStatus,
+    responseSha256: result.responseSha256,
+    responseBytes: result.responseBytes,
+    setCookiePresent: result.setCookiePresent,
+    leak: result.leak,
+    passed: result.passed,
+  });
+}
+
+function threadIds(serialized: string): ReadonlySet<string> {
+  try {
+    const value = JSON.parse(serialized) as { items?: Array<{ id?: unknown }> };
+    if (!Array.isArray(value.items)) return new Set();
+    return new Set(value.items.flatMap((item) => typeof item.id === "string" ? [item.id] : []));
+  } catch {
+    return new Set();
+  }
+}
+
+function setsDisjoint(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+  return [...left].every((id) => !right.has(id));
 }
 
 async function runLoadGate(): Promise<Readonly<{

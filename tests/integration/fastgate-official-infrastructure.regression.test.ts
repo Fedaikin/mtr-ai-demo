@@ -205,6 +205,7 @@ describe("official FastGate infrastructure contract", () => {
     const verifier = readFileSync(join(root, "scripts/fastgate-container-verifier.ts"), "utf8");
     const verifierDockerfile = readFileSync(join(root, "infra/fastgate/Dockerfile.verifier"), "utf8");
     const publicTrustAnchor = readFileSync(join(root, "infra/fastgate/trust/official-host-root.pem"), "utf8");
+    const reviewerDigestPin = readFileSync(join(root, "infra/fastgate/trust/official-codex-reviewer.sha256"), "utf8").trim();
     expect(runner).toContain("const REQUIRED_RUNS = 3");
     expect(runner).toContain("ordinal <= REQUIRED_RUNS");
     expect(runner).toContain("const runStamp = stamp.toLowerCase()");
@@ -220,6 +221,8 @@ describe("official FastGate infrastructure contract", () => {
     expect(runner).toContain("host-root-certificate.json");
     expect(runner).toContain("host-attestation.json");
     expect(runner).toContain("runtime-container-attestation.json");
+    expect(runner).toContain("attestRuntimeContainer");
+    expect(runner).toContain("network\", \"inspect");
     expect(runner).toContain("application-image-isolation-attestation.json");
     expect(runner).toContain("attestApplicationImageIsolation");
     expect(runner).toContain("independent-review-input.json");
@@ -239,6 +242,12 @@ describe("official FastGate infrastructure contract", () => {
     expect(verifier).toContain("INDEPENDENT_REVIEW_INPUT_COMMITMENT_INVALID");
     expect(verifierDockerfile).toContain("infra/fastgate/trust/official-host-root.pem");
     expect(() => createPublicKey(publicTrustAnchor)).not.toThrow();
+    expect(reviewerDigestPin).toMatch(/^[a-f0-9]{64}$/u);
+    const reviewerWitness = readFileSync(join(root, "scripts/fastgate-independent-review-witness.ts"), "utf8");
+    expect(reviewerWitness).toContain("INDEPENDENT_REVIEWER_DIGEST_MISMATCH");
+    expect(reviewerWitness).toContain("codexExecutablePinSha256");
+    expect(reviewerWitness).toContain("INDEPENDENT_REVIEWER_EXTERNAL_PIN_REQUIRED");
+    expect(reviewerWitness).toContain("EXTERNAL_USER_TRUST_STORE");
     expect(runner).not.toMatch(/system\s+prune|volume\s+prune|docker\.sock/iu);
   });
 
@@ -275,5 +284,11 @@ describe("official FastGate infrastructure contract", () => {
       .toBeLessThan(supervisor.indexOf("const workloadStartedAt"));
     expect(supervisor).toContain("limitMs: 5_000");
     expect(supervisor).not.toContain("limitMs: 7_000");
+    expect(supervisor).toContain("CROSS_SUBJECT_THREAD_ISOLATION");
+    expect(supervisor).toContain("SERVICE_ACCOUNT_INTERACTIVE_LOGIN_DENIED");
+    expect(supervisor).toContain("FOREIGN_PROJECT_SELECTION_DENIED");
+    expect(supervisor).toContain("VIEWER_STOCK_PERMISSION_DENIED");
+    expect(supervisor).toContain("activeSessionContinuityVerified");
+    expect(supervisor).toContain("uniqueAuthenticatedSessions === 10");
   });
 });

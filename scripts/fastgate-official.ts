@@ -30,16 +30,40 @@ import {
   verifyIndependentReviewWitnessEnvelope,
   type IndependentReviewWitnessEnvelope,
 } from "@/evals/fastgate/official/reviewer-witness";
+import {
+  attestRuntimeContainer,
+  type FastGateRuntimeService,
+} from "@/evals/fastgate/official/runtime-container-attestation";
 
 const COMPOSE_FILE = "infra/fastgate/compose.yml";
 const REQUIRED_RUNS = 3;
 const COMMAND_TIMEOUT_MS = 30 * 60_000;
 
 interface GateSecurity {
+  readonly schemaVersion: "mtr-fastgate-security-gate-v2";
   readonly requestedSessions: number;
+  readonly authenticatedSessions: number;
+  readonly uniqueAuthenticatedSessions: number;
   readonly passedSessions: number;
   readonly leaks: number;
   readonly violations: number;
+  readonly rbacIsolationVerified: boolean;
+  readonly anonymousDenied: boolean;
+  readonly serviceAccountInteractiveDenied: boolean;
+  readonly crossProjectDenied: boolean;
+  readonly adminBoundaryVerified: boolean;
+  readonly activeSessionContinuityVerified: boolean;
+  readonly activeSessionEvidenceSha256: string;
+  readonly checks: readonly Readonly<{
+    id: string;
+    expectedStatuses: readonly number[];
+    actualStatus: number | null;
+    responseSha256: string;
+    responseBytes: number;
+    setCookiePresent: boolean;
+    leak: boolean;
+    passed: boolean;
+  }>[];
 }
 
 interface GateLoad {
@@ -77,6 +101,8 @@ interface IndependentReviewRecord {
   readonly reviewerWitnessScriptSha256: string;
   readonly reviewerTranscriptSha256: string;
   readonly reviewerExecutableSha256: string;
+  readonly reviewerExecutablePinSha256: string;
+  readonly reviewerExecutablePinSource: "EXTERNAL_USER_TRUST_STORE";
   readonly readOnlyAttested: boolean;
   readonly exitStatus: number;
   readonly outputSha256: string;
@@ -346,17 +372,39 @@ function captureRuntimeContainerAttestation(projectName: string, expected: Image
     supervisor: expected.supervisor,
   } as const;
   const observed: Record<string, string> = {};
+  const isolatedServices: Record<string, unknown> = {};
   for (const [service, digest] of Object.entries(services)) {
     const containerId = capture("docker", composeArgs(projectName, "ps", "-aq", service), environment);
     if (!containerId) throw new Error(`RUNTIME_CONTAINER_NOT_FOUND:${projectName}:${service}`);
-    const actual = capture("docker", ["inspect", containerId, "--format", "{{.Image}}"], environment);
-    if (actual !== digest) throw new Error(`RUNTIME_IMAGE_DIGEST_MISMATCH:${service}`);
-    observed[service] = actual;
+    const inspectRows = JSON.parse(capture("docker", ["inspect", containerId], environment)) as unknown[];
+    const inspect = inspectRows[0];
+    if (!inspect || typeof inspect !== "object") throw new Error(`RUNTIME_CONTAINER_INSPECT_MISSING:${service}`);
+    const networkIds = Object.values(
+      ((inspect as { NetworkSettings?: { Networks?: Record<string, { NetworkID?: string }> } }).NetworkSettings?.Networks ?? {}),
+    ).map((network) => network.NetworkID).filter((id): id is string => Boolean(id));
+    const internalNetworkIds = new Set<string>();
+    for (const networkId of networkIds) {
+      const rows = JSON.parse(capture("docker", ["network", "inspect", networkId], environment)) as Array<{ Internal?: boolean }>;
+      if (rows[0]?.Internal === true) internalNetworkIds.add(networkId);
+    }
+    const attestation = attestRuntimeContainer({
+      service: service as FastGateRuntimeService,
+      expectedImageDigest: digest,
+      inspect,
+      internalNetworkIds,
+    });
+    observed[service] = attestation.imageDigest;
+    isolatedServices[service] = attestation;
   }
   return Object.freeze({
-    schemaVersion: "mtr-fastgate-runtime-container-attestation-v1",
+    schemaVersion: "mtr-fastgate-runtime-container-attestation-v2",
     projectName,
     observed,
+    services: Object.freeze(isolatedServices),
+    networkPolicySha256: fileSha(resolve("infra/fastgate/network-policy.json")),
+    mountIsolationVerified: true,
+    networkIsolationVerified: true,
+    privilegeIsolationVerified: true,
     verified: true,
   });
 }
@@ -501,7 +549,7 @@ function assertRunGate(evidence: OfficialFastGateRunEvidence, security: GateSecu
     || evidence.appliedCaps.length || evidence.criticalBlockers.length || booleanEvidence.some((value) => !value)) {
     throw new Error(`OFFICIAL_RUN_GATE_FAILED:${evidence.runId}`);
   }
-  if (security.requestedSessions !== 10 || security.passedSessions !== 10 || security.leaks !== 0 || security.violations !== 0) {
+  if (!securityGateValid(security)) {
     throw new Error(`SECURITY_GATE_FAILED:${evidence.runId}`);
   }
   if (load.requestedSessions !== 50 || load.authenticatedSessions !== 50 || load.uniqueAuthenticatedSessions !== 50
@@ -519,6 +567,13 @@ function runIndependentReview(input: Readonly<{
   sourceTreeSha256: string;
   hostAttestor: HostAttestor;
 }>): IndependentReviewRecord {
+  const reviewerExecutablePinSha256 = readFileSync(
+    resolve("infra/fastgate/trust/official-codex-reviewer.sha256"),
+    "utf8",
+  ).trim();
+  if (!/^[a-f0-9]{64}$/u.test(reviewerExecutablePinSha256)) {
+    throw new Error("INDEPENDENT_REVIEWER_DIGEST_PIN_INVALID");
+  }
   const schemaPath = join(input.artifactDir, "independent-review-output-schema.json");
   const outputPath = join(input.artifactDir, "independent-review-raw.json");
   const schema = {
@@ -567,6 +622,7 @@ function runIndependentReview(input: Readonly<{
     `Image digests SHA-256: ${imageDigestsSha256}`,
     `Run artifact directory: ${input.artifactDir}`,
     `Run artifact commitment SHA-256: ${runArtifactCommitmentSha256}`,
+    `Pinned reviewer executable SHA-256: ${reviewerExecutablePinSha256} (external user trust store)`,
     "Review git diff base..final and FastGate infrastructure for P0-P3 defects only.",
     "Explicitly inspect trust boundaries, private-key exposure, self-attestation, transcript forgery, oracle leakage, network/filesystem isolation, Docker socket/host mounts, RBAC leakage, FG-12 side effects, scoring manipulation, SHA/image mismatch, cleanup scope, secrets/PII artifacts, and false HIGH/PASS.",
     "Return only the requested JSON. PASS requires P0=P1=P2=0.",
@@ -579,6 +635,8 @@ function runIndependentReview(input: Readonly<{
     sourceTreeSha256: input.sourceTreeSha256,
     imageDigests: input.imageDigests,
     runArtifactCommitmentSha256,
+    reviewerExecutablePinSha256,
+    reviewerExecutablePinSource: "EXTERNAL_USER_TRUST_STORE" as const,
     reviewPrompt: reviewInput,
     reviewerNonceSha256: sha256(reviewerNonce),
   });
@@ -616,6 +674,7 @@ function runIndependentReview(input: Readonly<{
     inputCommitmentSha256,
     stdoutSha256: sha256(transcriptBytes),
     outputSha256: sha256(outputBytes),
+    codexExecutablePinSha256: reviewerExecutablePinSha256,
   });
   if (!witnessValid || witness.payload.exitStatus !== 0) throw new Error("INDEPENDENT_REVIEW_WITNESS_INVALID");
   const parsed = readJson<{ findings: IndependentReviewRecord["findings"]; verdict: "PASS" | "FAIL"; summary: string }>(outputPath);
@@ -637,6 +696,8 @@ function runIndependentReview(input: Readonly<{
     reviewerWitnessScriptSha256,
     reviewerTranscriptSha256: witness.payload.stdoutSha256,
     reviewerExecutableSha256: witness.payload.codexExecutableSha256,
+    reviewerExecutablePinSha256,
+    reviewerExecutablePinSource: witness.payload.codexExecutablePinSource,
     readOnlyAttested: true,
     exitStatus: witness.payload.exitStatus,
     outputSha256: sha256(outputBytes),
@@ -721,11 +782,46 @@ function listFiles(root: string): string[] {
 
 function aggregateSecurity(runs: readonly GateSecurity[]): GateSecurity {
   return {
+    schemaVersion: "mtr-fastgate-security-gate-v2",
     requestedSessions: Math.min(...runs.map((run) => run.requestedSessions)),
+    authenticatedSessions: Math.min(...runs.map((run) => run.authenticatedSessions)),
+    uniqueAuthenticatedSessions: Math.min(...runs.map((run) => run.uniqueAuthenticatedSessions)),
     passedSessions: Math.min(...runs.map((run) => run.passedSessions)),
     leaks: runs.reduce((sum, run) => sum + run.leaks, 0),
     violations: runs.reduce((sum, run) => sum + run.violations, 0),
+    rbacIsolationVerified: runs.every((run) => run.rbacIsolationVerified),
+    anonymousDenied: runs.every((run) => run.anonymousDenied),
+    serviceAccountInteractiveDenied: runs.every((run) => run.serviceAccountInteractiveDenied),
+    crossProjectDenied: runs.every((run) => run.crossProjectDenied),
+    adminBoundaryVerified: runs.every((run) => run.adminBoundaryVerified),
+    activeSessionContinuityVerified: runs.every((run) => run.activeSessionContinuityVerified),
+    activeSessionEvidenceSha256: sha256(canonicalJson(runs.map((run) => run.activeSessionEvidenceSha256))),
+    checks: Object.freeze([]),
   };
+}
+
+function securityGateValid(security: GateSecurity): boolean {
+  const ids = new Set(security.checks.map((check) => check.id));
+  return security.schemaVersion === "mtr-fastgate-security-gate-v2"
+    && security.requestedSessions === 10
+    && security.authenticatedSessions === 10
+    && security.uniqueAuthenticatedSessions === 10
+    && security.passedSessions === 10
+    && security.leaks === 0
+    && security.violations === 0
+    && security.rbacIsolationVerified
+    && security.anonymousDenied
+    && security.serviceAccountInteractiveDenied
+    && security.crossProjectDenied
+    && security.adminBoundaryVerified
+    && security.activeSessionContinuityVerified
+    && /^[a-f0-9]{64}$/u.test(security.activeSessionEvidenceSha256)
+    && security.checks.length === 10
+    && ids.size === 10
+    && security.checks.every((check) => check.passed && !check.leak
+      && /^[a-f0-9]{64}$/u.test(check.responseSha256)
+      && Number.isInteger(check.responseBytes) && check.responseBytes >= 0
+      && Array.isArray(check.expectedStatuses));
 }
 
 function aggregateLoad(runs: readonly GateLoad[]): GateLoad {
@@ -751,7 +847,7 @@ function buildReport(aggregate: OfficialFastGateAggregate, imageDigests: ImageDi
     `- Cases: ${aggregate.runs.every((run) => run.passedCaseCount === 12) ? "12/12 PASS in every run" : "FAIL"}\n` +
     `- Acceptance readiness min/median/max: ${scores[0]}/${scores[1]}/${scores[2]}\n` +
     `- Confidence: ${aggregate.runs.every((run) => run.assessmentConfidence === "HIGH") ? "HIGH" : "FAIL"}\n` +
-    `- Security: ${aggregate.security.passedSessions}/10, leaks ${aggregate.security.leaks}\n` +
+    `- Security: ${aggregate.security.passedSessions}/10 distinct RBAC probes, ${aggregate.security.uniqueAuthenticatedSessions}/10 simultaneous sessions, leaks ${aggregate.security.leaks}\n` +
     `- Load: ${aggregate.load.completedSessions}/50 over ${aggregate.load.uniqueAuthenticatedSessions} unique active sessions, errors ${aggregate.load.errors}, p95 ${aggregate.load.p95Ms} ms, max in-flight ${aggregate.load.maxInFlightRequests}\n` +
     `- Independent review: ${aggregate.independentReview.valid ? "PASS" : "FAIL"}\n` +
     `- Images: ${sha256(JSON.stringify(imageDigests))}\n` +

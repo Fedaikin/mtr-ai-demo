@@ -25,10 +25,15 @@ import {
   verifyIndependentReviewWitnessEnvelope,
   type IndependentReviewWitnessEnvelope,
 } from "@/evals/fastgate/official/reviewer-witness";
+import {
+  FASTGATE_RUNTIME_SERVICE_POLICY,
+  type FastGateRuntimeService,
+} from "@/evals/fastgate/official/runtime-container-attestation";
 
 const artifactDir = resolve(requiredEnv("FASTGATE_ARTIFACT_DIR"));
 const pinnedHostRootPath = resolve("infra/fastgate/trust/official-host-root.pem");
 const reviewerWitnessScriptPath = resolve("scripts/fastgate-independent-review-witness.ts");
+const reviewerExecutablePinSha256 = readFileSync(resolve("infra/fastgate/trust/official-codex-reviewer.sha256"), "utf8").trim();
 const aggregatePath = join(artifactDir, "aggregate.json");
 if (!existsSync(aggregatePath)) {
   process.stderr.write("FASTGATE OFFLINE VERIFIER: AGGREGATE_NOT_FOUND\n");
@@ -232,6 +237,7 @@ function verifyArtifactPackage(aggregate: OfficialFastGateAggregate): string[] {
         inputCommitmentSha256,
         stdoutSha256: reviewerTranscriptSha256,
         outputSha256: reviewOutputSha256,
+        codexExecutablePinSha256: reviewerExecutablePinSha256,
       });
       const reviewValid = review.schemaVersion === "fastgate-independent-review-v1"
         && review.baseSha === reviewInput.baseSha && review.baseSha === build.baseSha
@@ -254,6 +260,13 @@ function verifyArtifactPackage(aggregate: OfficialFastGateAggregate): string[] {
         && review.reviewerWitnessScriptSha256 === reviewerWitnessScriptSha256
         && review.reviewerTranscriptSha256 === reviewerTranscriptSha256
         && review.reviewerExecutableSha256 === reviewWitness.payload.codexExecutableSha256
+        && review.reviewerExecutablePinSha256 === reviewerExecutablePinSha256
+        && review.reviewerExecutablePinSource === "EXTERNAL_USER_TRUST_STORE"
+        && reviewInput.reviewerExecutablePinSha256 === reviewerExecutablePinSha256
+        && reviewInput.reviewerExecutablePinSource === "EXTERNAL_USER_TRUST_STORE"
+        && reviewWitness.payload.codexExecutableSha256 === reviewerExecutablePinSha256
+        && reviewWitness.payload.codexExecutablePinSha256 === reviewerExecutablePinSha256
+        && reviewWitness.payload.codexExecutablePinSource === "EXTERNAL_USER_TRUST_STORE"
         && reviewerWitnessValid
         && review.readOnlyAttested === true && review.exitStatus === 0 && review.verdict === "PASS"
         && Number((review.findings as Record<string, unknown> | undefined)?.P0 ?? 1) === 0
@@ -309,7 +322,16 @@ function verifyHostRunAttestation(prefix: string, run: OfficialFastGateAggregate
     };
     signatureBase64: string;
   }>(join(artifactDir, prefix, "host-attestation.json"));
-  const runtime = readJson<{ verified?: boolean; observed?: Record<string, string> }>(join(artifactDir, prefix, "runtime-container-attestation.json"));
+  const runtime = readJson<{
+    schemaVersion?: string;
+    verified?: boolean;
+    observed?: Record<string, string>;
+    services?: Record<string, unknown>;
+    networkPolicySha256?: string;
+    mountIsolationVerified?: boolean;
+    networkIsolationVerified?: boolean;
+    privilegeIsolationVerified?: boolean;
+  }>(join(artifactDir, prefix, "runtime-container-attestation.json"));
   const expectedImages = {
     application: run.applicationImageDigest,
     witness: run.witnessImageDigest,
@@ -335,16 +357,54 @@ function verifyHostRunAttestation(prefix: string, run: OfficialFastGateAggregate
   const signatureValid = verifyBytes(null, Buffer.from(canonicalJson(payload)), pinnedPublicKeyPem, Buffer.from(envelope.signatureBase64, "base64"));
   const imagesMatch = canonicalJson(payload.imageDigests) === canonicalJson(expectedImages)
     && runtime.verified === true
+    && runtime.schemaVersion === "mtr-fastgate-runtime-container-attestation-v2"
+    && runtime.mountIsolationVerified === true
+    && runtime.networkIsolationVerified === true
+    && runtime.privilegeIsolationVerified === true
+    && runtime.networkPolicySha256 === fileSha(resolve("infra/fastgate/network-policy.json"))
     && runtime.observed?.application === run.applicationImageDigest
     && runtime.observed?.["connector-witness"] === run.witnessImageDigest
     && runtime.observed?.["http-proxy"] === run.proxyImageDigest
-    && runtime.observed?.supervisor === run.supervisorImageDigest;
+    && runtime.observed?.supervisor === run.supervisorImageDigest
+    && runtimeServiceValid("application", runtime.services?.application, run.applicationImageDigest)
+    && runtimeServiceValid("connector-witness", runtime.services?.["connector-witness"], run.witnessImageDigest)
+    && runtimeServiceValid("http-proxy", runtime.services?.["http-proxy"], run.proxyImageDigest)
+    && runtimeServiceValid("supervisor", runtime.services?.supervisor, run.supervisorImageDigest);
   if (!valid || envelope.schemaVersion !== "mtr-fastgate-host-run-attestation-envelope-v1"
     || payload.schemaVersion !== "mtr-fastgate-host-run-attestation-v1" || payload.runId !== run.runId
     || payload.deploymentSha !== run.deploymentSha || payload.sourceTreeSha256 !== run.sourceTreeSha256
     || payload.rootKeyId !== root.keyId || !hashesMatch || !targetStateHashMatches || !signatureValid || !imagesMatch) {
     errors.push(`HOST_RUNTIME_ATTESTATION_INVALID:${run.runId}`);
   }
+}
+
+function runtimeServiceValid(service: FastGateRuntimeService, value: unknown, imageDigest: string): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const item = value as Record<string, unknown>;
+  const requiredTrue = [
+    "readonlyRootfs", "capDropAll", "noNewPrivileges", "hostNamespacesAbsent", "hostPortBindingsAbsent",
+    "dockerSocketAbsent", "bindMountsAbsent", "extraDevicesAbsent", "initEnabled", "restartDisabled",
+    "tmpfsRestricted", "verified",
+  ];
+  if (item.service !== service || item.imageDigest !== imageDigest || item.user !== "1000:1000"
+    || item.privileged !== false || requiredTrue.some((key) => item[key] !== true)) return false;
+  const policy = FASTGATE_RUNTIME_SERVICE_POLICY[service];
+  const expectedMounts = Object.entries(policy.mounts)
+    .map(([destination, readWrite]) => ({ destination, readWrite, type: "volume" }))
+    .sort((left, right) => left.destination.localeCompare(right.destination));
+  const mounts = Array.isArray(item.mounts) ? item.mounts : [];
+  const normalizedMounts = mounts.map((mount) => {
+    const row = mount && typeof mount === "object" && !Array.isArray(mount) ? mount as Record<string, unknown> : {};
+    return { destination: row.destination, readWrite: row.readWrite, type: row.type };
+  }).sort((left, right) => String(left.destination).localeCompare(String(right.destination)));
+  const expectedNetworks = [...policy.networks].sort().map((logicalName) => ({ logicalName, internal: true }));
+  const networks = Array.isArray(item.networks) ? item.networks : [];
+  const normalizedNetworks = networks.map((network) => {
+    const row = network && typeof network === "object" && !Array.isArray(network) ? network as Record<string, unknown> : {};
+    return { logicalName: row.logicalName, internal: row.internal };
+  }).sort((left, right) => String(left.logicalName).localeCompare(String(right.logicalName)));
+  return canonicalJson(normalizedMounts) === canonicalJson(expectedMounts)
+    && canonicalJson(normalizedNetworks) === canonicalJson(expectedNetworks);
 }
 
 function readJson<T>(path: string): T { return JSON.parse(readFileSync(path, "utf8")) as T; }
