@@ -5,6 +5,7 @@ import { getRepository } from "@/adapters/persistence/repository";
 import { getReport } from "@/application/report-service";
 import { AgentOrchestratorWorkspace } from "@/components/agent-orchestrator-workspace";
 import { AnalysisReviewQueue } from "@/components/analysis-review-queue";
+import { MtrAnalysisActions } from "@/components/mtr-analysis-actions";
 import { PageHeader } from "@/components/page-header";
 import { effectiveResponsibilityDecisionState } from "@/domain/responsibility";
 import { formatDateTime, formatNumber } from "@/lib/format";
@@ -83,6 +84,20 @@ export default async function MtrAnalysisPage() {
     );
   }
 
+  if (await repository.isAnalysisViewCleared(user.id, projectId!, latest.id)) {
+    return (
+      <>
+        <PageHeader
+          eyebrow="Подтверждённые результаты"
+          title="МТР-анализ"
+          description="Последний завершённый анализ был очищен с рабочего экрана. Исходные результаты сохранены в истории запусков и аудите."
+        />
+        {workspace}
+        <ClearedState />
+      </>
+    );
+  }
+
   const { report } = await getReport(user.id, latest.id);
   const records = await repository.listAnalysisResultsInProject(user.id, projectId!, latest.id);
   const reviews = authorization.permissionKeys.has("review.queue.read")
@@ -122,11 +137,10 @@ export default async function MtrAnalysisPage() {
         description={`Последний завершённый отчёт от ${formatDateTime(report.generatedAt)}. Решение определяется применимым нормативным правилом, а не требованием 100% уверенности.`}
       />
       {workspace}
-      <nav aria-label="Подразделы МТР-анализа" className="mb-5 grid gap-3 md:grid-cols-3">
-        <SectionLink href="#responsibility" number="01" title="Ответственность по позициям" description="Решение, уверенность и нормативное основание" />
-        <SectionLink href="#doublechecker" number="02" title="Даблчекер МТР" description="Независимая проверка и решение эксперта" />
-        <SectionLink href="#full-report" number="03" title="Полный отчет" description="Все результаты, источники и выгрузка" />
-      </nav>
+      <MtrAnalysisActions
+        runId={latest.id}
+        canClear={authorization.permissionKeys.has("analysis.create")}
+      />
       <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Metric label="Заказчик" value={`${customerRows.length} поз.`} detail={requiredVolumes(customerRows)} />
         <Metric label="Подрядчик" value={`${contractorRows.length} поз.`} detail={requiredVolumes(contractorRows)} />
@@ -191,11 +205,6 @@ export default async function MtrAnalysisPage() {
   );
 }
 
-
-function SectionLink({ href, number, title, description }: { href: string; number: string; title: string; description: string }) {
-  return <Link href={href} className="focus-ring rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:border-teal-300 hover:bg-teal-50/40"><span className="text-xs font-semibold text-teal-700">{number}</span><span className="mt-2 block font-semibold text-slate-900">{title}</span><span className="mt-1 block text-xs leading-5 text-slate-500">{description}</span></Link>;
-}
-
 function Metric({ label, value, detail, warning = false }: { label: string; value: string; detail: string; warning?: boolean }) {
   return <div className={`rounded-xl border p-5 shadow-sm ${warning ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-white"}`}><p className="text-xs uppercase text-slate-500">{label}</p><p className="mt-2 text-2xl font-semibold">{value}</p><p className="mt-1 text-xs text-slate-500">Объём: {detail}</p></div>;
 }
@@ -206,6 +215,10 @@ function ReportFact({ label, value }: { label: string; value: string }) {
 
 function EmptyState() {
   return <section className="rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center"><h2 className="text-lg font-semibold">Завершённых отчётов пока нет</h2><p className="mt-2 text-sm text-slate-500">Запустите сценарий — после завершения здесь появится актуальный результат.</p><Link href="/admin/scenarios" className="focus-ring mt-5 inline-flex rounded-md bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white">Перейти к сценариям</Link></section>;
+}
+
+function ClearedState() {
+  return <section className="rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center"><h2 className="text-lg font-semibold">Предыдущий анализ очищен</h2><p className="mt-2 text-sm text-slate-500">Запустите новый сценарий, чтобы сформировать актуальный результат. Старый запуск доступен в истории.</p><div className="mt-5 flex flex-wrap justify-center gap-3"><Link href="/runs" className="focus-ring inline-flex rounded-md border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Открыть историю запусков</Link><Link href="/admin/scenarios" className="focus-ring inline-flex rounded-md bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-800">Запустить новый анализ</Link></div></section>;
 }
 
 function resultPositionCode(result: Record<string, unknown>, fallback: string) {
