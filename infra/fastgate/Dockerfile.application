@@ -21,7 +21,8 @@ RUN ESBUILD_BIN="$(find node_modules/.pnpm -path '*/node_modules/esbuild/bin/esb
 FROM node:24.6.0-bookworm-slim@sha256:798837daa2a12bab9cdf53cf8779a05256c2ce08176f449e239e7577d26225e8
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
-RUN install -d -o 1000 -g 1000 -m 0750 /run/fastgate-public /run/fastgate-database \
+RUN install -d -o 1000 -g 1000 -m 0755 /run/fastgate-public \
+  && install -d -o 1000 -g 1000 -m 0750 /run/fastgate-database \
   && install -d -o 0 -g 0 -m 0555 /app/.next /app/public /app/drizzle \
   && install -d -o 0 -g 0 -m 0700 /opt/fastgate-control
 COPY --from=build --chown=0:0 /app/.next/standalone/ /app/

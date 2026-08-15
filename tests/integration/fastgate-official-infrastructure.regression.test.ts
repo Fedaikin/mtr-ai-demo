@@ -66,6 +66,12 @@ describe("official FastGate infrastructure contract", () => {
       expect(contents).toContain("install -d -o 1000 -g 1000");
       for (const mountpoint of requiredMountpoints[dockerfile] ?? []) expect(contents).toContain(mountpoint);
     }
+    for (const dockerfile of ["Dockerfile.application", "Dockerfile.witness", "Dockerfile.supervisor"]) {
+      const contents = readFileSync(join(root, "infra/fastgate", dockerfile), "utf8");
+      expect(contents).toMatch(/-m 0755 \/run\/fastgate-public/u);
+    }
+    const supervisor = readFileSync(join(root, "scripts/fastgate-container-supervisor.ts"), "utf8");
+    expect(supervisor).toMatch(/fixture\.json[^\n]+mode: 0o644/u);
   });
 
   it("exposes one official CLI, activates witnessed execution, and never passes witness private keys to the app", () => {

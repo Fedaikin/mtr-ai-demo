@@ -1,7 +1,8 @@
 FROM node:24.6.0-bookworm-slim@sha256:798837daa2a12bab9cdf53cf8779a05256c2ce08176f449e239e7577d26225e8
 WORKDIR /app
 RUN corepack enable
-RUN install -d -o 1000 -g 1000 -m 0750 /run/fastgate-public /run/fastgate-private /run/fastgate-artifacts /run/fastgate-control /run/fastgate-witness-database
+RUN install -d -o 1000 -g 1000 -m 0755 /run/fastgate-public \
+  && install -d -o 1000 -g 1000 -m 0750 /run/fastgate-private /run/fastgate-artifacts /run/fastgate-control /run/fastgate-witness-database
 COPY --chown=1000:1000 package.json pnpm-lock.yaml ./
 RUN pnpm config set --location project --json allowBuilds '{"esbuild":true,"unrs-resolver":false}'
 RUN pnpm install --frozen-lockfile

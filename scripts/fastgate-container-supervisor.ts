@@ -101,7 +101,7 @@ async function main(): Promise<void> {
   writeFileSync(join(controlDir, "proxy-context.json"), `${JSON.stringify(proxyContext, null, 2)}\n`, { mode: 0o600 });
   writeFileSync(join(controlDir, "witness-context.json"), `${JSON.stringify(witnessContext, null, 2)}\n`, { mode: 0o600 });
   writeFileSync(join(artifactDir, "supervisor-certificate.json"), `${JSON.stringify(supervisorSigner.certificate, null, 2)}\n`, { mode: 0o600 });
-  writeFileSync(join(publicDir, "fixture.json"), `${JSON.stringify(projectOverlayForApplication(overlay), null, 2)}\n`, { mode: 0o600 });
+  writeFileSync(join(publicDir, "fixture.json"), `${JSON.stringify(projectOverlayForApplication(overlay), null, 2)}\n`, { mode: 0o644 });
   writeFileSync(join(artifactDir, "counterfactual-commitment.json"), `${JSON.stringify({
     schemaVersion: "mtr-fastgate-counterfactual-commitment-v1",
     runId,

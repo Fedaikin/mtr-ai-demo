@@ -1,7 +1,8 @@
 FROM mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e
 WORKDIR /app
 RUN corepack enable
-RUN install -d -o 1000 -g 1000 -m 0750 /run/fastgate-public /run/fastgate-private /run/fastgate-artifacts /run/fastgate-control /run/fastgate-database
+RUN install -d -o 1000 -g 1000 -m 0755 /run/fastgate-public \
+  && install -d -o 1000 -g 1000 -m 0750 /run/fastgate-private /run/fastgate-artifacts /run/fastgate-control /run/fastgate-database
 COPY --chown=1000:1000 package.json pnpm-lock.yaml ./
 RUN pnpm config set --location project --json allowBuilds '{"esbuild":true,"unrs-resolver":false}'
 RUN pnpm install --frozen-lockfile
