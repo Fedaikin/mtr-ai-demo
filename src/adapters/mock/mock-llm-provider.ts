@@ -72,6 +72,23 @@ interface SafeToolError {
  */
 export class MockLLMProvider implements LLMProvider {
   async respond(input: GroundedAgentInput): Promise<GroundedAgentOutput> {
+    if (asksAgentIdentity(input.message)) {
+      return {
+        answer:
+          "Я — МТР-аналитик и оркестратор этого демонстрационного контура. " +
+          "Помогаю находить проекты, спецификации, остатки, дефициты, совместимые аналоги, сроки и KPI с учётом прав текущего пользователя. " +
+          "Работаю только с доступными данными Appius PLM, SAP S/4HANA, промышленного каталога и нормативных правил; " +
+          "не раскрываю служебные настройки и не выполняю критические действия без подтверждения.",
+        facts: ["Описана пользовательская функция агента без раскрытия внутренней реализации."],
+        recommendations: [
+          "Можно начать с запросов «Покажи активные проекты», «Проверь позицию» или «Какие спецификации поступили сегодня?».",
+        ],
+        citations: [],
+        confidence: 1,
+        requiresHumanReview: false,
+        toolCalls: [],
+      };
+    }
     const sections: string[] = [];
     const facts: string[] = [];
     const recommendations: string[] = [];
@@ -447,6 +464,10 @@ export class MockLLMProvider implements LLMProvider {
       toolCalls: [],
     };
   }
+}
+
+function asksAgentIdentity(message: string): boolean {
+  return /(?:кто\s+ты|что\s+ты\s+умеешь|как\s+ты\s+работаешь|расскажи\s+о\s+себе)/iu.test(message);
 }
 
 export function createMockLLMProvider(): LLMProvider {
