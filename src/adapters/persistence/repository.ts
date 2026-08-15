@@ -557,6 +557,7 @@ export interface AuthUserRecord extends DemoUser {
   passwordHash: string;
   status: string;
   accountType: string;
+  authSource: string;
   authorizationVersion: number;
   isSyntheticDemo: boolean;
 }
@@ -629,6 +630,7 @@ export class MtrRepository {
           locale: row.locale as "ru-RU",
           status: row.status,
           accountType: row.accountType,
+          authSource: row.authSource,
           authorizationVersion: row.authorizationVersion,
           isSyntheticDemo: row.isSyntheticDemo,
         }
@@ -713,6 +715,7 @@ export class MtrRepository {
           locale: row.locale as "ru-RU",
           status: row.status,
           accountType: row.accountType,
+          authSource: row.authSource,
           authorizationVersion: row.authorizationVersion,
           isSyntheticDemo: row.isSyntheticDemo,
         }

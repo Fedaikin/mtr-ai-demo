@@ -1,4 +1,4 @@
-import { and, count, eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import appiusFixture from "@/adapters/mock/fixtures/appius.json";
 import {
@@ -119,7 +119,6 @@ export interface UniversalAgentRolloutResult {
 const READINESS_CACHE_TTL_MS = 5 * 60_000;
 const FIXTURE_INSERT_BATCH_SIZE = 200;
 const EXACT_BASELINE_COUNT_KEYS = [
-  "users",
   "specifications",
   "canonicalPositions",
   "sapMaterials",
@@ -132,7 +131,11 @@ const EXACT_BASELINE_COUNT_KEYS = [
   "scenarios",
   "dictionaries",
 ] as const satisfies ReadonlyArray<keyof SeedCounts>;
-const MUTABLE_RUNTIME_COUNT_KEYS = [
+// Administrators may add human demo accounts without changing the canonical
+// operational dataset. The seed gate therefore requires the base accounts to
+// exist, but does not treat an additional account as a corrupted seed.
+const MINIMUM_BASELINE_COUNT_KEYS = [
+  "users",
   "specificationVersions",
   "prompts",
 ] as const satisfies ReadonlyArray<keyof SeedCounts>;
@@ -296,16 +299,13 @@ export async function assertSeedCounts(
   assertDemoUser(userId);
   const db = database ?? (await getDatabase());
   const counts = await getSeedCounts(db, userId);
-  const globalUserCount = await countRows(db, users);
   const mismatches = Object.entries(EXPECTED_BASE_COUNTS).flatMap(([key, expected]) => {
     const actual = counts[key as keyof SeedCounts];
-    return actual === expected ? [] : [`${key}: ожидалось ${expected}, получено ${actual}`];
+    const isMinimum = (MINIMUM_BASELINE_COUNT_KEYS as readonly string[]).includes(key);
+    return (isMinimum ? actual >= expected : actual === expected)
+      ? []
+      : [`${key}: ожидалось ${isMinimum ? "не менее " : ""}${expected}, получено ${actual}`];
   });
-  if (globalUserCount !== EXPECTED_BASE_COUNTS.users) {
-    mismatches.push(
-      `users (глобально): ожидалось ${EXPECTED_BASE_COUNTS.users}, получено ${globalUserCount}`,
-    );
-  }
   if (mismatches.length > 0) {
     throw new Error(`Проверка канонического seed не пройдена (${mismatches.join("; ")}).`);
   }
@@ -1204,38 +1204,14 @@ function scenarioKind(id: string):
   return "FULL";
 }
 
-async function countRows(
-  db: Database,
-  table:
-    | typeof users
-    | typeof specifications
-    | typeof specificationVersions
-    | typeof specificationPositions
-    | typeof sapMaterials
-    | typeof sapStockBalances
-    | typeof normativeDocuments
-    | typeof normativeChunks
-    | typeof responsibilityRules
-    | typeof analogueRules
-    | typeof integrationStates
-    | typeof scenarios
-    | typeof promptVersions
-    | typeof dictionaries,
-  filter?: ReturnType<typeof eq>,
-): Promise<number> {
-  const query = db.select({ value: count() }).from(table);
-  const rows = filter ? await query.where(filter) : await query;
-  return Number(rows[0]?.value ?? 0);
-}
-
 function matchesExpectedCounts(counts: SeedCounts): boolean {
   const exactBaselineIsPresent = EXACT_BASELINE_COUNT_KEYS.every(
     (key) => counts[key] === EXPECTED_BASE_COUNTS[key],
   );
-  const mutableRuntimeIsValid = MUTABLE_RUNTIME_COUNT_KEYS.every(
+  const minimumBaselineIsPresent = MINIMUM_BASELINE_COUNT_KEYS.every(
     (key) => counts[key] >= EXPECTED_BASE_COUNTS[key],
   );
-  return exactBaselineIsPresent && mutableRuntimeIsValid;
+  return exactBaselineIsPresent && minimumBaselineIsPresent;
 }
 
 function matchesLegacySpecificationPortfolioCounts(counts: SeedCounts): boolean {
@@ -1249,7 +1225,9 @@ function matchesLegacySpecificationPortfolioCounts(counts: SeedCounts): boolean 
   );
   return (
     exactLegacyBaselineIsPresent &&
-    counts.specificationVersions >= appiusFixture.specificationVersions.length
+    counts.users >= EXPECTED_BASE_COUNTS.users &&
+    counts.specificationVersions >= appiusFixture.specificationVersions.length &&
+    counts.prompts >= EXPECTED_BASE_COUNTS.prompts
   );
 }
 
@@ -1268,7 +1246,12 @@ function matchesAdditiveBaseUpgradeCandidate(counts: SeedCounts): boolean {
     counts.specifications === EXPECTED_BASE_COUNTS.specifications &&
     counts.canonicalPositions === EXPECTED_BASE_COUNTS.canonicalPositions &&
     counts.specificationVersions >= EXPECTED_BASE_COUNTS.specificationVersions;
-  return stableBaselineIsPresent && (legacyPortfolioIsPresent || targetPortfolioIsPresent);
+  return (
+    stableBaselineIsPresent &&
+    counts.users >= EXPECTED_BASE_COUNTS.users &&
+    counts.prompts >= EXPECTED_BASE_COUNTS.prompts &&
+    (legacyPortfolioIsPresent || targetPortfolioIsPresent)
+  );
 }
 
 function assertEmptyOrExpectedCounts<TCounts extends Record<string, number>>(

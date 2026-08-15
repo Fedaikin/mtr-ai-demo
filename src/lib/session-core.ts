@@ -31,7 +31,12 @@ export async function authenticateDemoCredentials(
   const repository = await getRepository();
   const user = await repository.findUserByLogin(login);
   const configuredHash = getConfiguredDemoPasswordHash();
-  const passwordHash = configuredHash ?? user?.passwordHash;
+  // The standard demo personas intentionally share the server-only password.
+  // A named DEMO_INDIVIDUAL account is the narrow exception used when a
+  // hand-off recipient needs a separately rotatable credential.
+  const passwordHash = user?.authSource === "DEMO_INDIVIDUAL"
+    ? user.passwordHash
+    : configuredHash ?? user?.passwordHash;
   if (!user || user.status !== "ACTIVE" || user.accountType !== "HUMAN" || !passwordHash || !(await verifyPassword(password, passwordHash))) return null;
 
   return createSession(repository, user);
