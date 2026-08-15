@@ -1,19 +1,44 @@
-import { createHash } from "node:crypto";
-
 import { and, count, eq, sql } from "drizzle-orm";
 
 import appiusFixture from "@/adapters/mock/fixtures/appius.json";
+import {
+  generateSpecificationPortfolio,
+  SPECIFICATION_PORTFOLIO_MANIFEST,
+  type SpecificationPortfolioFixture,
+} from "@/adapters/mock/fixtures/specification-portfolio";
 import identityFixture from "@/adapters/mock/fixtures/identity.json";
 import normativeFixture from "@/adapters/mock/fixtures/normative.json";
 import sapFixture from "@/adapters/mock/fixtures/sap.json";
 import scenariosFixture from "@/adapters/mock/fixtures/scenarios.json";
+import {
+  MTR_AGENT_ORCHESTRATOR_PROMPT,
+  MTR_AGENT_ORCHESTRATOR_VERSION,
+  MTR_AGENT_PROMPT_NAME,
+  MTR_AGENT_ROLLBACK_PROMPT,
+  MTR_AGENT_ROLLBACK_VERSION,
+  MTR_AGENT_UNIVERSAL_BASE_PROMPT,
+  MTR_AGENT_UNIVERSAL_BASE_VERSION,
+  MTR_AGENT_UNIVERSAL_PROMPT,
+  MTR_AGENT_UNIVERSAL_VERSION,
+  promptChecksum,
+} from "@/application/agent-orchestrator/system-prompt";
 import { DEMO_USER_ID } from "@/domain/models";
 
+import { ensureIndustrialCatalogue } from "./catalog-bootstrap";
 import { type Database, getDatabase, isRemoteDatabaseConfigured } from "./db";
 import { createReadinessCache } from "./readiness-cache";
 import {
   agentCitations,
+  agentActionProposals,
+  agentCases,
+  agentEventInbox,
+  agentEvidenceFacts,
+  agentLearningCandidates,
+  agentMetricEvents,
   agentMessages,
+  agentPlanExecutions,
+  agentProactiveInsights,
+  agentTasks,
   agentThreads,
   analogueRules,
   analysisReviewDecisions,
@@ -21,6 +46,7 @@ import {
   authSessions,
   dictionaries,
   integrationStates,
+  materialMovements,
   normativeChunks,
   normativeDocuments,
   positionAnalysisResults,
@@ -37,12 +63,17 @@ import {
   uploadedFiles,
   users,
 } from "./schema";
+import {
+  deleteUniversalChatDatasetRows,
+  ensureUniversalChatDataset,
+  universalChatDatasetEnabled,
+} from "./universal-chat-bootstrap";
 
 export const EXPECTED_BASE_COUNTS = {
   users: 8,
-  specifications: 3,
-  specificationVersions: 8,
-  canonicalPositions: 24,
+  specifications: 83,
+  specificationVersions: 88,
+  canonicalPositions: 3_584,
   sapMaterials: 30,
   sapBalances: 30,
   normativeDocuments: 4,
@@ -51,7 +82,7 @@ export const EXPECTED_BASE_COUNTS = {
   analogueRules: 3,
   integrations: 4,
   scenarios: 5,
-  prompts: 1,
+  prompts: 4,
   dictionaries: 7,
 } as const;
 
@@ -67,6 +98,7 @@ interface DatabaseInitializationResult {
 // boundary; health/count endpoints still query exact data, and reset/seed
 // invalidate this entry immediately.
 const READINESS_CACHE_TTL_MS = 5 * 60_000;
+const FIXTURE_INSERT_BATCH_SIZE = 200;
 const EXACT_BASELINE_COUNT_KEYS = [
   "users",
   "specifications",
@@ -93,12 +125,7 @@ const bootstrapGlobal = globalThis as typeof globalThis & {
 const databaseReadinessCache = (bootstrapGlobal.__mtrDatabaseReadinessCache ??=
   createReadinessCache<DatabaseInitializationResult>({ ttlMs: READINESS_CACHE_TTL_MS }));
 
-export const INITIAL_AGENT_PROMPT = [
-  "Ты — проектный AI-агент прототипа анализа МТР.",
-  "Используй только факты, полученные через серверные инструменты Appius, SAP и нормативного поиска.",
-  "Не придумывай остатки, версии, нормативные пункты или персональные данные.",
-  "Каждый существенный вывод сопровождай ссылкой на источник и явно отмечай необходимость экспертной проверки.",
-].join("\n");
+export const INITIAL_AGENT_PROMPT = MTR_AGENT_ROLLBACK_PROMPT;
 
 /** Login/CLI bootstrap boundary: migrates and repairs a missing canonical seed. */
 export async function initializeDatabase(): Promise<DatabaseInitializationResult> {
@@ -107,11 +134,22 @@ export async function initializeDatabase(): Promise<DatabaseInitializationResult
   const result = await databaseReadinessCache.resolve(db, async () => {
     const current = await getSeedCounts(db, DEMO_USER_ID);
     if (matchesExpectedCounts(current)) return { seeded: false, counts: current };
+    if (matchesLegacySpecificationPortfolioCounts(current)) {
+      await addSpecificationPortfolio(db, DEMO_USER_ID);
+      const upgraded = await getSeedCounts(db, DEMO_USER_ID);
+      if (matchesExpectedCounts(upgraded)) return { seeded: true, counts: upgraded };
+    }
 
     const counts = await seedDatabaseUncached(DEMO_USER_ID, db);
     return { seeded: true, counts };
   });
-  return { seeded: result.seeded, counts: { ...result.counts } };
+  let extendedSeeded = false;
+  if (universalChatDatasetEnabled()) {
+    const catalogue = await ensureIndustrialCatalogue(DEMO_USER_ID, db);
+    const universal = await ensureUniversalChatDataset(DEMO_USER_ID, db);
+    extendedSeeded = catalogue.seeded || universal.seeded;
+  }
+  return { seeded: result.seeded || extendedSeeded, counts: { ...result.counts } };
 }
 
 /**
@@ -156,6 +194,11 @@ async function seedDatabaseUncached(userId: string, db: Database): Promise<SeedC
     await deleteUserScopedRows(tx, userId, false);
     await insertFixtureRows(tx, userId);
   });
+
+  if (universalChatDatasetEnabled()) {
+    await ensureIndustrialCatalogue(userId, db);
+    await ensureUniversalChatDataset(userId, db);
+  }
 
   return assertSeedCounts(userId, db);
 }
@@ -240,12 +283,93 @@ function extractExecutedRows(result: unknown): Array<Record<string, unknown>> {
   return [];
 }
 
+async function insertBatches<
+  TTable extends Parameters<Database["insert"]>[0],
+  TRow extends object,
+>(database: Database, table: TTable, rows: readonly TRow[]): Promise<void> {
+  for (let offset = 0; offset < rows.length; offset += FIXTURE_INSERT_BATCH_SIZE) {
+    const batch = rows.slice(offset, offset + FIXTURE_INSERT_BATCH_SIZE);
+    if (batch.length > 0) await database.insert(table).values(batch as never);
+  }
+}
+
+async function addSpecificationPortfolio(db: Database, userId: string): Promise<void> {
+  const rows = buildSpecificationPortfolioRows(generateSpecificationPortfolio(), userId);
+  await db.transaction(async (transaction) => {
+    const tx = transaction as unknown as Database;
+    if (isRemoteDatabaseConfigured()) {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${`mtr-demo-specification-portfolio:${userId}`}))`,
+      );
+    }
+    await tx.insert(specifications).values(rows.specifications);
+    await tx.insert(specificationVersions).values(rows.versions);
+    await insertBatches(tx, specificationPositions, rows.positions);
+  });
+}
+
+function buildSpecificationPortfolioRows(
+  fixture: SpecificationPortfolioFixture,
+  userId: string,
+) {
+  return {
+    specifications: fixture.specifications.map((item) => ({
+      id: item.id,
+      userId,
+      projectCode: item.projectCode,
+      name: item.name,
+      latestVersionId: item.latestVersionId,
+      latestVersionNumber: item.latestVersionNumber,
+      positionCount: item.positionCount,
+      accessAttributes: accessAttributes(item.access),
+      createdBy: userId,
+    })),
+    versions: fixture.specificationVersions.map((item) => ({
+      id: item.id,
+      specificationId: item.specificationId,
+      userId,
+      versionNumber: item.versionNumber,
+      isCurrent: item.isCurrent,
+      status: item.status,
+      effectiveAt: item.effectiveAt,
+      positionCount: item.positionCount,
+      accessAttributes: accessAttributes(item.access),
+      createdBy: userId,
+    })),
+    positions: fixture.positions.map((item) => ({
+      id: item.id,
+      specificationId: item.specificationId,
+      versionId: item.versionId,
+      userId,
+      internalCode: item.internalCode,
+      nameRu: item.nameRu,
+      nameEn: item.nameEn,
+      synonyms: [...item.synonyms],
+      equipmentType: item.equipmentType,
+      standard: item.standard,
+      materialGrade: item.materialGrade,
+      dimensions: scalarRecord(item.dimensions),
+      requiredQuantity: decimal(item.requiredQuantity),
+      unit: item.unit,
+      classification: { ...item.classification },
+      accessAttributes: accessAttributes(item.access),
+      fixtureTags: [...item.fixtureTags],
+      isSyntheticDemo: true,
+      createdBy: userId,
+    })),
+  };
+}
+
 async function insertFixtureRows(db: Database, userId: string): Promise<void> {
+  const portfolioFixture = generateSpecificationPortfolio();
+  const portfolioRows = buildSpecificationPortfolioRows(portfolioFixture, userId);
   const fixtureUser = identityFixture.users[0];
+  const fixtureHash = requiredDemoPasswordHash();
   const userValues = {
     id: userId,
     userId,
     login: "demo",
+    passwordHash: fixtureHash,
     displayName: fixtureUser.displayName,
     roles: [...fixtureUser.roles],
     locale: fixtureUser.locale,
@@ -269,27 +393,30 @@ async function insertFixtureRows(db: Database, userId: string): Promise<void> {
       },
     });
 
-  await seedRbacSubjects(db);
+  await seedRbacSubjects(db, fixtureHash);
 
   await db.insert(specifications).values(
-    appiusFixture.specifications.map((item) => ({
-      id: item.id,
-      userId,
-      projectCode: item.projectCode,
-      name: item.name,
-      latestVersionId: item.latestVersionId,
-      latestVersionNumber: item.latestVersionNumber,
-      positionCount: item.positionCount,
-      accessAttributes: accessAttributes(item.access),
-      createdBy: userId,
-    })),
+    [
+      ...appiusFixture.specifications.map((item) => ({
+        id: item.id,
+        userId,
+        projectCode: item.projectCode,
+        name: item.name,
+        latestVersionId: item.latestVersionId,
+        latestVersionNumber: item.latestVersionNumber,
+        positionCount: item.positionCount,
+        accessAttributes: accessAttributes(item.access),
+        createdBy: userId,
+      })),
+      ...portfolioRows.specifications,
+    ],
   );
 
   const historicByVersion = new Map(
     appiusFixture.historicSnapshots.map((snapshot) => [snapshot.versionId, asJsonRecord(snapshot)]),
   );
-  await db.insert(specificationVersions).values(
-    appiusFixture.specificationVersions.map((item) => ({
+  await db.insert(specificationVersions).values([
+    ...appiusFixture.specificationVersions.map((item) => ({
       id: item.id,
       specificationId: item.specificationId,
       userId,
@@ -302,30 +429,36 @@ async function insertFixtureRows(db: Database, userId: string): Promise<void> {
       accessAttributes: accessAttributes(item.access),
       createdBy: userId,
     })),
-  );
+    ...portfolioRows.versions,
+  ]);
 
-  await db.insert(specificationPositions).values(
-    appiusFixture.positions.map((item) => ({
-      id: item.id,
-      specificationId: item.specificationId,
-      versionId: item.versionId,
-      userId,
-      internalCode: item.internalCode,
-      nameRu: item.nameRu,
-      nameEn: item.nameEn,
-      synonyms: [...item.synonyms],
-      equipmentType: item.equipmentType,
-      standard: item.standard,
-      materialGrade: item.materialGrade,
-      dimensions: scalarRecord(item.dimensions),
-      requiredQuantity: decimal(item.requiredQuantity),
-      unit: item.unit,
-      classification: { ...item.classification },
-      accessAttributes: accessAttributes(item.access),
-      fixtureTags: [...item.fixtureTags],
-      isSyntheticDemo: true,
-      createdBy: userId,
-    })),
+  await insertBatches(
+    db,
+    specificationPositions,
+    [
+      ...appiusFixture.positions.map((item) => ({
+        id: item.id,
+        specificationId: item.specificationId,
+        versionId: item.versionId,
+        userId,
+        internalCode: item.internalCode,
+        nameRu: item.nameRu,
+        nameEn: item.nameEn,
+        synonyms: [...item.synonyms],
+        equipmentType: item.equipmentType,
+        standard: item.standard,
+        materialGrade: item.materialGrade,
+        dimensions: scalarRecord(item.dimensions),
+        requiredQuantity: decimal(item.requiredQuantity),
+        unit: item.unit,
+        classification: { ...item.classification },
+        accessAttributes: accessAttributes(item.access),
+        fixtureTags: [...item.fixtureTags],
+        isSyntheticDemo: true,
+        createdBy: userId,
+      })),
+      ...portfolioRows.positions,
+    ],
   );
 
   const materialRows = sapFixture.materials.map((item) => ({
@@ -363,6 +496,8 @@ async function insertFixtureRows(db: Database, userId: string): Promise<void> {
       createdBy: userId,
     })),
   );
+  await db.insert(materialMovements).values(buildMaterialMovementRows());
+  await db.insert(agentMetricEvents).values(buildProcessMetricEventRows());
 
   const documentRows = normativeFixture.documents.map((item, index) => ({
     id: `normative-document-${String(index + 1).padStart(3, "0")}`,
@@ -462,16 +597,48 @@ async function insertFixtureRows(db: Database, userId: string): Promise<void> {
     })),
   );
 
-  await db.insert(promptVersions).values({
-    id: "prompt-mtr-agent-001",
-    userId,
-    name: "mtr-project-agent",
-    promptVersion: "1.0.0",
-    content: INITIAL_AGENT_PROMPT,
-    active: true,
-    checksum: createHash("sha256").update(INITIAL_AGENT_PROMPT, "utf8").digest("hex"),
-    createdBy: userId,
-  });
+  await db.insert(promptVersions).values([
+    {
+      id: "prompt-mtr-agent-001",
+      userId,
+      name: MTR_AGENT_PROMPT_NAME,
+      promptVersion: MTR_AGENT_ROLLBACK_VERSION,
+      content: MTR_AGENT_ROLLBACK_PROMPT,
+      active: false,
+      checksum: promptChecksum(MTR_AGENT_ROLLBACK_PROMPT),
+      createdBy: userId,
+    },
+    {
+      id: "prompt-mtr-agent-003",
+      userId,
+      name: MTR_AGENT_PROMPT_NAME,
+      promptVersion: MTR_AGENT_ORCHESTRATOR_VERSION,
+      content: MTR_AGENT_ORCHESTRATOR_PROMPT,
+      active: false,
+      checksum: promptChecksum(MTR_AGENT_ORCHESTRATOR_PROMPT),
+      createdBy: userId,
+    },
+    {
+      id: "prompt-mtr-agent-004",
+      userId,
+      name: MTR_AGENT_PROMPT_NAME,
+      promptVersion: MTR_AGENT_UNIVERSAL_BASE_VERSION,
+      content: MTR_AGENT_UNIVERSAL_BASE_PROMPT,
+      active: false,
+      checksum: promptChecksum(MTR_AGENT_UNIVERSAL_BASE_PROMPT),
+      createdBy: userId,
+    },
+    {
+      id: "prompt-mtr-agent-005",
+      userId,
+      name: MTR_AGENT_PROMPT_NAME,
+      promptVersion: MTR_AGENT_UNIVERSAL_VERSION,
+      content: MTR_AGENT_UNIVERSAL_PROMPT,
+      active: true,
+      checksum: promptChecksum(MTR_AGENT_UNIVERSAL_PROMPT),
+      createdBy: userId,
+    },
+  ]);
 
   await db.insert(dictionaries).values(
     normativeFixture.searchDictionary.map((item, index) => ({
@@ -486,9 +653,8 @@ async function insertFixtureRows(db: Database, userId: string): Promise<void> {
   );
 }
 
-async function seedRbacSubjects(db: Database): Promise<void> {
-  const fixtureHash = "scrypt$16384$8$1$bXRyLWRlbW8tYXV0aC12MQ$GcR_B-AFou6BJpPfLHVa0afwkfnOh5_ehbSyTSL2TFn7UARDrszHNcwtC19lk40LVfg7sGA_roL4NX7hUkexBA";
-  await db.execute(sql`update users set password_hash=coalesce(password_hash,${fixtureHash}), account_type=coalesce(account_type,'HUMAN'), auth_source=coalesce(auth_source,'DEMO') where id='demo-user-001'`);
+async function seedRbacSubjects(db: Database, fixtureHash: string): Promise<void> {
+  await db.execute(sql`update users set account_type=coalesce(account_type,'HUMAN'), auth_source=coalesce(auth_source,'DEMO') where id='demo-user-001'`);
   await db.execute(sql`insert into users (id,user_id,login,password_hash,display_name,roles,locale,is_synthetic_demo,created_by,status,account_type,auth_source) values
     ('demo-viewer-001','demo-viewer-001','viewer',${fixtureHash},'Наблюдатель проекта','["USER"]'::jsonb,'ru-RU',true,'demo-user-001','ACTIVE','HUMAN','DEMO'),
     ('demo-analyst-001','demo-analyst-001','analyst',${fixtureHash},'Аналитик МТР','["USER"]'::jsonb,'ru-RU',true,'demo-user-001','ACTIVE','HUMAN','DEMO'),
@@ -504,6 +670,110 @@ async function seedRbacSubjects(db: Database): Promise<void> {
     ('assign-demo-admin','demo-user-001','role-system-admin','GLOBAL',null,'ACTIVE','demo-user-001'),('assign-demo-manager','demo-user-001','role-project-manager','PROJECT','demo-project-001','ACTIVE','demo-user-001'),
     ('assign-viewer','demo-viewer-001','role-project-viewer','PROJECT','demo-project-001','ACTIVE','demo-user-001'),('assign-analyst','demo-analyst-001','role-mtr-analyst','PROJECT','demo-project-001','ACTIVE','demo-user-001'),('assign-expert','demo-expert-001','role-mtr-expert','PROJECT','demo-project-001','ACTIVE','demo-user-001'),('assign-director','demo-director-001','role-project-viewer','PROJECT','demo-project-001','ACTIVE','demo-user-001'),
     ('assign-admin','demo-admin-001','role-system-admin','GLOBAL',null,'ACTIVE','demo-user-001'),('assign-auditor-global','demo-auditor-001','role-auditor','GLOBAL',null,'ACTIVE','demo-user-001'),('assign-auditor-project','demo-auditor-001','role-project-viewer','PROJECT','demo-project-001','ACTIVE','demo-user-001'),('assign-service','demo-service-001','role-integration-service','SERVICE',null,'ACTIVE','demo-user-001') on conflict do nothing`);
+  const warehouseIds = [...new Set(sapFixture.materials.map((item) => item.warehouse))];
+  const stockUsers = ["demo-user-001", "demo-analyst-001", "demo-expert-001", "demo-director-001"];
+  for (const stockUserId of stockUsers) {
+    for (const warehouseId of warehouseIds) {
+      await db.execute(sql`insert into user_source_access_claims
+        (id,user_id,claim_type,claim_value,source)
+        values (${`claim-${stockUserId}-${warehouseId.toLocaleLowerCase("en-US")}`},${stockUserId},'warehouseIds',${warehouseId},'DEMO_SEED')
+        on conflict (user_id,claim_type,claim_value,source) do nothing`);
+    }
+  }
+}
+
+function requiredDemoPasswordHash(): string {
+  const fixtureHash = process.env.DEMO_PASSWORD_HASH?.trim();
+  if (!fixtureHash?.startsWith("scrypt$")) {
+    throw new Error("DEMO_PASSWORD_HASH обязателен для создания demo-персон");
+  }
+  return fixtureHash;
+}
+
+function buildMaterialMovementRows(): Array<typeof materialMovements.$inferInsert> {
+  const anchor = new Date("2026-08-10T09:00:00.000Z");
+  return sapFixture.materials.flatMap((material, materialIndex) =>
+    Array.from({ length: 12 }, (_, weekIndex) => {
+      const occurredAt = new Date(anchor);
+      occurredAt.setUTCDate(anchor.getUTCDate() - (11 - weekIndex) * 7);
+      const ingestedAt = occurredAt.toISOString();
+      const consumption = 1 + (materialIndex % 7) + (weekIndex % 3);
+      return {
+        id: `movement-${material.recordId}-${String(weekIndex + 1).padStart(2, "0")}`,
+        tenantId: "demo-tenant-001",
+        projectId: "demo-project-001",
+        sourceScopeId: "demo-sap-001",
+        materialCode: material.materialCode,
+        plant: material.plant,
+        storageLocation: material.warehouse,
+        movementType: "CONSUMPTION",
+        quantity: decimal(consumption),
+        unit: material.unit,
+        occurredAt: ingestedAt,
+        sourceDocumentId: `SAP-DEMO-MOVEMENT-${materialIndex + 1}-${weekIndex + 1}`,
+        snapshotVersion: `sap-movements-2026-w${String(weekIndex + 1).padStart(2, "0")}`,
+        idempotencyKey: `movement:${material.recordId}:${weekIndex + 1}`,
+        attributes: { syntheticDemo: true, historyWeek: weekIndex + 1 },
+        authorizationVersion: 1,
+        roleAssignmentSnapshot: ["assign-demo-manager"],
+        ingestedAt,
+        retentionUntil: oneCalendarYearAfter(ingestedAt),
+      };
+    }),
+  );
+}
+
+function buildProcessMetricEventRows(): Array<typeof agentMetricEvents.$inferInsert> {
+  const anchor = new Date("2026-08-10T12:00:00.000Z");
+  return Array.from({ length: 12 }, (_, weekIndex) => {
+    const occurredAt = new Date(anchor);
+    occurredAt.setUTCDate(anchor.getUTCDate() - (11 - weekIndex) * 7);
+    const timestamp = occurredAt.toISOString();
+    const aggregateId = `demo-process-week-${String(weekIndex + 1).padStart(2, "0")}`;
+    const common = {
+      tenantId: "demo-tenant-001",
+      projectId: "demo-project-001",
+      actorUserId: DEMO_USER_ID,
+      eventVersion: 1,
+      aggregateType: "RUN" as const,
+      occurredAt: timestamp,
+      correlationId: `metric-week-${weekIndex + 1}`,
+      sourceVersion: "scenario-metrics-v1",
+      authorizationVersion: 1,
+      roleAssignmentSnapshot: ["assign-demo-manager"],
+      ingestedAt: timestamp,
+      retentionUntil: oneCalendarYearAfter(timestamp),
+    };
+    const started = 8 + (weekIndex % 3);
+    const completed = started - (weekIndex % 4 === 0 ? 1 : 0);
+    const review = 2 + (weekIndex % 2);
+    return [
+      {
+        ...common,
+        id: `metric-${aggregateId}-started`,
+        eventType: "ANALYSIS_STARTED",
+        aggregateId: `${aggregateId}-started`,
+        attributes: { count: started, syntheticDemo: true },
+        idempotencyKey: `${aggregateId}:started`,
+      },
+      {
+        ...common,
+        id: `metric-${aggregateId}-completed`,
+        eventType: "ANALYSIS_COMPLETED",
+        aggregateId: `${aggregateId}-completed`,
+        attributes: { count: completed, cycleTimeMs: 10_800_000 + weekIndex * 120_000, syntheticDemo: true },
+        idempotencyKey: `${aggregateId}:completed`,
+      },
+      {
+        ...common,
+        id: `metric-${aggregateId}-review`,
+        eventType: "EXPERT_TASK_ASSIGNED",
+        aggregateId: `${aggregateId}-review`,
+        attributes: { count: review, syntheticDemo: true },
+        idempotencyKey: `${aggregateId}:review`,
+      },
+    ];
+  }).flat();
 }
 
 export async function deleteUserScopedRows(
@@ -512,9 +782,43 @@ export async function deleteUserScopedRows(
   includeUser = false,
 ): Promise<void> {
   // Child-to-parent order keeps the reset portable with FK enforcement on.
+  const demoTenantId = "demo-tenant-001";
+  await deleteUniversalChatDatasetRows(db, userId);
+  await db.delete(agentLearningCandidates).where(eq(agentLearningCandidates.tenantId, demoTenantId));
+  await db.delete(agentActionProposals).where(eq(agentActionProposals.tenantId, demoTenantId));
+  await db.delete(agentTasks).where(eq(agentTasks.tenantId, demoTenantId));
+  await db.delete(agentProactiveInsights).where(eq(agentProactiveInsights.tenantId, demoTenantId));
+  await db.delete(agentEvidenceFacts).where(eq(agentEvidenceFacts.tenantId, demoTenantId));
+  await db.delete(agentPlanExecutions).where(eq(agentPlanExecutions.tenantId, demoTenantId));
+  await db.delete(agentCases).where(eq(agentCases.tenantId, demoTenantId));
+  await db.delete(agentEventInbox).where(eq(agentEventInbox.tenantId, demoTenantId));
+  await db.delete(agentMetricEvents).where(eq(agentMetricEvents.tenantId, demoTenantId));
+  await db.delete(materialMovements).where(eq(materialMovements.tenantId, demoTenantId));
   await db.delete(agentCitations).where(eq(agentCitations.userId, userId));
   await db.delete(agentMessages).where(eq(agentMessages.userId, userId));
   await db.delete(agentThreads).where(eq(agentThreads.userId, userId));
+  // Scenario templates and Appius fixtures are shared by the demo project.
+  // Remove project runtime children for every project member before replacing
+  // those shared parents; otherwise an analyst-owned run would block reset via
+  // foreign keys and leave a half-reset database.
+  await db.execute(sql`
+    delete from analysis_review_decisions
+    where run_id in (select id from scenario_runs where project_id='demo-project-001')
+  `);
+  await db.execute(sql`
+    delete from position_analysis_results
+    where run_id in (select id from scenario_runs where project_id='demo-project-001')
+  `);
+  await db.execute(sql`
+    delete from scenario_run_steps
+    where run_id in (select id from scenario_runs where project_id='demo-project-001')
+  `);
+  await db.execute(sql`
+    delete from audit_logs
+    where entity_type='SCENARIO_RUN'
+      and entity_id in (select id from scenario_runs where project_id='demo-project-001')
+  `);
+  await db.execute(sql`delete from scenario_runs where project_id='demo-project-001'`);
   await db.delete(analysisReviewDecisions).where(eq(analysisReviewDecisions.userId, userId));
   await db.delete(positionAnalysisResults).where(eq(positionAnalysisResults.userId, userId));
   await db.delete(scenarioRunSteps).where(eq(scenarioRunSteps.userId, userId));
@@ -541,6 +845,7 @@ export async function deleteUserScopedRows(
 }
 
 function validateFixtures(): void {
+  const portfolioFixture = generateSpecificationPortfolio();
   const validations: Array<[label: string, actual: number, expected: number]> = [
     ["identity.users", identityFixture.users.length, identityFixture.fixtureManifest.expectedUserCount],
     [
@@ -552,6 +857,21 @@ function validateFixtures(): void {
       "appius.positions",
       appiusFixture.positions.length,
       appiusFixture.fixtureManifest.expectedCanonicalPositionCount,
+    ],
+    [
+      "appiusPortfolio.specifications",
+      portfolioFixture.specifications.length,
+      SPECIFICATION_PORTFOLIO_MANIFEST.expectedSpecificationCount,
+    ],
+    [
+      "appiusPortfolio.versions",
+      portfolioFixture.specificationVersions.length,
+      SPECIFICATION_PORTFOLIO_MANIFEST.expectedVersionCount,
+    ],
+    [
+      "appiusPortfolio.positions",
+      portfolioFixture.positions.length,
+      SPECIFICATION_PORTFOLIO_MANIFEST.expectedPositionCount,
     ],
     ["sap.materials", sapFixture.materials.length, sapFixture.fixtureManifest.expectedMaterialStockRecordCount],
     [
@@ -580,6 +900,9 @@ function validateFixtures(): void {
     ...appiusFixture.specifications.map((item) => item.user_id),
     ...appiusFixture.specificationVersions.map((item) => item.user_id),
     ...appiusFixture.positions.map((item) => item.user_id),
+    ...portfolioFixture.specifications.map((item) => item.user_id),
+    ...portfolioFixture.specificationVersions.map((item) => item.user_id),
+    ...portfolioFixture.positions.map((item) => item.user_id),
     ...sapFixture.materials.map((item) => item.user_id),
     ...normativeFixture.documents.map((item) => item.user_id),
     ...normativeFixture.chunks.map((item) => item.user_id),
@@ -757,6 +1080,22 @@ function matchesExpectedCounts(counts: SeedCounts): boolean {
   return exactBaselineIsPresent && mutableRuntimeIsValid;
 }
 
+function matchesLegacySpecificationPortfolioCounts(counts: SeedCounts): boolean {
+  const legacyExactCounts = {
+    ...EXPECTED_BASE_COUNTS,
+    specifications: appiusFixture.fixtureManifest.expectedSpecificationCount,
+    canonicalPositions: appiusFixture.fixtureManifest.expectedCanonicalPositionCount,
+  };
+  const exactLegacyBaselineIsPresent = EXACT_BASELINE_COUNT_KEYS.every(
+    (key) => counts[key] === legacyExactCounts[key],
+  );
+  return (
+    exactLegacyBaselineIsPresent &&
+    counts.specificationVersions >= appiusFixture.specificationVersions.length &&
+    counts.prompts >= EXPECTED_BASE_COUNTS.prompts
+  );
+}
+
 function assertDemoUser(userId: string): asserts userId is typeof DEMO_USER_ID {
   if (userId !== DEMO_USER_ID) {
     throw new Error("Канонический seed разрешён только для доверенного пользователя demo-user-001.");
@@ -790,6 +1129,12 @@ function decimal(value: number): string {
 
 function isoDate(value: string): string {
   return value.includes("T") ? value : `${value}T00:00:00.000Z`;
+}
+
+function oneCalendarYearAfter(value: string): string {
+  const date = new Date(value);
+  date.setUTCFullYear(date.getUTCFullYear() + 1);
+  return date.toISOString();
 }
 
 function naturalDocumentKey(documentId: string, version: string): string {

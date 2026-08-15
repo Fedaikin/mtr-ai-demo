@@ -84,6 +84,57 @@ export async function resolveAuthorizationContext(subjectId: string, requestedPr
   };
 }
 
+/** Server-only service identity used by durable event ingress and workers. */
+export async function resolveServiceAuthorizationContext(
+  subjectId: string,
+  projectId: string,
+): Promise<TrustedRequestContext> {
+  const database = await getDatabase();
+  const [user] = rows(await database.execute(sql`
+    select id, display_name, status, account_type, authorization_version
+    from users where id = ${subjectId} limit 1
+  `));
+  if (!user || user.status !== "ACTIVE" || user.account_type !== "SERVICE_ACCOUNT") {
+    throw new AuthorizationError("source.appius.read", "Сервисная учётная запись недоступна");
+  }
+  const [project] = rows(await database.execute(sql`
+    select id from projects where id = ${projectId} and status = 'ACTIVE' limit 1
+  `));
+  if (!project) throw new AuthorizationError("source.appius.read", "Проект события недоступен");
+  const assignments = rows(await database.execute(sql`
+    select ra.id, r.key as role_key
+    from role_assignments ra join roles r on r.id = ra.role_id
+    where ra.user_id = ${subjectId} and ra.status = 'ACTIVE' and r.active = true
+      and ra.scope_type = 'SERVICE'
+      and ra.valid_from <= now() and (ra.valid_until is null or ra.valid_until > now())
+  `));
+  const serviceRoleKeys = assignments.map((row) => String(row.role_key) as RoleKey);
+  const permissionKeys = expandRolePermissions(serviceRoleKeys);
+  const allowedSystems = new Set<string>();
+  if (permissionKeys.has("source.appius.read")) allowedSystems.add("SYSTEM_CONFIG");
+  if (permissionKeys.has("source.sap.read")) allowedSystems.add("SAP");
+  if (permissionKeys.has("source.rag.read")) allowedSystems.add("NORMATIVE");
+  const scopeRows = rows(await database.execute(sql`
+    select id, source_type from source_scopes where status = 'ACTIVE' order by id
+  `));
+  return {
+    subjectId,
+    displayName: String(user.display_name),
+    activeRoleAssignmentIds: assignments.map((row) => String(row.id)),
+    globalRoleKeys: serviceRoleKeys,
+    activeProjectId: projectId,
+    projectRoleKeys: [],
+    permissionKeys,
+    catalogScopeIds: [],
+    sourceScopeIds: scopeRows
+      .filter((row) => allowedSystems.has(String(row.source_type)))
+      .map((row) => String(row.id)),
+    accessClaims: {},
+    authorizationVersion: Number(user.authorization_version ?? 1),
+    requestId: randomUUID(),
+  };
+}
+
 export function can(ctx: TrustedRequestContext, permission: PermissionKey, resource?: ResourceDescriptor): boolean {
   if (!ctx.permissionKeys.has(permission)) return false;
   if (resource?.projectId && resource.projectId !== ctx.activeProjectId) return false;

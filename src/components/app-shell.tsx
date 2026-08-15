@@ -31,7 +31,7 @@ const ADMIN_NAVIGATION = [
   { name: "Аудит", href: "/admin/audit", permissions: ["audit.read.global", "audit.read.project"] },
 ] as const;
 
-export function AppShell({ children, displayName, login, permissionKeys, roleKeys, roleSelectorEnabled }: { children: ReactNode; displayName: string; login: string; permissionKeys: readonly string[]; roleKeys: readonly string[]; roleSelectorEnabled: boolean }) {
+export function AppShell({ children, displayName, login, subjectId, authorizationVersion, activeProjectId, permissionKeys, roleKeys, roleSelectorEnabled }: { children: ReactNode; displayName: string; login: string; subjectId: string; authorizationVersion: number; activeProjectId: string | null; permissionKeys: readonly string[]; roleKeys: readonly string[]; roleSelectorEnabled: boolean }) {
   const permissions = new Set(permissionKeys);
   const userItems = visibleItems(USER_NAVIGATION, permissions);
   const adminItems = visibleItems(ADMIN_NAVIGATION, permissions);
@@ -54,7 +54,7 @@ export function AppShell({ children, displayName, login, permissionKeys, roleKey
               <span className="text-base font-semibold tracking-tight">Анализ МТР</span>
             </Link>
             <span className="rounded-full bg-teal-50 px-2 py-1 text-[10px] font-semibold text-teal-800 lg:hidden">
-              MOCK
+              ДЕМО
             </span>
           </div>
           <AppNavigation userItems={userItems} adminItems={adminItems} />
@@ -66,25 +66,25 @@ export function AppShell({ children, displayName, login, permissionKeys, roleKey
           </div>
         </aside>
         <div className="min-w-0">
-          <header className="flex min-h-16 items-center justify-between border-b border-slate-200 bg-white/95 px-4 backdrop-blur sm:px-6 lg:px-8">
-            <div>
-              <p className="text-xs text-slate-500">Оперативный контур · mock</p>
-              <p className="text-sm font-medium">{displayName}</p>
+          <header className="flex min-h-16 flex-wrap items-center gap-2 border-b border-slate-200 bg-white/95 px-4 py-2 backdrop-blur sm:flex-nowrap sm:justify-between sm:px-6 lg:px-8">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs text-slate-500">Оперативный демонстрационный контур</p>
+              <p className="truncate text-sm font-medium">{displayName}</p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex w-full min-w-0 items-center justify-end gap-2 sm:w-auto">
               {roleSelectorEnabled ? <RoleSwitcher currentLogin={login} /> : null}
               <span className="hidden rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-xs font-medium text-teal-800 sm:inline-flex">
-                Локальная модель
+                МТР Агент
               </span>
               <LogoutButton className="focus-ring rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60" />
             </div>
           </header>
-          <main id="main-content" className="px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+          <main id="main-content" className="min-w-0 max-w-full overflow-x-clip px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
             {children}
           </main>
         </div>
       </div>
-      {permissions.has("agent.chat") ? <AgentWidget displayName={displayName} /> : null}
+      {permissions.has("agent.chat") ? <AgentWidget key={`${subjectId}:${authorizationVersion}:${activeProjectId ?? "none"}`} displayName={displayName} subjectId={subjectId} authorizationVersion={authorizationVersion} activeProjectId={activeProjectId} /> : null}
     </div>
   );
 }

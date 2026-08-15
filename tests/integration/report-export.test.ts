@@ -15,6 +15,7 @@ import {
 import { findRawUserEnums } from "@/lib/localization";
 import { ScenarioService } from "@/application/scenario-service";
 import { DEMO_USER_ID, type ScenarioRun } from "@/domain/models";
+import { MTR_AGENT_UNIVERSAL_VERSION } from "@/application/agent-orchestrator/system-prompt";
 
 describe.sequential("report exports", () => {
   let report: ReportView;
@@ -155,11 +156,21 @@ describe.sequential("report exports", () => {
           expect.objectContaining({ versionId: expect.any(String), versionNumber: expect.any(Number) }),
         ]),
         sap: expect.any(String),
-        normative: "DEMO_RULES_VERSIONED",
-        prompt: expect.objectContaining({ version: "1.0.0", checksum: expect.any(String) }),
+        normative: "normative-base-v1@1.0.0",
+        prompt: expect.objectContaining({
+          version: MTR_AGENT_UNIVERSAL_VERSION,
+          checksum: expect.any(String),
+        }),
         responsibilityRules: expect.arrayContaining([
           expect.objectContaining({ documentId: expect.any(String), version: expect.any(String) }),
         ]),
+        responsibilityRuleManifest: expect.objectContaining({
+          schemaVersion: "responsibility-rule-manifest-v1",
+          datasetVersion: "normative-base-v1@1.0.0",
+          projectId: "demo-project-001",
+          sourceScopeId: "demo-normative-001",
+          checksum: expect.any(String),
+        }),
         analogueRules: expect.arrayContaining([
           expect.objectContaining({ documentId: expect.any(String), version: expect.any(String) }),
         ]),
@@ -225,7 +236,7 @@ describe.sequential("report exports", () => {
     expect(sheetRows(workbook, "Экспертная проверка").length).toBeGreaterThan(1);
     const sourceRows = sheetRows(workbook, "Источники");
     expect(sourceRows).toEqual(expect.arrayContaining([
-      expect.arrayContaining(["Системный промпт", "1.0.0"]),
+      expect.arrayContaining(["Системный промпт", MTR_AGENT_UNIVERSAL_VERSION]),
       expect.arrayContaining(["Правила ответственности"]),
       expect.arrayContaining(["Правила аналогов"]),
     ]));

@@ -421,8 +421,8 @@ export function integrationSystemLabel(value: IntegrationSystem): string {
   return ENUM_LABELS.integrationSystem[value];
 }
 
-export function responsibilityLabel(value: Responsibility): string {
-  return ENUM_LABELS.responsibility[value];
+export function responsibilityLabel(value: Responsibility | null): string {
+  return value === null ? "Не определена" : ENUM_LABELS.responsibility[value];
 }
 
 export function matchCategoryLabel(value: MatchCategory): string {

@@ -47,7 +47,7 @@ describe.sequential("database migration boundary", () => {
       new Request("http://localhost/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json", host: "localhost" },
-        body: JSON.stringify({ login: "demo", password: "Demo2026!" }),
+        body: JSON.stringify({ login: "demo", password: "MtrLocalTestOnly!" }),
       }),
     );
 

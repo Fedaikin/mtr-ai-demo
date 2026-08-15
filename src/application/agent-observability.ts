@@ -157,7 +157,11 @@ export function buildAgentOperations(
   filters: AgentOperationFilters = {},
 ): AgentOperation[] {
   return entries
-    .filter((entry) => entry.action === "agent.tool.result")
+    .filter((entry) => [
+      "agent.tool.result",
+      "agent.universal.capability.completed",
+      "agent.universal.capability.failed",
+    ].includes(entry.action))
     .map(toOperation)
     .filter((operation) => matchesFilters(operation, filters))
     .toSorted((left, right) => right.occurredAt.localeCompare(left.occurredAt));
@@ -173,7 +177,7 @@ function toOperation(entry: AgentAuditEntry): AgentOperation {
     conversationId: stringValue(details.conversationId),
     runId: stringValue(details.runId),
     entityId: entry.entityId,
-    tool: stringValue(details.tool) ?? "agent.operation",
+    tool: stringValue(details.tool) ?? stringValue(details.capabilityKey) ?? "agent.operation",
     arguments: compactAuditValue(redactSensitiveData(details.arguments ?? {})),
     result: compactAuditValue(redactSensitiveData(details.result ?? {})),
     durationMs: numberValue(details.durationMs),

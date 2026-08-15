@@ -1,12 +1,82 @@
+import { createHash } from "node:crypto";
+
 import type { Position, ResponsibilityRule, RuleCitation } from "./models";
 import { normalizeText } from "./normalize";
 
+export type ResponsibilityDecisionState =
+  | "RESOLVED"
+  | "REVIEW_REQUIRED"
+  | "INSUFFICIENT_DATA";
+
 export interface ResponsibilityDecision {
-  responsibility: "CUSTOMER" | "CONTRACTOR";
-  confidence: number;
+  decisionState: ResponsibilityDecisionState;
+  responsibility: "CUSTOMER" | "CONTRACTOR" | null;
+  confidence: number | null;
   explanation: string;
-  citation: RuleCitation;
+  citation: RuleCitation | null;
+  candidateCitations: RuleCitation[];
   requiresHumanReview: boolean;
+}
+
+export interface ResponsibilityRuleManifest {
+  schemaVersion: "responsibility-rule-manifest-v1";
+  projectId: string;
+  sourceScopeId: string;
+  trustedScope: {
+    projectId: string;
+    sourceScopeId: string;
+  };
+  datasetVersion: string;
+  ruleCount: number;
+  activeRuleCount: number;
+  equipmentTypes: string[];
+  coveredEquipmentTypes: string[];
+  documents: Array<{
+    documentId: string;
+    version: string;
+    clauses: string[];
+  }>;
+  checksum: string;
+  checksumSha256: string;
+}
+
+export interface ResponsibilityResultProjection {
+  readonly responsibilityDecisionState?: ResponsibilityDecisionState;
+  readonly responsibility: "CUSTOMER" | "CONTRACTOR" | null;
+  readonly responsibilityCitation: Pick<RuleCitation, "clauseId"> | null;
+  readonly requiresHumanReview: boolean;
+}
+
+export function effectiveResponsibilityDecisionState(
+  result: ResponsibilityResultProjection,
+): ResponsibilityDecisionState {
+  if (result.responsibilityDecisionState) return result.responsibilityDecisionState;
+  if (result.responsibility === null || result.responsibilityCitation?.clauseId === "UNRESOLVED") {
+    return "INSUFFICIENT_DATA";
+  }
+  return result.requiresHumanReview ? "REVIEW_REQUIRED" : "RESOLVED";
+}
+
+export function summarizeResponsibilityDecisions(
+  results: readonly ResponsibilityResultProjection[],
+): Readonly<{
+  total: number;
+  customer: number;
+  contractor: number;
+  reviewRequired: number;
+  insufficientData: number;
+}> {
+  return Object.freeze({
+    total: results.length,
+    customer: results.filter((result) =>
+      effectiveResponsibilityDecisionState(result) === "RESOLVED" && result.responsibility === "CUSTOMER").length,
+    contractor: results.filter((result) =>
+      effectiveResponsibilityDecisionState(result) === "RESOLVED" && result.responsibility === "CONTRACTOR").length,
+    reviewRequired: results.filter((result) =>
+      effectiveResponsibilityDecisionState(result) === "REVIEW_REQUIRED").length,
+    insufficientData: results.filter((result) =>
+      effectiveResponsibilityDecisionState(result) === "INSUFFICIENT_DATA").length,
+  });
 }
 
 export function classifyResponsibility(
@@ -26,16 +96,28 @@ export function classifyResponsibility(
   const selected = candidates[0];
   if (!selected) {
     return {
-      responsibility: "CONTRACTOR",
-      confidence: 0.45,
-      explanation: "Явное демонстрационное правило не найдено; требуется экспертное решение.",
-      citation: {
-        documentId: "КТ-374-DEMO",
-        version: "1.0-DEMO",
-        clauseId: "UNRESOLVED",
-        title: "Демонстрационное правило не найдено",
-        isSyntheticDemo: true,
-      },
+      decisionState: "INSUFFICIENT_DATA",
+      responsibility: null,
+      confidence: null,
+      explanation: "В доступном нормативном контуре применимое правило ответственности не найдено.",
+      citation: null,
+      candidateCitations: [],
+      requiresHumanReview: true,
+    };
+  }
+
+  const selectedSpecificity = ruleSpecificity(selected);
+  const equallySpecific = candidates.filter(
+    (candidate) => ruleSpecificity(candidate) === selectedSpecificity,
+  );
+  if (new Set(equallySpecific.map((candidate) => candidate.responsibility)).size > 1) {
+    return {
+      decisionState: "REVIEW_REQUIRED",
+      responsibility: null,
+      confidence: null,
+      explanation: "Найдены одинаково применимые нормативные правила с разными решениями об ответственности.",
+      citation: null,
+      candidateCitations: equallySpecific.map(citationFrom),
       requiresHumanReview: true,
     };
   }
@@ -50,11 +132,65 @@ export function classifyResponsibility(
       ? Math.min(1, Math.max(0, configuredConfidence))
       : 0.96;
   return {
+    decisionState: requiresHumanReview ? "REVIEW_REQUIRED" : "RESOLVED",
     responsibility: selected.responsibility,
     confidence: requiresHumanReview ? Math.min(baseConfidence, 0.82) : baseConfidence,
     explanation: selected.text,
     citation: citationFrom(selected),
+    candidateCitations: [citationFrom(selected)],
     requiresHumanReview,
+  };
+}
+
+export function buildResponsibilityRuleManifest(
+  rules: readonly ResponsibilityRule[],
+  scope: Readonly<{
+    projectId: string;
+    sourceScopeId: string;
+    datasetVersion: string;
+  }>,
+): ResponsibilityRuleManifest {
+  const sortedRules = [...rules].sort((left, right) =>
+    citationKey(left).localeCompare(citationKey(right), "ru"));
+  const documents = [...new Map(sortedRules.map((rule) => {
+    const key = `${rule.documentId}:${rule.version}`;
+    const clauses = sortedRules
+      .filter((candidate) => candidate.documentId === rule.documentId && candidate.version === rule.version)
+      .map((candidate) => candidate.clauseId)
+      .sort((left, right) => left.localeCompare(right, "ru"));
+    return [key, { documentId: rule.documentId, version: rule.version, clauses }];
+  })).values()];
+  const equipmentTypes = [...new Set(sortedRules.flatMap((rule) => rule.equipmentTypes))]
+    .sort((left, right) => left.localeCompare(right, "en"));
+  const canonical = JSON.stringify({
+    schemaVersion: "responsibility-rule-manifest-v1",
+    ...scope,
+    ruleCount: sortedRules.length,
+    equipmentTypes,
+    documents,
+    rules: sortedRules.map((rule) => ({
+      documentId: rule.documentId,
+      version: rule.version,
+      clauseId: rule.clauseId,
+      equipmentTypes: [...rule.equipmentTypes].sort(),
+      responsibility: rule.responsibility,
+      conditions: rule.conditions ?? {},
+    })),
+  });
+  return {
+    schemaVersion: "responsibility-rule-manifest-v1",
+    ...scope,
+    trustedScope: {
+      projectId: scope.projectId,
+      sourceScopeId: scope.sourceScopeId,
+    },
+    ruleCount: sortedRules.length,
+    activeRuleCount: sortedRules.length,
+    equipmentTypes,
+    coveredEquipmentTypes: equipmentTypes,
+    documents,
+    checksum: createHash("sha256").update(canonical, "utf8").digest("hex"),
+    checksumSha256: createHash("sha256").update(canonical, "utf8").digest("hex"),
   };
 }
 

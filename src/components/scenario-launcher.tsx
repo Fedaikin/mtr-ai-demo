@@ -149,7 +149,7 @@ export function ScenarioLauncher({
           <h2 id="launch-title" className="mt-1 text-lg font-semibold">Параметры моделирования</h2>
           <p className="mt-2 text-sm leading-5 text-slate-600">Сервер сохранит входной snapshot и журнал каждого шага.</p>
         </div>
-        <div className="space-y-4">
+        <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Сценарий" htmlFor="scenario-id">
             <select
               id="scenario-id"
@@ -165,22 +165,6 @@ export function ScenarioLauncher({
               {scenarios.map((scenario) => <option key={scenario.id} value={scenario.id}>{scenario.name}</option>)}
             </select>
           </Field>
-          {selectedScenario ? <p className="-mt-2 text-xs leading-5 text-slate-500">{selectedScenario.description}</p> : null}
-          <Field label="Спецификация" htmlFor="specification-id">
-            <select
-              id="specification-id"
-              value={specificationId}
-              onChange={(event) => setSpecificationId(event.target.value)}
-              className="focus-ring h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm"
-            >
-              <option value="ALL_CURRENT_SPECIFICATIONS">Все актуальные · 24 позиции</option>
-              {specifications.map((specification) => (
-                <option key={specification.id} value={specification.id}>
-                  {specification.projectCode} · {specification.positionCount} поз.
-                </option>
-              ))}
-            </select>
-          </Field>
           <Field label="Режим" htmlFor="run-mode">
             <select
               id="run-mode"
@@ -192,6 +176,24 @@ export function ScenarioLauncher({
               <option value="DRY_RUN">Проверочный запуск</option>
             </select>
           </Field>
+          {selectedScenario ? <p className="text-xs leading-5 text-slate-500 sm:col-span-2">{selectedScenario.description}</p> : null}
+          <div className="sm:col-span-2">
+            <Field label="Спецификация" htmlFor="specification-id">
+            <select
+              id="specification-id"
+              value={specificationId}
+              onChange={(event) => setSpecificationId(event.target.value)}
+              className="focus-ring h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm"
+            >
+              <option value="ALL_CURRENT_SPECIFICATIONS">Эталонный набор · 24 позиции</option>
+              {specifications.map((specification) => (
+                <option key={specification.id} value={specification.id}>
+                  {specification.projectCode} · {specification.positionCount} поз.
+                </option>
+              ))}
+            </select>
+            </Field>
+          </div>
         </div>
         <button
           type="button"

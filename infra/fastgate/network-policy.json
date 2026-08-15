@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "mtr-fastgate-network-policy-v1",
+  "defaultExternalEgress": "DENY",
+  "hostPublishing": "NONE",
+  "dns": "INTERNAL_ONLY",
+  "networkSegments": {
+    "fastgate-supervisor-proxy": ["supervisor", "http-proxy"],
+    "fastgate-supervisor-witness": ["supervisor", "connector-witness"],
+    "fastgate-proxy-application": ["http-proxy", "application"],
+    "fastgate-proxy-witness": ["http-proxy", "connector-witness"],
+    "fastgate-verification": ["offline-verifier"]
+  },
+  "services": {
+    "supervisor": ["http-proxy:4310", "connector-witness:4320"],
+    "http-proxy": ["application:3000", "application:4330", "connector-witness:4320"],
+    "application": ["http-proxy:4310", "ephemeral-database"],
+    "connector-witness": ["ephemeral-database"],
+    "offline-verifier": []
+  },
+  "forbiddenMounts": [
+    "/var/run/docker.sock",
+    "$HOME",
+    ".ssh",
+    ".aws",
+    ".config/gcloud"
+  ],
+  "negativeAssertions": [
+    "external-http-denied",
+    "external-dns-denied",
+    "application-direct-witness-denied",
+    "supervisor-direct-application-denied",
+    "docker-socket-absent",
+    "host-home-absent",
+    "host-port-publishing-absent",
+    "all-runtime-networks-internal"
+  ]
+}

@@ -147,8 +147,12 @@ export function ReportTable({
                     {formatNumber(result.position.requiredQuantity)} {result.position.unit}
                   </td>
                   <td className="px-4 py-3 align-top">
-                    {responsibilityLabel(result.responsibility)}
-                    <p className="mt-1 text-xs text-slate-500">{Math.round(result.responsibilityConfidence * 100)}%</p>
+                    {responsibilityResultLabel(result)}
+                    <p className="mt-1 text-xs text-slate-500">
+                      {result.responsibilityConfidence === null
+                        ? "Уверенность не рассчитана"
+                        : `${Math.round(result.responsibilityConfidence * 100)}%`}
+                    </p>
                   </td>
                   <td className="px-4 py-3 align-top">
                     <Category value={result.match.category} />
@@ -423,13 +427,15 @@ function DetailsDrawer({
               : <p>Различий не выявлено.</p>}
           </Block>
           <Block title="Нормативное основание">
-            <p>{result.responsibilityCitation.title}</p>
+            <p>{result.responsibilityCitation?.title ?? "Нормативное основание не найдено"}</p>
             {result.responsibilityExplanation ? (
               <p className="mt-1 text-slate-600">Обоснование: {result.responsibilityExplanation}</p>
             ) : null}
-            <p className="mt-1 font-mono text-xs text-slate-500">
-              {result.responsibilityCitation.documentId} · {result.responsibilityCitation.version} · {result.responsibilityCitation.clauseId}
-            </p>
+            {result.responsibilityCitation ? (
+              <p className="mt-1 font-mono text-xs text-slate-500">
+                {result.responsibilityCitation.documentId} · {result.responsibilityCitation.version} · {result.responsibilityCitation.clauseId}
+              </p>
+            ) : null}
           </Block>
           {result.analogueCoverage ? (
             <Block title="Компоненты основного плана покрытия">
@@ -517,6 +523,16 @@ function ExportLink({ runId, format, label }: { runId: string; format: string; l
 
 function Block({ title, children }: { title: string; children: React.ReactNode }) {
   return <section><h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</h3><div className="leading-6 text-slate-700">{children}</div></section>;
+}
+
+function responsibilityResultLabel(result: PositionAnalysisResult): string {
+  if (result.responsibilityDecisionState === "INSUFFICIENT_DATA" || result.responsibility === null) {
+    return "Недостаточно данных";
+  }
+  const label = responsibilityLabel(result.responsibility);
+  return result.responsibilityDecisionState === "REVIEW_REQUIRED"
+    ? `${label} · требуется проверка`
+    : label;
 }
 
 function provenanceText(value: unknown): string {

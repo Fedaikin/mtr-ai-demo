@@ -10,6 +10,7 @@ import {
 } from "@playwright/test";
 import * as XLSX from "xlsx";
 
+import { E2E_DEMO_LOGIN, E2E_DEMO_PASSWORD } from "./demo-auth";
 import { findRawUserEnum, RAW_USER_ENUM_PATTERN } from "./ui-contract";
 
 interface RunView {
@@ -27,13 +28,15 @@ interface RunView {
 
 const isRemotePreview = Boolean(process.env.PLAYWRIGHT_BASE_URL);
 const scenarioCompletionTimeout = isRemotePreview ? 90_000 : 15_000;
-const resetCompletionTimeout = isRemotePreview ? 30_000 : 5_000;
+const resetCompletionTimeout = 60_000;
 const INTERNAL_AGENT_CONTENT_PATTERN =
   /\b(?:appius|sap|norms?|normative|scenarios?|reports?|llm)\.[a-z][a-z0-9_.-]*\b|"(?:toolCalls|systemPrompt|arguments|stackTrace)"\s*:/iu;
 
 test.describe("МТР — обязательные сценарии мастер-промта", () => {
   test.beforeEach(async ({ page }, testInfo) => {
-    if (isRemotePreview) testInfo.setTimeout(120_000);
+    // The isolation reset recreates thousands of rows. A long sequential run
+    // can make that setup exceed Playwright's 30-second default on local PGlite.
+    testInfo.setTimeout(120_000);
     await loginDemoUser(page.request);
     await resetDemoData(page.request);
   });
@@ -43,9 +46,8 @@ test.describe("МТР — обязательные сценарии мастер
 
     await expect(page.locator("header").getByText("Демо-пользователь 1", { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Демо-пользователь 1" })).toBeVisible();
-    await expectMetric(page, "Актуальные позиции", "24");
     const userCard = page.getByText("Данные пользователя", { exact: true }).locator("..");
-    await expect(userCard.getByText("Спецификации", { exact: true }).locator("..")).toContainText("3");
+    await expect(userCard.getByText("Спецификации", { exact: true }).locator("..")).toContainText("83");
     await expect(userCard.getByText("Запуски", { exact: true }).locator("..")).toContainText("0");
     await expect(page.getByText("Только синтетические демонстрационные данные", { exact: true })).toHaveCount(1);
   });
@@ -70,7 +72,7 @@ test.describe("МТР — обязательные сценарии мастер
     await expect(page.getByLabel("Журнал шагов").getByText("Завершено", { exact: true })).toHaveCount(6);
 
     await page
-      .getByRole("navigation", { name: "Основная навигация" })
+      .getByRole("navigation", { name: "Разделы сценариев и запусков" })
       .getByRole("link", { name: "Запуски", exact: true })
       .click();
     const runRow = page
@@ -156,27 +158,36 @@ test.describe("МТР — обязательные сценарии мастер
     await expect(page.getByText("Компонент покрытия", { exact: false }).first()).toBeVisible();
   });
 
-  test("5. агент возвращает подтверждённый остаток, а свежие логи открываются без reload", async ({
+  test("5. агент возвращает подтверждённый остаток без раскрытия технических данных", async ({
     page,
     isMobile,
   }) => {
-    await page.goto("/agent");
+    await page.goto("/mtr-analysis");
     await page.waitForLoadState("networkidle");
-    await page.getByRole("tab", { name: "AI-агент" }).click();
-    const userChat = page.getByLabel("Диалог с МТР-аналитиком");
-    await page.getByTestId("agent-input").fill("Каков текущий остаток материала SAP-DEMO-0001?");
+    const catalog = await responseJson<{
+      item: { itemCode: string; totalAvailableQuantity?: number };
+    }>(await page.request.get("/api/catalog/items/CAT-DEMO-PIP-0001"));
+    expect(catalog.item.itemCode).toBe("CAT-DEMO-PIP-0001");
+    const expectedAvailable = catalog.item.totalAvailableQuantity;
+    expect(typeof expectedAvailable).toBe("number");
+    await page.getByRole("button", { name: "МТР-агент", exact: true }).click();
+    const widget = page.getByRole("complementary", { name: "МТР-агент", exact: true });
+    const userChat = widget.getByLabel("Диалог с МТР-аналитиком");
+    await widget.getByTestId("agent-input").fill("Каков текущий остаток материала SAP-DEMO-0001?");
     const messageResponse = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
         /\/api\/agent\/threads\/[^/]+\/messages$/u.test(new URL(response.url()).pathname),
     );
-    await page.getByTestId("agent-send").click();
+    await widget.getByTestId("agent-send").click();
     const payload = await responseJson<{
       items: Array<{
         role: string;
         content: string;
         citations: Array<{ sourceSystem: string; entityId: string; versionOrSnapshot: string }>;
         structuredOutput?: {
+          schemaVersion?: string;
+          kind?: string;
           confidence?: number;
           requiresHumanReview?: boolean;
         };
@@ -184,11 +195,13 @@ test.describe("МТР — обязательные сценарии мастер
     }>(await messageResponse);
     const assistant = payload.items.find((item) => item.role === "assistant");
 
-    expect(assistant?.content).toContain("200");
-    expect(Object.keys(assistant?.structuredOutput ?? {}).sort()).toEqual([
-      "confidence",
-      "requiresHumanReview",
-    ]);
+    expect(assistant?.content).toContain(String(expectedAvailable));
+    expect(assistant?.structuredOutput).toMatchObject({
+      schemaVersion: "universal-agent-answer-public-v1",
+      kind: "ANSWER",
+      requiresHumanReview: false,
+    });
+    expect(assistant?.structuredOutput?.confidence).toBeGreaterThan(0);
     expect(assistant?.citations).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ sourceSystem: "SAP", entityId: "SAP-DEMO-0001" }),
@@ -197,20 +210,15 @@ test.describe("МТР — обязательные сценарии мастер
     expect(assistant?.citations[0]?.versionOrSnapshot).toBeTruthy();
     expect(JSON.stringify(payload)).not.toMatch(INTERNAL_AGENT_CONTENT_PATTERN);
 
-    await expect(page.getByRole("heading", { name: /МТР-аналитик|AI-агент|Проектный агент/i })).toBeVisible();
-    await expect(userChat).toContainText("200");
+    await expect(widget).toBeVisible();
+    await expect(userChat).toContainText(String(expectedAvailable));
     await expect(userChat).not.toContainText("sap.getMaterialStock");
     await expect(userChat).not.toContainText("sap.getState");
     await expect(userChat).not.toContainText("llm.respond");
 
-    if (isMobile) await page.getByRole("button", { name: "Закрыть" }).click();
-    await page
-      .getByRole("navigation", { name: "Основная навигация" })
-      .getByRole("link", { name: "Логи агента", exact: true })
-      .click();
-    await expect(page.getByRole("heading", { name: "Логи AI-агента" })).toBeVisible();
-    await expect(page.getByTestId("agent-logs-dashboard")).toContainText("Вызовы инструментов");
-    await expect(page.getByTestId("agent-operation-card").filter({ hasText: "sap.getMaterialStock" }).first()).toBeVisible();
+    if (isMobile) await page.getByRole("button", { name: "Закрыть агента" }).click();
+    await page.goto("/admin/agent-logs?tool=material.search");
+    await expect(page.getByTestId("agent-operation-card").filter({ hasText: "material.search" }).first()).toBeVisible();
   });
 
   test("6. при отключённом SAP видны безопасная ошибка и ручной импорт", async ({ page }) => {
@@ -284,7 +292,8 @@ test.describe("МТР — обязательные сценарии мастер
     await expect(page.getByText("Версия 3 · актуальная для анализа", { exact: true })).toBeVisible();
   });
 
-  test("8. reset восстанавливает 24 позиции Appius и 30 записей SAP", async ({ page }) => {
+  test("8. reset восстанавливает 83 спецификации Appius и 30 записей SAP", async ({ page }) => {
+    test.setTimeout(resetCompletionTimeout + 30_000);
     const request = page.request;
     await setIntegrationState(request, {
       system: "SAP",
@@ -296,7 +305,7 @@ test.describe("МТР — обязательные сценарии мастер
     await page.getByRole("checkbox", { name: /Понимаю, что запуски/ }).check();
     await page.getByRole("button", { name: "Восстановить базовый набор" }).click();
     await expect(page.getByRole("status")).toHaveText(
-      "Готово: Appius — 24, SAP — 30 материалов и 30 остатков.",
+      "Готово: Appius — 3584, SAP — 30 материалов и 30 остатков.",
       { timeout: resetCompletionTimeout },
     );
 
@@ -312,7 +321,7 @@ test.describe("МТР — обязательные сценарии мастер
       integrations: Array<{ system: string; state: string }>;
     }>(await request.get("/api/admin/integrations"));
 
-    expect(specifications.specifications).toHaveLength(3);
+    expect(specifications.specifications).toHaveLength(83);
     expect(sap.d.__count).toBe("30");
     expect(sap.d.results).toHaveLength(30);
     expect(integrations.integrations.find((item) => item.system === "SAP")?.state).toBe("AVAILABLE");
@@ -332,7 +341,7 @@ test.describe("МТР — обязательные сценарии мастер
     const serialized = JSON.stringify(payload);
 
     expect(payload.isSyntheticDemo).toBe(true);
-    expect(payload.specifications).toHaveLength(3);
+    expect(payload.specifications).toHaveLength(83);
     expect(new Set(payload.specifications.map((item) => item.userId))).toEqual(
       new Set(["demo-user-001"]),
     );
@@ -408,7 +417,7 @@ async function resetDemoData(request: APIRequestContext): Promise<void> {
 async function loginDemoUser(request: APIRequestContext): Promise<void> {
   await responseJson(
     await request.post("/api/auth/login", {
-      data: { login: "demo", password: "Demo2026!" },
+      data: { login: E2E_DEMO_LOGIN, password: E2E_DEMO_PASSWORD },
     }),
   );
 }

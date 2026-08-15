@@ -22,6 +22,7 @@ import { getRepository } from "@/adapters/persistence/repository";
 import { ScenarioService } from "@/application/scenario-service";
 import { GET as exportReport } from "@/app/api/reports/[runId]/export/route";
 import { DEMO_USER_DISPLAY_NAME, DEMO_USER_ID, type ScenarioRun } from "@/domain/models";
+import { MTR_AGENT_UNIVERSAL_VERSION } from "@/application/agent-orchestrator/system-prompt";
 
 describe.sequential("report export route audit", () => {
   let completedRun: ScenarioRun;
@@ -78,8 +79,8 @@ describe.sequential("report export route audit", () => {
             appius: expect.any(String),
             appiusVersions: expect.any(Array),
             sap: expect.any(String),
-            normative: "DEMO_RULES_VERSIONED",
-            promptVersion: "1.0.0",
+            normative: "normative-base-v1@1.0.0",
+            promptVersion: MTR_AGENT_UNIVERSAL_VERSION,
             responsibilityRules: expect.any(Array),
             analogueRules: expect.any(Array),
           },

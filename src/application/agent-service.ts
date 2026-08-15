@@ -4,6 +4,7 @@ import type {
   GroundedAgentOutput,
   GroundedCitation,
   IntegrationState,
+  MatchExplanation,
   Position,
   PositionAnalysisResult,
   ReportSummary,
@@ -13,6 +14,7 @@ import type {
   Specification,
   SpecificationVersion,
 } from "@/domain/models";
+import { findBestMaterial } from "@/domain/matching";
 import { normalizeText, tokenSimilarity } from "@/domain/normalize";
 import {
   resolveDictionaryKeys,
@@ -42,6 +44,11 @@ import { z } from "zod";
 interface GroundedFactEnvelope<T = unknown> {
   data: T;
   citations?: GroundedCitation[];
+}
+
+interface PositionCheckFact {
+  position: Position;
+  match: MatchExplanation;
 }
 
 export const agentMessageInputSchema = z
@@ -93,6 +100,7 @@ export interface AgentServiceDependencies {
 
 type AgentIntent =
   | "CATALOG"
+  | "POSITION"
   | "SPECIFICATION"
   | "STOCK"
   | "RESPONSIBILITY"
@@ -534,8 +542,14 @@ export class AgentService {
     }
 
     let resolvedPosition: Position | null | undefined;
-    if (!catalogueRequest && (intents.has("RESPONSIBILITY") || intents.has("ANALOGUE"))) {
+    if (
+      !catalogueRequest &&
+      (intents.has("POSITION") || intents.has("RESPONSIBILITY") || intents.has("ANALOGUE"))
+    ) {
       resolvedPosition = await this.resolvePosition(context, specificationId);
+    }
+    if (intents.has("POSITION") && resolvedPosition) {
+      await this.collectPositionCheckFacts(context, resolvedPosition);
     }
     if (intents.has("RESPONSIBILITY") && resolvedPosition) {
       await this.collectResponsibilityFacts(context, resolvedPosition);
@@ -574,7 +588,7 @@ export class AgentService {
         correlationId: context.correlationId,
         attempts: 1,
         promptVersion: context.promptVersion,
-        model: "Mock LLM",
+        ...llmAuditDetails(this.dependencies.llm),
       },
     }, context.correlationId);
     try {
@@ -603,7 +617,7 @@ export class AgentService {
           runId: context.runId,
           correlationId: context.correlationId,
           promptVersion: context.promptVersion,
-          model: "Mock LLM",
+          ...llmAuditDetails(this.dependencies.llm),
           citations: output.citations,
         },
       }, context.correlationId);
@@ -626,7 +640,7 @@ export class AgentService {
           runId: context.runId,
           correlationId: context.correlationId,
           promptVersion: context.promptVersion,
-          model: "Mock LLM",
+          ...llmAuditDetails(this.dependencies.llm),
           errorCode: providerFailure.code,
           errorMessage: providerFailure.message,
         },
@@ -681,7 +695,7 @@ export class AgentService {
         conversationId: context.threadId,
         runId: context.runId,
         promptVersion: context.promptVersion,
-        model: "Mock LLM",
+        ...llmAuditDetails(this.dependencies.llm),
         citations,
       },
     }, context.correlationId);
@@ -1071,6 +1085,39 @@ export class AgentService {
     ]);
   }
 
+  private async collectPositionCheckFacts(
+    context: RequestContext,
+    position: Position,
+  ): Promise<void> {
+    if (!(await this.ensureSapAvailable(context))) return;
+    const query = `position-check:${position.internalCode}`;
+    const result = await this.callTool<StockSearchResult>(
+      context,
+      "sap.searchMaterialStock",
+      "SAP",
+      query,
+      () =>
+        this.dependencies.sap.searchMaterialStock(
+          { equipmentType: position.equipmentType, top: 100, skip: 0 },
+          context.userId,
+        ),
+      stockSearchResultSchema(),
+    );
+    if (!result) return;
+    const match = findBestMaterial(position, result.items);
+    this.addFact(
+      context,
+      "POSITION.check",
+      { position, match } satisfies PositionCheckFact,
+      [
+        positionCitation(position),
+        ...(match.material
+          ? [materialCitation(match.material)]
+          : [sapSearchCitation(query, result.snapshotAt)]),
+      ],
+    );
+  }
+
   private async collectAnalogueFacts(context: RequestContext, position: Position): Promise<void> {
     const rules = await this.callTool<AnalogueRule[]>(
       context,
@@ -1251,7 +1298,7 @@ export class AgentService {
         runId: context.runId,
         correlationId: context.correlationId,
         promptVersion: context.promptVersion,
-        model: "Mock LLM",
+        ...llmAuditDetails(this.dependencies.llm),
       },
     }, context.correlationId);
     try {
@@ -1275,7 +1322,7 @@ export class AgentService {
           runId: context.runId,
           correlationId: context.correlationId,
           promptVersion: context.promptVersion,
-          model: "Mock LLM",
+          ...llmAuditDetails(this.dependencies.llm),
         },
       }, context.correlationId);
       return result;
@@ -1298,7 +1345,7 @@ export class AgentService {
           runId: context.runId,
           correlationId: context.correlationId,
           promptVersion: context.promptVersion,
-          model: "Mock LLM",
+          ...llmAuditDetails(this.dependencies.llm),
           errorCode: safe.code,
           errorMessage: safe.message,
         },
@@ -1408,6 +1455,12 @@ function classifyIntents(
     [message, ...resolveDictionaryKeys(message, dictionary)].join(" "),
   );
   const intents = new Set<AgentIntent>();
+  if (
+    extractAppiusCode(message) ||
+    /(?:проверь|проверить|проверка|проанализируй|оцени)\s+(?:эту\s+)?позици/iu.test(normalized)
+  ) {
+    intents.add("POSITION");
+  }
   if (
     extractCatalogItemCode(message) ||
     /(?:каталог|номенклатур|промышленн.+каталог|взаимозамен|\bBOM\b|состав.+(?:узл|сборк)|комплектующ.+(?:узл|сборк)|catalog(?:ue)?|interchangeab)/iu.test(
@@ -1853,10 +1906,37 @@ function safeLlmFailure(error: unknown): { code: string; message: string } {
         "Не удалось безопасно сформировать ответ: ответ LLM-провайдера не прошёл проверку контракта. Подтверждённые источники сохранены; повторите запрос позднее.",
     };
   }
+  if (/TIMEOUT/u.test(code)) {
+    return {
+      code: "LLM_TIMEOUT",
+      message:
+        "Не удалось безопасно сформировать ответ: LLM-провайдер не ответил в установленный срок. Подтверждённые источники сохранены; повторите запрос позднее.",
+    };
+  }
+  if (/DISABLED|CANCELLED|BUDGET/u.test(code)) {
+    return {
+      code: code.startsWith("LLM_") ? code : "LLM_UNAVAILABLE",
+      message:
+        "Не удалось безопасно сформировать ответ: выполнение остановлено политикой безопасности LLM. Подтверждённые источники сохранены; обратитесь к оператору или повторите запрос позднее.",
+    };
+  }
   return {
     code: "LLM_UNAVAILABLE",
     message:
       "Не удалось безопасно сформировать ответ: LLM-провайдер временно недоступен. Подтверждённые источники сохранены; повторите запрос позднее.",
+  };
+}
+
+function llmAuditDetails(provider: LLMProvider): Record<string, unknown> {
+  const metadata = provider.metadata;
+  if (!metadata) return { model: "Mock LLM" };
+  return {
+    provider: metadata.provider,
+    model: metadata.model,
+    modelVersion: metadata.version,
+    trainingAllowed: metadata.trainingAllowed,
+    retentionAllowed: metadata.retentionAllowed,
+    reasoningPersistence: metadata.reasoningPersistence,
   };
 }
 

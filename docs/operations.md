@@ -2,7 +2,7 @@
 
 Этот документ содержит проверенные операции для локальной разработки, БД, тестирования, управляемых отказов и ручного импорта. Описание HTTP-полей находится в [справочнике API](api-reference.md), а первый пользовательский проход - в [демонстрации за 7–10 минут](demo-guide.md).
 
-> Прототип использует одного пользователя с правами `USER` и `ADMIN`. Публичный Preview необходимо закрывать средствами платформы. Не загружайте реальные контакты, персональные данные, спецификации или корпоративные правила.
+> Прототип использует только синтетические demo-персоны со scoped RBAC. Публичный Preview необходимо закрывать средствами платформы. Не загружайте реальные контакты, персональные данные, спецификации или корпоративные правила.
 
 ## Предварительные условия
 
@@ -53,7 +53,7 @@ pnpm --version
    node --env-file=.env.local --import tsx scripts/seed.ts
    ```
 
-   Скрипт заменяет demo-scoped runtime-данные. Ожидаемые счётчики: 1 пользователь, 24 позиции Appius, 30 материалов SAP, 30 остатков SAP. Fixture manifests `identity-base-v1`, `appius-base-v1`, `sap-base-v1` и `normative-base-v1` имеют schema `1.0.0`; `scenarios-base-v2` имеет schema `1.1.0` и содержит пять сценариев. Версия сценарного manifest не меняет контрольные counts.
+   Скрипт заменяет demo-scoped runtime-данные. Ожидаемые счётчики: 8 субъектов, 83 спецификации / 3 584 позиции Appius, 30 материалов SAP, 30 остатков SAP. Эталонный сценарий по-прежнему использует исходные 3 спецификации / 24 позиции. Fixture manifests `identity-base-v1`, `appius-base-v1`, `appius-portfolio-v1`, `sap-base-v1` и `normative-base-v1` имеют schema `1.0.0`; `scenarios-base-v2` имеет schema `1.1.0` и содержит пять сценариев. Версия сценарного manifest не меняет контрольные counts.
 
 5. Запустите development server:
 
@@ -61,7 +61,7 @@ pnpm --version
    pnpm dev
    ```
 
-6. Откройте [http://localhost:3000](http://localhost:3000). После перенаправления на `/login` войдите как `demo` / `Demo2026!`; это единственная синтетическая учётная запись `Демо-пользователь 1`.
+6. Задайте приватный scrypt-хеш в `DEMO_PASSWORD_HASH`, откройте [http://localhost:3000](http://localhost:3000) и войдите с выданной demo-персоной. Plaintext-пароль не должен находиться в Git, `.env.example`, документации или UI.
 
 `next dev` загружает `.env.local` сам, а обычные `tsx`-скрипты — нет. Поэтому для migrate/seed выше используется `node --env-file=.env.local --import tsx`: все три процесса обращаются к одной БД.
 
@@ -78,10 +78,12 @@ MTR_BASE_URL=http://localhost:3000
 MTR_COOKIE_JAR=$(mktemp)
 trap 'rm -f "$MTR_COOKIE_JAR"' EXIT
 
+read -r -s MTR_DEMO_PASSWORD
 curl --fail-with-body -sS -c "$MTR_COOKIE_JAR" \
   -X POST "$MTR_BASE_URL/api/auth/login" \
   -H 'content-type: application/json' \
-  --data '{"login":"demo","password":"Demo2026!"}' >/dev/null
+  --data "$(jq -n --arg login demo --arg password "$MTR_DEMO_PASSWORD" '{login:$login,password:$password}')" >/dev/null
+unset MTR_DEMO_PASSWORD
 
 curl --fail-with-body -sS -b "$MTR_COOKIE_JAR" "$MTR_BASE_URL/api/mock/appius/specifications"
 curl --fail-with-body -sS -b "$MTR_COOKIE_JAR" \
@@ -89,7 +91,7 @@ curl --fail-with-body -sS -b "$MTR_COOKIE_JAR" \
 curl --fail-with-body -sS "$MTR_BASE_URL/api/health?check=ready"
 ```
 
-Первый ответ должен содержать `total: 3`; второй - `d.__count: "30"`; readiness должен вернуть `status: "ok"` и контрольные счётчики 1/24/30/30.
+Первый ответ должен содержать `total: 83`; второй - `d.__count: "30"`; readiness должен вернуть `status: "ok"` и контрольные счётчики 8/3 584/30/30.
 
 ## Как выбрать локальное хранилище
 
@@ -134,7 +136,7 @@ PGLITE_DATA_DIR=memory:// pnpm db:reset
    pnpm db:seed
    ```
 
-`db:seed` заменяет все строки `demo-user-001` и останавливается, если видит другого пользователя. Не используйте его как production migration. Для Preview и Production нужны разные БД или схемы; подробное объяснение приведено в [архитектуре](../../docs/architecture.md#11-persistence-по-окружениям).
+`db:seed` заменяет синтетические demo-scoped данные и не является production migration. Для Preview и Production нужны разные БД или схемы; безопасная последовательность приведена в [руководстве по развёртыванию](deployment.md#migrations-и-первичный-seed).
 
 ## Как безопасно восстановить demo-набор
 
@@ -164,7 +166,7 @@ curl --fail-with-body -sS \
   --data '{"confirmation":"RESET_DEMO_DATA"}'
 ```
 
-API доступен только при `APP_MODE=demo`. Успешный ответ подтверждает `canonicalPositions: 24`, `sapMaterials: 30`, `sapBalances: 30`.
+API доступен только при `APP_MODE=demo`. Успешный ответ подтверждает `specifications: 83`, `canonicalPositions: 3584`, `sapMaterials: 30`, `sapBalances: 30`.
 
 ### Защита удалённого reset
 
@@ -190,7 +192,7 @@ ALLOW_REMOTE_RESET=true node --env-file=.env.local --import tsx scripts/reset.ts
 pnpm check
 ```
 
-Фактическая последовательность: ESLint, Next route type generation + TypeScript, все Vitest-тесты, privacy scan, 34 deterministic eval-кейса агента, production build.
+Фактическая последовательность: ESLint, Next route type generation + TypeScript, все Vitest-тесты, privacy scan, 34 legacy eval-кейса, 50 analytical, 17 learning, 20 provider-boundary, 32 security, 20 scale, 27 multi-turn и 150 universal-chat current-runtime eval-кейсов, затем production build. Итого 350 eval.
 
 ### Полный release gate
 
@@ -201,6 +203,13 @@ pnpm test:unit
 pnpm test:integration
 pnpm privacy:scan
 pnpm eval:agent
+pnpm eval:agent:analytical
+pnpm eval:agent:learning
+pnpm eval:agent:provider
+pnpm eval:agent:security
+pnpm eval:agent:scale
+pnpm eval:agent:multi-turn
+pnpm eval:agent:universal
 pnpm build
 pnpm test:e2e
 ```
@@ -422,6 +431,47 @@ curl --fail-with-body -sS \
 
 Ожидаются citations `SAP`, уверенность и признак экспертной проверки. Публичный ответ намеренно не содержит `toolCalls`, аргументы или технический JSON; фактический `sap.getMaterialStock` доступен ADMIN на `/admin/agent-logs`. Поле `userId` отсутствует во входной схеме. Если добавить его в JSON, строгая схема вернёт `400 VALIDATION_ERROR`; идентификатор из текста сообщения также не меняет доверенную server session.
 
+### Как включить и проверить универсальный оркестратор 4.1.0
+
+После применения migrations `0006_mtr_agent_orchestrator` и `0007_mtr_agent_learning` включайте возможности независимо:
+
+```dotenv
+MTR_AGENT_ORCHESTRATOR_ENABLED=true
+MTR_AGENT_ACTIONS_ENABLED=true
+MTR_AGENT_EVENTS_ENABLED=false
+MTR_AGENT_UNIVERSAL_CHAT_ENABLED=true
+MTR_AGENT_LIVE_LLM_ENABLED=false
+MTR_AGENT_KILL_SWITCH=false
+MTR_AGENT_LLM_ENABLED=true
+```
+
+Основной флаг включает единый `CHAT / COMMAND` runtime, кейсы, bounded plans, недельную сводку и чтение insights. Actions требуют второго флага. Event ingress оставляйте выключенным, пока не настроен отдельный service secret. Любой новый флаг по умолчанию `false`; `MTR_AGENT_KILL_SWITCH=true` имеет приоритет и останавливает новое выполнение без удаления уже сохранённых данных.
+
+Universal-флаг включает project/material routing, project balance/reorder, compatibility/reliability, structured public answers, attachment import и privileged chat proposals. Для локальной проверки live-флаг оставляйте `false`: используется детерминированный grounded runtime. Для live Preview дополнительно задайте server-only `OPENAI_API_KEY` и exact `OPENAI_MODEL`; failure автоматически возвращает тот же полезный deterministic результат с ограничениями.
+
+`MTR_AGENT_LLM_ENABLED` — отдельный provider-level stop. Значение отсутствует или равно `true` для текущего offline-контура; только точное `false` запрещает новый provider call. Уже полученные citations инструментов не теряются: пользователь получает безопасный fallback с `confidence: 0` и `requiresHumanReview: true`. После изменения environment нужен новый deployment/process restart.
+
+`0007` не требует отдельного feature flag: endpoint обратной связи доступен только
+владельцу сохранённого ответа с `agent.chat`, а запись всегда создаётся в
+`QUARANTINED`. Одобрение, продвижение, отклонение и отзыв выполняются отдельным
+curation-сервисом с повторной проверкой `review.decide` / `prompt.activate`,
+контрольной суммой regression-кейса и durable audit. Ни отправка отзыва, ни его
+одобрение сами по себе не изменяют поведение runtime.
+
+Проверьте typed-команду через ту же session:
+
+```bash
+curl --fail-with-body -sS -b "$MTR_COOKIE_JAR" \
+  -X POST "$MTR_BASE_URL/api/agent/commands/SUMMARY" \
+  -H 'content-type: application/json' \
+  --data '{"context":{"projectId":"demo-project-001"}}' \
+  | jq '.result | {title,summary,confidence,requiresHumanReview,correlationId}'
+```
+
+В `/mtr-analysis` должны появиться пять быстрых команд, личные кейсы, недельная сводка, сигналы и предложения действий. Тот же runtime использует глобальный виджет. После смены demo-роли widget закрывается и очищает client-only thread context до навигации. `/admin/agent-logs` отдельно показывает persisted метрики команд, планов, действий и событий; личный текст сообщения, event payload и raw tool result метрики не читают.
+
+Для event ingress задайте `MTR_AGENT_EVENT_INGRESS_SECRET` длиной не менее 32 символов через secret manager и только затем включите `MTR_AGENT_EVENTS_ENABLED=true`. Внешний отправитель обязан передавать secret в `x-mtr-event-secret`; браузерный JavaScript его не получает.
+
 ## Как подготовить cloud environment
 
 Для Vercel или другого serverless-окружения задайте:
@@ -431,13 +481,26 @@ curl --fail-with-body -sS \
 - Build Command: `pnpm build`;
 - `DATABASE_URL`: отдельная durable PostgreSQL БД;
 - `BLOB_READ_WRITE_TOKEN`: private Blob storage для uploads;
-- `LLM_PROVIDER=mock`;
+- `LLM_PROVIDER=mock` для legacy-контура;
+- `OPENAI_API_KEY` и `OPENAI_MODEL` только в Preview secret manager, если включён live universal provider;
+- `MTR_AGENT_LIVE_LLM_ENABLED=false` до завершения exact-model benchmark и live acceptance;
+- `MTR_AGENT_LLM_ENABLED=true` (для аварийной остановки provider call задайте `false` и перезапустите deployment);
 - `APP_MODE=demo` только для защищённого demo-контура;
 - `DEMO_USER_ID=demo-user-001`.
+- `DEMO_PASSWORD_HASH`: приватный scrypt-хеш через secret manager;
+- orchestrator flags из предыдущего раздела; при первом rollout начать с основного runtime, затем отдельно actions/events.
+
+### Rollback universal chat
+
+1. Отключите `MTR_AGENT_LIVE_LLM_ENABLED`, если проблема только в provider. Deterministic universal runtime продолжит отвечать.
+2. Отключите `MTR_AGENT_ACTIONS_ENABLED`, если нужно остановить новые state changes, сохранив read-only чат.
+3. Отключите `MTR_AGENT_UNIVERSAL_CHAT_ENABLED`, чтобы вернуть previous-stage CHAT/COMMAND runtime.
+4. Общий `MTR_AGENT_KILL_SWITCH=true` запрещает новое выполнение orchestrator.
+5. Migrations `0008`/`0009` additive. Rollback приложения не удаляет их таблицы; destructive down/reset автоматически не выполняется.
 
 Перед запуском новой сборки примените `pnpm db:migrate` к целевой БД отдельной controlled job. Локальная PGlite и `.data/uploads` не являются durable storage на Vercel. Production и Preview не должны разделять БД, Blob namespace или credentials.
 
-Не выполняйте `vercel env run -e production` при существующем `.env.local`: локальные значения могут получить приоритет и направить job в Preview database. Используйте fail-safe block из [руководства по развёртыванию](deployment.md#migrations-и-первичный-seed), сверяйте non-secret `NEON_PROJECT_ID`, а после job проверяйте readiness 1/24/30/30.
+Не выполняйте `vercel env run -e production` при существующем `.env.local`: локальные значения могут получить приоритет и направить job в Preview database. Используйте fail-safe block из [руководства по развёртыванию](deployment.md#migrations-и-первичный-seed), сверяйте non-secret `NEON_PROJECT_ID`, а после job проверяйте readiness 8/3 584/30/30.
 
 ## Устранение неполадок
 
@@ -456,6 +519,7 @@ curl --fail-with-body -sS \
 | `SAP_RATE_LIMITED` или `SAP_MALFORMED_RESPONSE` | Включён управляемый mock-отказ | Используйте валидный ручной SAP import или верните `AVAILABLE` и создайте retry |
 | `APPIUS_UNAVAILABLE` или `APPIUS_STALE_VERSION` | Appius не дал актуальную спецификацию | Используйте валидный ручной Appius import или восстановите источник; `APPIUS_ACCESS_DENIED` ручной импорт не разрешает |
 | `RAG_*` или безопасный `LLM_*` fallback | Admin-state реально применяется runtime | Проверьте audit и управляемый state; после теста верните `AVAILABLE` |
+| `LLM_PROVIDER_DISABLED`, timeout или budget fallback | Сработала provider-level policy | Проверьте `MTR_AGENT_LLM_ENABLED`, provider metadata и безопасный error code в admin audit; не отключайте budgets |
 | Изображение имеет `REVIEW_REQUIRED` | SHA-256 не входит в два известных demo OCR hash; универсальный OCR не подключён | Для Appius используйте CSV/XLS/XLSX или структурированный TXT/DOCX/text-PDF; для SAP — CSV/XLS/XLSX. Неизвестному изображению OCR не придумывается |
 | Privacy scan завершился ошибкой | Найден тип контакта или запрещённый маркер | Удалите значение из проекта; scan намеренно не печатает сам секрет |
 
@@ -465,5 +529,10 @@ curl --fail-with-body -sS \
 - [Демонстрация за 7–10 минут](demo-guide.md)
 - [Справочник HTTP API](api-reference.md)
 - [Поведение AI-агента](agent-behavior.md)
-- [Архитектура и persistence](../../docs/architecture.md)
-- [Матрица требований](../../docs/requirements-traceability.md)
+- [Развёртывание и persistence](deployment.md)
+- [Трассируемость МТР-агента](mtr-agent-orchestrator-traceability.md)
+- [Универсальный чат](mtr-agent-universal-chat.md)
+- [Модель бизнес-проектов](mtr-project-data-model.md)
+- [LLM provider и fallback](mtr-agent-llm-provider.md)
+- [Вложения и импорт](mtr-agent-attachments-import.md)
+- [RBAC-действия](mtr-agent-rbac-actions.md)

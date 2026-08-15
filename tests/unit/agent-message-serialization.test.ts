@@ -67,4 +67,156 @@ describe("agent message serialization boundary", () => {
     expect(isUserVisibleAgentMessage(bundle("system"))).toBe(false);
     expect(isUserVisibleAgentMessage(bundle("tool"))).toBe(false);
   });
+
+  it("restores a saved public analytical command without restoring technical payload", () => {
+    const saved = bundle();
+    (saved.message as { structuredOutput: Record<string, unknown> | null }).structuredOutput = {
+      schemaVersion: "mtr-agent-command-public-v1",
+      messageId: "analysis-1",
+      responseLabel: "Анализ позиции",
+      statusLabel: "Доступен частичный результат",
+      answer: "Остаточный дефицит 12 EA.",
+      riskLabel: null,
+      confidence: 0.9,
+      requiresHumanReview: true,
+      technicalContentRemoved: false,
+      generatedAt: "2026-08-13T10:00:00.000Z",
+      sources: [{
+        sourceLabel: "SAP S/4HANA",
+        entityId: "closed-material",
+        versionOrSnapshot: "closed-snapshot",
+        clauseId: null,
+        freshnessLabel: "Актуальные данные",
+        availabilityLabel: "Доступно",
+        href: "/materials/closed-material",
+        canOpen: true,
+      }],
+      analysis: {
+        executiveSummary: "Остаточный дефицит 12 EA.",
+        facts: ["Потребность: 20 EA."],
+        findings: ["Доступно: 8 EA."],
+        drivers: [{
+          title: "Рост расхода",
+          status: "Поддержана данными",
+          relationship: "Связанный фактор",
+          contributionPercent: 72,
+        }],
+        forecast: null,
+        scenarios: [{
+          kind: "Проект закупки",
+          score: 85,
+          feasible: true,
+          coveredQuantity: 20,
+          remainingShortage: 0,
+        }],
+        recommendation: "Передать вариант специалисту.",
+        limitations: ["Синтетический набор."],
+        nextActions: ["Обновить расчёт."],
+        technicalTrace: { secret: "must-not-return" },
+      },
+      learningProvenance: {
+        projectId: "demo-project-001",
+        modelVersion: "deterministic-runtime-v1",
+        evidenceVersion: "private-evidence-graph",
+      },
+      toolCalls: [{ tool: "sap.getMaterialStock", outcome: "OK", durationMs: 10 }],
+    };
+
+    const serialized = serializeAgentMessage(saved, []);
+    const json = JSON.stringify(serialized);
+
+    expect(serialized.structuredOutput).toMatchObject({
+      schemaVersion: "mtr-agent-command-public-v1",
+      responseLabel: "Анализ позиции",
+      analysis: {
+        facts: ["Потребность: 20 EA."],
+        scenarios: [expect.objectContaining({ kind: "Проект закупки" })],
+      },
+      sources: [],
+    });
+    expect(json).not.toMatch(/technicalTrace|must-not-return|toolCalls|sap\.getMaterialStock|closed-material|learningProvenance|private-evidence-graph/u);
+  });
+
+  it("projects a privileged action card without internal user or assignment identifiers", () => {
+    const saved = bundle();
+    (saved.message as { structuredOutput: Record<string, unknown> | null }).structuredOutput = {
+      schemaVersion: "agent-privileged-action-v1",
+      actionProposal: {
+        id: "action-public-1",
+        actionType: "CHANGE_PROJECT_ROLE",
+        summary: "Изменить роль сотрудника",
+        consequences: ["Активные сессии будут отозваны."],
+        parameters: {
+          targetUserId: "demo-analyst-001",
+          currentAssignmentId: "assign-secret-1",
+          projectId: "demo-project-001",
+          fromRoleKey: "MTR_ANALYST",
+          toRoleKey: "MTR_EXPERT",
+          impact: {
+            targetDisplayName: "Аналитик МТР",
+            targetLogin: "analyst",
+            currentStatus: "Активен",
+            currentRoles: ["Аналитик МТР · Демонстрационный проект"],
+            projectLabel: "Демонстрационный проект",
+            newState: "Назначить роль «Эксперт МТР»",
+            affectedSessions: 1,
+            affectedAssignments: 1,
+            segregationOfDuties: "PASS",
+            lastAdministratorRisk: false,
+            lastProjectManagerRisk: false,
+          },
+        },
+        status: "PROPOSED",
+        expiresAt: "2026-08-13T12:30:00.000Z",
+        result: null,
+      },
+      clarification: null,
+      internalTrace: { targetUserId: "demo-analyst-001" },
+    };
+
+    const serialized = serializeAgentMessage(saved, []);
+    const json = JSON.stringify(serialized);
+
+    expect(serialized.structuredOutput).toMatchObject({
+      schemaVersion: "agent-privileged-action-v1",
+      actionProposal: {
+        actionType: "CHANGE_PROJECT_ROLE",
+        parameters: {
+          impact: {
+            targetDisplayName: "Аналитик МТР",
+            targetLogin: "analyst",
+          },
+        },
+      },
+    });
+    expect(json).not.toMatch(/demo-analyst-001|assign-secret-1|demo-project-001|fromRoleKey|toRoleKey|internalTrace/u);
+  });
+
+  it("restores universal business cards but takes sources only from reauthorized citations", () => {
+    const saved = bundle();
+    (saved.message as { structuredOutput: Record<string, unknown> | null }).structuredOutput = {
+      schemaVersion: "universal-agent-answer-v1",
+      output: {
+        summary: "Доступно 12 EA.",
+        resolvedContext: { businessProject: { id: "private-project-id" } },
+        facts: [{ key: "available", label: "Доступно", value: 12, unit: "EA", status: "NORMAL" }],
+        tables: [], risks: [], compatibility: [], recommendations: [], actions: [], missingData: [],
+        citations: [{ sourceSystem: "SAP", entityId: "private-revoked-source" }],
+        confidence: 1,
+        requiresHumanReview: false,
+        generatedAt: "2026-08-13T09:15:00.000Z",
+        mode: "DETERMINISTIC_FALLBACK",
+        runtime: { model: "private-model" },
+      },
+    };
+
+    const serialized = serializeAgentMessage(saved, []);
+    const json = JSON.stringify(serialized);
+    expect(serialized.structuredOutput).toMatchObject({
+      schemaVersion: "universal-agent-answer-public-v1",
+      facts: [{ label: "Доступно", value: 12, unit: "EA", statusLabel: "Норма" }],
+    });
+    expect(serialized.citations).toEqual([]);
+    expect(json).not.toMatch(/private-project-id|private-revoked-source|private-model|runtime|resolvedContext/u);
+  });
 });

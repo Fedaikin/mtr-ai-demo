@@ -7,8 +7,12 @@ import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 
 import { getRepository } from "@/adapters/persistence/repository";
-import { ScenarioService } from "@/application/scenario-service";
+import { requirePermission, resolveAuthorizationContext } from "@/application/authorization-service";
 import type { PositionAnalysisResult, ReportSummary, ScenarioRun } from "@/domain/models";
+import {
+  effectiveResponsibilityDecisionState,
+  summarizeResponsibilityDecisions,
+} from "@/domain/responsibility";
 import {
   analysisStatusLabel,
   analogueVerdictLabel,
@@ -42,16 +46,29 @@ export interface ReportView {
 }
 
 export async function getReport(userId: string, runId: string): Promise<{ run: ScenarioRun; report: ReportView }> {
-  const service = await ScenarioService.create();
-  const run = await service.getRun(userId, runId);
+  const context = await resolveAuthorizationContext(userId);
+  const projectId = context.activeProjectId;
+  if (!projectId) throw new ReportError(404, "RUN_NOT_FOUND", "Запуск не найден");
+  requirePermission(context, "report.read", {
+    resourceType: "SCENARIO_RUN_REPORT",
+    resourceId: runId,
+    projectId,
+  });
+  const repository = await getRepository();
+  const run = await repository.getScenarioRunInProject(userId, projectId, runId);
+  if (!run) throw new ReportError(404, "RUN_NOT_FOUND", "Запуск не найден");
   const report = run.outputSnapshot.report;
   if (run.status !== "COMPLETED" || !isReportView(report)) throw new ReportError(409, "REPORT_NOT_READY", "Отчёт ещё не сформирован");
-  const records = await (await getRepository()).listAnalysisResults(userId, runId);
+  const records = await repository.listAnalysisResultsInProject(userId, projectId, runId);
   const persistedResults: PositionAnalysisResult[] = records.flatMap((record) =>
     isPositionAnalysisResult(record.result)
       ? [{
           ...record.result,
+          responsibilityDecisionState: record.responsibilityDecisionState,
           responsibility: record.responsibility,
+          responsibilityConfidence: record.responsibilityConfidence,
+          responsibilityCitation: record.responsibilityCitation as PositionAnalysisResult["responsibilityCitation"],
+          requiresHumanReview: record.requiresHumanReview,
           analysisVersion: record.version,
         }]
       : [],
@@ -100,7 +117,7 @@ export async function exportReportXlsx(report: ReportView): Promise<Uint8Array> 
     "Спецификация": result.position.specificationName,
     "Количество": result.position.requiredQuantity,
     "Ед.": result.position.unit,
-    "Ответственность": responsibilityLabel(result.responsibility),
+    "Ответственность": responsibilityDecisionLabel(result),
     "Объяснение ответственности": result.responsibilityExplanation ?? "—",
     "Категория": matchCategoryLabel(result.match.category),
     "Соответствие, %": result.match.score,
@@ -108,7 +125,7 @@ export async function exportReportXlsx(report: ReportView): Promise<Uint8Array> 
     "Остаток": result.match.material?.availableQuantity ?? 0,
     "Статус": analysisStatusLabel(result.status),
     "Покрытие аналогами": result.analogueCoverage ? `${result.analogueCoverage.coveredQuantity} / ${result.analogueCoverage.requiredQuantity}` : "—",
-    "Правило": `${result.responsibilityCitation.documentId}, ${result.responsibilityCitation.clauseId}`,
+    "Правило": responsibilityCitationLabel(result),
     "Проверка эксперта": result.requiresHumanReview ? "Да" : "Нет",
     "Ручная корректировка": result.manualResponsibilityOverrides?.length ? "Да" : "Нет",
   })));
@@ -191,9 +208,9 @@ export async function exportReportXlsx(report: ReportView): Promise<Uint8Array> 
     "Категория": matchCategoryLabel(result.match.category),
     "Соответствие, %": result.match.score,
     "Различия": result.match.differences.map(localizeKnownEnumsInText).join("; ") || "—",
-    "Ответственность": responsibilityLabel(result.responsibility),
-    "Документ": result.responsibilityCitation.documentId,
-    "Пункт": result.responsibilityCitation.clauseId,
+    "Ответственность": responsibilityDecisionLabel(result),
+    "Документ": result.responsibilityCitation?.documentId ?? "—",
+    "Пункт": result.responsibilityCitation?.clauseId ?? "—",
     "Ручное решение": result.manualResponsibilityOverrides?.at(-1)?.reason ?? "—",
   }));
   const review = XLSX.utils.json_to_sheet(reviewRows.length > 0 ? reviewRows : [{ "Код позиции": "Экспертная проверка не требуется" }]);
@@ -409,11 +426,12 @@ function isReportView(value: unknown): value is ReportView {
 function isPositionAnalysisResult(value: unknown): value is PositionAnalysisResult {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const result = value as Partial<PositionAnalysisResult>;
-  return Boolean(result.position && result.match && result.responsibility && result.status);
+  return Boolean(result.position && result.match && result.status);
 }
 
 function summarizeCurrentResults(results: PositionAnalysisResult[]): ReportSummary {
   const category = (name: string) => results.filter((item) => item.match.category === name).length;
+  const responsibility = summarizeResponsibilityDecisions(results);
   return {
     total: results.length,
     exact: category("EXACT"),
@@ -426,9 +444,29 @@ function summarizeCurrentResults(results: PositionAnalysisResult[]): ReportSumma
     procurement: results.filter(
       (item) => item.status === "NOT_FOUND" || item.status === "INSUFFICIENT",
     ).length,
-    customerResponsibility: results.filter((item) => item.responsibility === "CUSTOMER").length,
-    contractorResponsibility: results.filter((item) => item.responsibility === "CONTRACTOR").length,
+    customerResponsibility: responsibility.customer,
+    contractorResponsibility: responsibility.contractor,
   };
+}
+
+function responsibilityState(
+  result: Pick<PositionAnalysisResult, "responsibilityDecisionState" | "responsibility" | "responsibilityCitation" | "requiresHumanReview">,
+): NonNullable<PositionAnalysisResult["responsibilityDecisionState"]> {
+  return effectiveResponsibilityDecisionState(result);
+}
+
+function responsibilityDecisionLabel(result: PositionAnalysisResult): string {
+  const state = responsibilityState(result);
+  if (state === "INSUFFICIENT_DATA") return "Недостаточно данных";
+  if (state === "REVIEW_REQUIRED" && result.responsibility === null) return "Требуется решение";
+  const label = responsibilityLabel(result.responsibility);
+  return state === "REVIEW_REQUIRED" ? `${label} · требуется проверка` : label;
+}
+
+function responsibilityCitationLabel(result: PositionAnalysisResult): string {
+  return result.responsibilityCitation
+    ? `${result.responsibilityCitation.documentId}, ${result.responsibilityCitation.clauseId}`
+    : "Нормативное основание не найдено";
 }
 
 interface PdfFonts {
@@ -470,7 +508,7 @@ function drawPdfResultCard(
     : "";
   const reviewed = result.manualResponsibilityOverrides?.length ? " · решение эксперта" : "";
   const explanation = result.responsibilityExplanation ? ` · ${result.responsibilityExplanation}` : "";
-  const explanationText = `${analysisStatusLabel(result.status)} · ${responsibilityLabel(result.responsibility)} · ${result.responsibilityCitation.documentId}, ${result.responsibilityCitation.clauseId}${reviewed}${explanation}`;
+  const explanationText = `${analysisStatusLabel(result.status)} · ${responsibilityDecisionLabel(result)} · ${responsibilityCitationLabel(result)}${reviewed}${explanation}`;
   const explanationLines = wrapPdfText(explanationText, fonts, 7.2, 515);
   const cardHeight = 45 + Math.max(0, explanationLines.length - 1) * 9.5;
   let page = cursor.page;

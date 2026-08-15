@@ -117,9 +117,11 @@ describe("responsibility classification", () => {
     ]);
 
     expect(result).toMatchObject({
-      confidence: 0.45,
+      decisionState: "INSUFFICIENT_DATA",
+      responsibility: null,
+      confidence: null,
       requiresHumanReview: true,
-      citation: { clauseId: "UNRESOLVED" },
+      citation: null,
     });
   });
 
@@ -142,14 +144,15 @@ describe("responsibility classification", () => {
     expect(result).toMatchObject({ requiresHumanReview: true, confidence: 0.82 });
   });
 
-  it("fails safely with synthetic unresolved evidence when no rule applies", () => {
+  it("fails safely without inventing an assignment when no rule applies", () => {
     const result = classifyResponsibility(position(), []);
 
     expect(result).toMatchObject({
-      responsibility: "CONTRACTOR",
-      confidence: 0.45,
+      decisionState: "INSUFFICIENT_DATA",
+      responsibility: null,
+      confidence: null,
       requiresHumanReview: true,
-      citation: { clauseId: "UNRESOLVED", isSyntheticDemo: true },
+      citation: null,
     });
   });
 });

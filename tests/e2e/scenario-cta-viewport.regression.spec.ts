@@ -1,5 +1,7 @@
 import { expect, test, type APIRequestContext, type APIResponse } from "@playwright/test";
 
+import { E2E_DEMO_LOGIN, E2E_DEMO_PASSWORD } from "./demo-auth";
+
 test.describe("ACC-FUNC-009 — главный CTA моделирования", () => {
   test.beforeEach(async ({ page }) => {
     await loginDemoUser(page.request);
@@ -60,7 +62,7 @@ test.describe("ACC-FUNC-009 — главный CTA моделирования", 
 async function loginDemoUser(request: APIRequestContext): Promise<void> {
   await responseJson(
     await request.post("/api/auth/login", {
-      data: { login: "demo", password: "Demo2026!" },
+      data: { login: E2E_DEMO_LOGIN, password: E2E_DEMO_PASSWORD },
     }),
   );
 }
