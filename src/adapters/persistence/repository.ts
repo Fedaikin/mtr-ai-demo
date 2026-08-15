@@ -2489,6 +2489,90 @@ export class MtrRepository {
     return this.listScenarioRuns(userId, options);
   }
 
+  async isAnalysisViewCleared(subjectId: string, projectId: string, runId: string): Promise<boolean> {
+    await this.requireActiveProjectMembership(subjectId, projectId);
+    const [row] = await this.db
+      .select({ id: auditLogs.id })
+      .from(auditLogs)
+      .innerJoin(scenarioRuns, and(
+        eq(scenarioRuns.id, auditLogs.entityId),
+        eq(scenarioRuns.projectId, projectId),
+      ))
+      .where(and(
+        eq(auditLogs.action, "ANALYSIS_VIEW_CLEARED"),
+        eq(auditLogs.entityType, "SCENARIO_RUN"),
+        eq(auditLogs.entityId, runId),
+        eq(auditLogs.outcome, "SUCCESS"),
+      ))
+      .limit(1);
+    return Boolean(row);
+  }
+
+  async clearAnalysisView(
+    subjectId: string,
+    projectId: string,
+    runId: string,
+    actorDisplayName: string,
+    authorizationVersion: number,
+    requestId: string,
+  ): Promise<{ runId: string; clearedAt: string } | null> {
+    trustedUser(subjectId);
+    const auditId = `audit-analysis-view-cleared-${createHash("sha256").update(`${projectId}:${runId}`, "utf8").digest("hex").slice(0, 24)}`;
+    return this.db.transaction(async (transaction) => {
+      const tx = transaction as unknown as Database;
+      const [membership] = executedRows(await tx.execute(sql`
+        select 1 as active
+        from project_memberships
+        where user_id = ${subjectId}
+          and project_id = ${projectId}
+          and status = 'ACTIVE'
+          and valid_from <= now()
+          and (valid_until is null or valid_until > now())
+        limit 1
+      `));
+      if (!membership) return null;
+      const [run] = await tx
+        .select({ id: scenarioRuns.id })
+        .from(scenarioRuns)
+        .where(and(
+          eq(scenarioRuns.projectId, projectId),
+          eq(scenarioRuns.id, runId),
+          eq(scenarioRuns.status, "COMPLETED"),
+        ))
+        .limit(1);
+      if (!run) return null;
+
+      const clearedAt = new Date().toISOString();
+      await tx.insert(auditLogs).values({
+        id: auditId,
+        userId: subjectId,
+        actorDisplayName,
+        action: "ANALYSIS_VIEW_CLEARED",
+        entityType: "SCENARIO_RUN",
+        entityId: runId,
+        outcome: "SUCCESS",
+        details: redactSensitiveRecord({
+          runId,
+          projectId,
+          authorizationVersion,
+          view: "MTR_ANALYSIS",
+          resultRecordsPreserved: true,
+        }),
+        occurredAt: clearedAt,
+        retentionUntil: oneCalendarYearAfter(clearedAt),
+        requestId,
+      }).onConflictDoNothing();
+
+      const [audit] = await tx
+        .select({ occurredAt: auditLogs.occurredAt })
+        .from(auditLogs)
+        .where(eq(auditLogs.id, auditId))
+        .limit(1);
+      if (!audit) throw new Error("Не удалось сохранить очистку предыдущего анализа.");
+      return { runId, clearedAt: audit.occurredAt };
+    });
+  }
+
   async updateScenarioRun(
     userId: string,
     runId: string,
