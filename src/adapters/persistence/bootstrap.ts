@@ -24,7 +24,12 @@ import {
 } from "@/application/agent-orchestrator/system-prompt";
 import { DEMO_USER_ID } from "@/domain/models";
 
-import { ensureIndustrialCatalogue } from "./catalog-bootstrap";
+import {
+  EXPECTED_INDUSTRIAL_CATALOGUE_COUNTS,
+  ensureIndustrialCatalogue,
+  getIndustrialCatalogueCounts,
+  type IndustrialCatalogueCounts,
+} from "./catalog-bootstrap";
 import { type Database, getDatabase, isRemoteDatabaseConfigured } from "./db";
 import { createReadinessCache } from "./readiness-cache";
 import {
@@ -64,8 +69,11 @@ import {
   users,
 } from "./schema";
 import {
+  EXPECTED_UNIVERSAL_CHAT_COUNTS,
   deleteUniversalChatDatasetRows,
   ensureUniversalChatDataset,
+  getUniversalChatCounts,
+  type UniversalChatCounts,
   universalChatDatasetEnabled,
 } from "./universal-chat-bootstrap";
 
@@ -91,6 +99,16 @@ export type SeedCounts = { [Key in keyof typeof EXPECTED_BASE_COUNTS]: number };
 interface DatabaseInitializationResult {
   seeded: boolean;
   counts: SeedCounts;
+}
+
+export interface UniversalAgentRolloutResult {
+  baseCounts: SeedCounts;
+  catalogueCounts: IndustrialCatalogueCounts;
+  universalCounts: UniversalChatCounts;
+  portfolioAdded: boolean;
+  promptVersionsAdded: number;
+  catalogueAdded: boolean;
+  universalDatasetAdded: boolean;
 }
 
 // Deduplicates concurrent/repeated login bootstrap attempts while remaining
@@ -134,9 +152,8 @@ export async function initializeDatabase(): Promise<DatabaseInitializationResult
   const result = await databaseReadinessCache.resolve(db, async () => {
     const current = await getSeedCounts(db, DEMO_USER_ID);
     if (matchesExpectedCounts(current)) return { seeded: false, counts: current };
-    if (matchesLegacySpecificationPortfolioCounts(current)) {
-      await addSpecificationPortfolio(db, DEMO_USER_ID);
-      const upgraded = await getSeedCounts(db, DEMO_USER_ID);
+    if (matchesAdditiveBaseUpgradeCandidate(current)) {
+      const upgraded = await upgradeLegacyBaseDataset(db, DEMO_USER_ID, current);
       if (matchesExpectedCounts(upgraded)) return { seeded: true, counts: upgraded };
     }
 
@@ -150,6 +167,61 @@ export async function initializeDatabase(): Promise<DatabaseInitializationResult
     extendedSeeded = catalogue.seeded || universal.seeded;
   }
   return { seeded: result.seeded || extendedSeeded, counts: { ...result.counts } };
+}
+
+/**
+ * Additively upgrades a live demo database for the universal MTR agent.
+ *
+ * This boundary deliberately refuses partially-corrupted data instead of
+ * falling back to the destructive canonical seed. Runtime chats, runs,
+ * reports, audit records, users and RBAC rows are never deleted here.
+ */
+export async function rolloutUniversalAgentDataset(
+  database?: Database,
+): Promise<UniversalAgentRolloutResult> {
+  validateFixtures();
+  const db = database ?? (await getDatabase({ migrations: "ensure" }));
+  const before = await getSeedCounts(db, DEMO_USER_ID);
+  if (!matchesExpectedCounts(before) && !matchesAdditiveBaseUpgradeCandidate(before)) {
+    throw new Error(
+      `Аддитивное обновление остановлено: базовые счётчики не соответствуют доверенному legacy/target-профилю (${formatSeedCounts(before)}).`,
+    );
+  }
+
+  const baseCounts = await upgradeLegacyBaseDataset(db, DEMO_USER_ID, before, true);
+  if (!matchesExpectedCounts(baseCounts)) {
+    throw new Error(
+      `Аддитивное обновление не достигло целевого базового профиля (${formatSeedCounts(baseCounts)}).`,
+    );
+  }
+
+  const catalogueBefore = await getIndustrialCatalogueCounts(db, DEMO_USER_ID);
+  assertEmptyOrExpectedCounts(
+    "промышленного каталога",
+    catalogueBefore,
+    EXPECTED_INDUSTRIAL_CATALOGUE_COUNTS,
+  );
+  const catalogue = await ensureIndustrialCatalogue(DEMO_USER_ID, db);
+
+  const universalBefore = await getUniversalChatCounts(db);
+  assertEmptyOrExpectedCounts(
+    "универсального набора МТР-агента",
+    universalBefore,
+    EXPECTED_UNIVERSAL_CHAT_COUNTS,
+  );
+  const universal = await ensureUniversalChatDataset(DEMO_USER_ID, db);
+
+  return {
+    baseCounts,
+    catalogueCounts: catalogue.counts,
+    universalCounts: universal.counts,
+    portfolioAdded:
+      before.specifications !== baseCounts.specifications ||
+      before.canonicalPositions !== baseCounts.canonicalPositions,
+    promptVersionsAdded: Math.max(0, baseCounts.prompts - before.prompts),
+    catalogueAdded: catalogue.seeded,
+    universalDatasetAdded: universal.seeded,
+  };
 }
 
 /**
@@ -305,6 +377,52 @@ async function addSpecificationPortfolio(db: Database, userId: string): Promise<
     await tx.insert(specifications).values(rows.specifications);
     await tx.insert(specificationVersions).values(rows.versions);
     await insertBatches(tx, specificationPositions, rows.positions);
+  });
+}
+
+async function upgradeLegacyBaseDataset(
+  db: Database,
+  userId: string,
+  current: SeedCounts,
+  refreshCanonicalPrompts = false,
+): Promise<SeedCounts> {
+  if (matchesLegacySpecificationPortfolioCounts(current)) {
+    await addSpecificationPortfolio(db, userId);
+  }
+  if (current.prompts < EXPECTED_BASE_COUNTS.prompts || refreshCanonicalPrompts) {
+    await upsertCanonicalPromptVersions(db, userId);
+  }
+  databaseReadinessCache.invalidate(db);
+  return getSeedCounts(db, userId);
+}
+
+async function upsertCanonicalPromptVersions(db: Database, userId: string): Promise<void> {
+  await db.transaction(async (transaction) => {
+    const tx = transaction as unknown as Database;
+    if (isRemoteDatabaseConfigured()) {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${`mtr-demo-prompts:${userId}`}))`,
+      );
+    }
+    await tx
+      .update(promptVersions)
+      .set({ active: false, version: sql`${promptVersions.version} + 1` })
+      .where(and(eq(promptVersions.userId, userId), eq(promptVersions.name, MTR_AGENT_PROMPT_NAME)));
+    for (const row of canonicalPromptVersionRows(userId)) {
+      await tx
+        .insert(promptVersions)
+        .values(row)
+        .onConflictDoUpdate({
+          target: [promptVersions.userId, promptVersions.name, promptVersions.promptVersion],
+          set: {
+            content: row.content,
+            active: row.active,
+            checksum: row.checksum,
+            updatedAt: new Date().toISOString(),
+            version: sql`${promptVersions.version} + 1`,
+          },
+        });
+    }
   });
 }
 
@@ -597,7 +715,23 @@ async function insertFixtureRows(db: Database, userId: string): Promise<void> {
     })),
   );
 
-  await db.insert(promptVersions).values([
+  await db.insert(promptVersions).values(canonicalPromptVersionRows(userId));
+
+  await db.insert(dictionaries).values(
+    normativeFixture.searchDictionary.map((item, index) => ({
+      id: `dictionary-${String(index + 1).padStart(3, "0")}`,
+      userId,
+      dictionaryType: "MTR_SEARCH_SYNONYMS",
+      key: item.canonical,
+      values: [...item.terms],
+      active: true,
+      createdBy: userId,
+    })),
+  );
+}
+
+function canonicalPromptVersionRows(userId: string) {
+  return [
     {
       id: "prompt-mtr-agent-001",
       userId,
@@ -638,19 +772,7 @@ async function insertFixtureRows(db: Database, userId: string): Promise<void> {
       checksum: promptChecksum(MTR_AGENT_UNIVERSAL_PROMPT),
       createdBy: userId,
     },
-  ]);
-
-  await db.insert(dictionaries).values(
-    normativeFixture.searchDictionary.map((item, index) => ({
-      id: `dictionary-${String(index + 1).padStart(3, "0")}`,
-      userId,
-      dictionaryType: "MTR_SEARCH_SYNONYMS",
-      key: item.canonical,
-      values: [...item.terms],
-      active: true,
-      createdBy: userId,
-    })),
-  );
+  ];
 }
 
 async function seedRbacSubjects(db: Database, fixtureHash: string): Promise<void> {
@@ -1091,9 +1213,49 @@ function matchesLegacySpecificationPortfolioCounts(counts: SeedCounts): boolean 
   );
   return (
     exactLegacyBaselineIsPresent &&
-    counts.specificationVersions >= appiusFixture.specificationVersions.length &&
-    counts.prompts >= EXPECTED_BASE_COUNTS.prompts
+    counts.specificationVersions >= appiusFixture.specificationVersions.length
   );
+}
+
+function matchesAdditiveBaseUpgradeCandidate(counts: SeedCounts): boolean {
+  const stableKeys = EXACT_BASELINE_COUNT_KEYS.filter(
+    (key) => key !== "specifications" && key !== "canonicalPositions",
+  );
+  const stableBaselineIsPresent = stableKeys.every(
+    (key) => counts[key] === EXPECTED_BASE_COUNTS[key],
+  );
+  const legacyPortfolioIsPresent =
+    counts.specifications === appiusFixture.fixtureManifest.expectedSpecificationCount &&
+    counts.canonicalPositions === appiusFixture.fixtureManifest.expectedCanonicalPositionCount &&
+    counts.specificationVersions >= appiusFixture.specificationVersions.length;
+  const targetPortfolioIsPresent =
+    counts.specifications === EXPECTED_BASE_COUNTS.specifications &&
+    counts.canonicalPositions === EXPECTED_BASE_COUNTS.canonicalPositions &&
+    counts.specificationVersions >= EXPECTED_BASE_COUNTS.specificationVersions;
+  return stableBaselineIsPresent && (legacyPortfolioIsPresent || targetPortfolioIsPresent);
+}
+
+function assertEmptyOrExpectedCounts<TCounts extends Record<string, number>>(
+  label: string,
+  actual: TCounts,
+  expected: { readonly [Key in keyof TCounts]: number },
+): void {
+  const values = Object.values(actual);
+  const isEmpty = values.every((value) => value === 0);
+  const isExpected = Object.entries(expected).every(
+    ([key, value]) => actual[key as keyof TCounts] === value,
+  );
+  if (!isEmpty && !isExpected) {
+    throw new Error(
+      `Аддитивное обновление остановлено: частично заполненный набор ${label} не изменён (${JSON.stringify(actual)}).`,
+    );
+  }
+}
+
+function formatSeedCounts(counts: SeedCounts): string {
+  return Object.entries(counts)
+    .map(([key, value]) => `${key}=${value}`)
+    .join(", ");
 }
 
 function assertDemoUser(userId: string): asserts userId is typeof DEMO_USER_ID {
