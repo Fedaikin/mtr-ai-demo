@@ -1,21 +1,27 @@
 vi.mock("server-only", () => ({}));
 
-import { eq, like } from "drizzle-orm";
+import { and, eq, like, ne } from "drizzle-orm";
 
 import { createAppiusMockAdapter } from "@/adapters/mock/appius-adapter";
 import { createNormativeMockAdapter } from "@/adapters/mock/normative-adapter";
 import { createSapMockAdapter } from "@/adapters/mock/sap-adapter";
-import { initializeDatabase, resetDemoDatabase } from "@/adapters/persistence/bootstrap";
+import {
+  initializeDatabase,
+  resetDemoDatabase,
+  rolloutUniversalAgentDataset,
+} from "@/adapters/persistence/bootstrap";
 import { closeDatabase, getDatabase } from "@/adapters/persistence/db";
 import { getRepository } from "@/adapters/persistence/repository";
 import {
   specificationPositions,
+  promptVersions,
   specifications as specificationTable,
   specificationVersions,
   users,
 } from "@/adapters/persistence/schema";
 import { GET as healthCheck } from "@/app/api/health/route";
 import { ScenarioService } from "@/application/scenario-service";
+import { MTR_AGENT_ROLLBACK_VERSION } from "@/application/agent-orchestrator/system-prompt";
 import { DEMO_USER_ID } from "@/domain/models";
 import { hashSessionToken, resolveDemoSession } from "@/lib/session-core";
 
@@ -163,6 +169,69 @@ describe.sequential("authenticated runtime seed boundary", () => {
       .from(users)
       .where(eq(users.id, userId));
     expect(identity).toEqual({ displayName: "Демо-пользователь 1", login: "demo" });
+  });
+
+  it("rolls out the universal agent additively from the one-prompt legacy profile", async () => {
+    const { database, userId } = await createPersistedProtectedContext();
+    const repository = await getRepository();
+    await repository.writeAudit(userId, {
+      action: "UNIVERSAL_AGENT_ROLLOUT_SENTINEL",
+      entityType: "DEMO_DATASET",
+      entityId: userId,
+      outcome: "SUCCESS",
+    });
+
+    await database
+      .delete(specificationPositions)
+      .where(like(specificationPositions.id, "position-portfolio-%"));
+    await database
+      .delete(specificationVersions)
+      .where(like(specificationVersions.id, "spec-demo-portfolio-%"));
+    await database
+      .delete(specificationTable)
+      .where(like(specificationTable.id, "spec-demo-portfolio-%"));
+    await database
+      .delete(promptVersions)
+      .where(
+        and(
+          eq(promptVersions.userId, userId),
+          ne(promptVersions.promptVersion, MTR_AGENT_ROLLBACK_VERSION),
+        ),
+      );
+
+    const first = await rolloutUniversalAgentDataset(database);
+    expect(first).toMatchObject({
+      portfolioAdded: true,
+      promptVersionsAdded: 3,
+      baseCounts: {
+        specifications: 83,
+        specificationVersions: 88,
+        canonicalPositions: 3_584,
+        prompts: 4,
+      },
+      universalCounts: {
+        businessProjects: 22,
+        businessProjectSpecifications: 83,
+        operationalMaterialViews: 4_800,
+        businessProjectPositions: 3_584,
+      },
+    });
+    await expect(
+      repository.listAuditLogs(userId, { action: "UNIVERSAL_AGENT_ROLLOUT_SENTINEL" }),
+    ).resolves.toHaveLength(1);
+    await expect(resolveDemoSession("A".repeat(43))).resolves.toMatchObject({
+      user: { id: userId },
+    });
+
+    const second = await rolloutUniversalAgentDataset(database);
+    expect(second).toMatchObject({
+      portfolioAdded: false,
+      promptVersionsAdded: 0,
+      catalogueAdded: false,
+      universalDatasetAdded: false,
+    });
+    expect(second.baseCounts).toEqual(first.baseCounts);
+    expect(second.universalCounts).toEqual(first.universalCounts);
   });
 });
 
