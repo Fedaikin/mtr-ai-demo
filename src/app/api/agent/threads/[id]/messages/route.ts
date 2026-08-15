@@ -103,7 +103,7 @@ export async function POST(request: Request, { params }: MessagesRouteContext) {
       throw new ApiError(404, "AGENT_THREAD_NOT_FOUND", "Диалог агента не найден");
     }
 
-    const correlationId = `agent-${crypto.randomUUID()}`;
+    const correlationId = requestCorrelationId(request);
     const [userMessage, activePrompt] = await Promise.all([
       repository.appendAgentMessage(subjectId, {
         threadId,
@@ -276,4 +276,10 @@ function universalCitationSource(
   if (sourceSystem === "FORECAST") return "SAP" as const;
   if (sourceSystem === "PROCESS") return "PROCESS_ENGINE" as const;
   return sourceSystem;
+}
+
+function requestCorrelationId(request: Request): string {
+  const supplied = request.headers.get("x-request-id")?.trim();
+  if (supplied && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/u.test(supplied)) return supplied;
+  return `agent-${crypto.randomUUID()}`;
 }

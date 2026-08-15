@@ -60,6 +60,25 @@ describe.sequential("real chat HTTP route corrective path", () => {
     expect((output.tables as Array<{ rows: Array<Record<string, unknown>> }>)[0]?.rows).toHaveLength(22);
   });
 
+  test("сохраняет входной correlation id для app→proxy→witness binding", async () => {
+    const repository = await getRepository();
+    const thread = await repository.createAgentThread(DEMO_USER_ID, "Correlation binding");
+    const correlationId = "fastgate-regression-correlation-01";
+    const response = await POST(
+      request(thread.id, "Покажи активные проекты", correlationId),
+      route(thread.id),
+    );
+    const audits = await repository.listAuditLogs(DEMO_USER_ID, {
+      action: "agent.universal.capability.completed",
+      limit: 20,
+    });
+
+    expect(response.status).toBe(201);
+    expect(audits).toEqual(expect.arrayContaining([
+      expect.objectContaining({ requestId: correlationId }),
+    ]));
+  });
+
   test("буквальный inventory input остаётся universal clarification через тот же HTTP route", async () => {
     const repository = await getRepository();
     const thread = await repository.createAgentThread(DEMO_USER_ID, "Проверка склада");
@@ -216,10 +235,13 @@ function rows(result: unknown): Array<Record<string, unknown>> {
   return [];
 }
 
-function request(threadId: string, message: string) {
+function request(threadId: string, message: string, requestId?: string) {
   return new Request(`http://localhost/api/agent/threads/${threadId}/messages`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...(requestId ? { "x-request-id": requestId } : {}),
+    },
     body: JSON.stringify({ threadId, message, selection: { projectId: "demo-project-001" } }),
   });
 }
