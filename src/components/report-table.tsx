@@ -1,4 +1,5 @@
 "use client";
+import { InfoHint } from "@/components/info-hint";
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
@@ -220,7 +221,7 @@ function AnalogueOptionsSection({ positions }: { positions: PositionAnalogueView
     <section aria-labelledby="analogue-options-title" className="mt-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
       <div className="max-w-3xl">
         <p className="text-xs font-semibold uppercase tracking-wide text-teal-700">Нормативно подтверждённый подбор</p>
-        <h2 id="analogue-options-title" className="mt-1 text-xl font-semibold text-slate-950">Варианты аналогов</h2>
+        <h2 id="analogue-options-title" className="mt-1 text-xl font-semibold text-slate-950" aria-label="Варианты аналогов">Варианты аналогов<InfoHint title="Варианты аналогов" /></h2>
         <p className="mt-2 text-sm leading-6 text-slate-600">
           Основной и альтернативные планы состоят только из нормативно допустимых материалов. Компоненты покрытия, отклонения и недостаток количества показаны явно.
         </p>
@@ -398,7 +399,7 @@ function DetailsDrawer({
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="font-mono text-xs font-semibold text-teal-800">{result.position.internalCode}</p>
-            <h2 id="detail-title" className="mt-1 text-xl font-semibold">Объяснение результата</h2>
+            <h2 id="detail-title" className="mt-1 text-xl font-semibold" aria-label="Объяснение результата">Объяснение результата<InfoHint title="Объяснение результата" /></h2>
           </div>
           <button
             type="button"
@@ -522,7 +523,7 @@ function ExportLink({ runId, format, label }: { runId: string; format: string; l
 }
 
 function Block({ title, children }: { title: string; children: React.ReactNode }) {
-  return <section><h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</h3><div className="leading-6 text-slate-700">{children}</div></section>;
+  return <section><h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500" aria-label={title}>{title}<InfoHint title={title} /></h3><div className="leading-6 text-slate-700">{children}</div></section>;
 }
 
 function responsibilityResultLabel(result: PositionAnalysisResult): string {

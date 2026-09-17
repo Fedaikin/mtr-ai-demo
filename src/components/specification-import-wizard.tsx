@@ -1,4 +1,5 @@
 "use client";
+import { InfoHint } from "@/components/info-hint";
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -64,7 +65,7 @@ export function SpecificationImportWizard({ specifications }: { specifications: 
 
   return <section className="mb-6 rounded-xl border border-teal-200 bg-white p-5 shadow-sm" aria-labelledby="spec-import-title">
     <div className="flex flex-wrap items-start justify-between gap-3">
-      <div><h2 id="spec-import-title" className="text-base font-semibold text-slate-950">Загрузить спецификацию</h2><p className="mt-1 text-sm text-slate-600">XLSX, XLS, CSV, TXT, PDF, DOCX или скан до 10 МБ. Перед публикацией покажем распознанные строки.</p></div>
+      <div><h2 id="spec-import-title" className="text-base font-semibold text-slate-950" aria-label="Загрузить спецификацию">Загрузить спецификацию<InfoHint title="Загрузить спецификацию" /></h2><p className="mt-1 text-sm text-slate-600">XLSX, XLS, CSV, TXT, PDF, DOCX или скан до 10 МБ. Перед публикацией покажем распознанные строки.</p></div>
       <form action={onUpload}><label className="focus-within:ring-2 focus-within:ring-teal-500 inline-flex cursor-pointer rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white hover:bg-teal-800"><span>{busy ? "Обработка…" : "Выбрать файл"}</span><input className="sr-only" type="file" name="file" disabled={busy} accept=".xlsx,.xls,.csv,.txt,.pdf,.docx,.png,.jpg,.jpeg,.tiff" onChange={(event) => event.currentTarget.form?.requestSubmit()} /></label></form>
     </div>
     {error && <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>}

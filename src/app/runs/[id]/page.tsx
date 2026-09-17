@@ -23,6 +23,7 @@ export default async function RunPage({ params }: PageProps<"/runs/[id]">) {
   return (
     <>
       <PageHeader
+        helpTopic="Запуски анализа"
         eyebrow="Серверный запуск"
         title={`Запуск ${run.id.slice(-12)}`}
         description="Состояние восстановлено из базы; незавершённый запуск продолжится атомарными шагами."

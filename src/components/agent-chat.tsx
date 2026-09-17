@@ -1,4 +1,5 @@
 "use client";
+import { InfoHint } from "@/components/info-hint";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -384,7 +385,7 @@ export function AgentChat({
       <aside className="shrink-0 border-b border-slate-200 bg-slate-50/70 lg:flex lg:min-h-0 lg:flex-col lg:border-b-0 lg:border-r">
         <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
           <div>
-            <h2 className="text-sm font-semibold text-slate-950">Диалоги</h2>
+            <h2 className="text-sm font-semibold text-slate-950" aria-label="Диалоги">Диалоги<InfoHint title="Диалоги" /></h2>
             <p className="mt-0.5 text-xs text-slate-500">Сохранены в базе</p>
           </div>
           <button
@@ -570,7 +571,7 @@ function EmptyConversation({
       <div className="mx-auto flex size-11 items-center justify-center rounded-xl bg-teal-700 text-sm font-bold text-white">
         AI
       </div>
-      <h3 className="mt-4 text-lg font-semibold text-slate-950">Вопрос по данным МТР</h3>
+      <h3 className="mt-4 text-lg font-semibold text-slate-950" aria-label="Вопрос по данным МТР">Вопрос по данным МТР<InfoHint title="Вопрос по данным МТР" /></h3>
       <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-600">
         Аналитик сначала обращается к Appius, SAP, нормативным правилам или результатам сценария, а затем формирует ответ со ссылками на источники.
       </p>

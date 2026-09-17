@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { InfoHint } from "@/components/info-hint";
 import Link from "next/link";
 
 import { getRepository } from "@/adapters/persistence/repository";
@@ -77,9 +78,9 @@ export default async function AdminAgentLogsPage({
       />
 
       <section aria-labelledby="deployment-version-title" data-testid="deployment-version">
-        <h2 id="deployment-version-title" className="mb-3 text-base font-semibold text-slate-950">
+        <h2 id="deployment-version-title" className="mb-3 text-base font-semibold text-slate-950" aria-label="Версия развертывания">
           Версия развертывания
-        </h2>
+        <InfoHint title="Версия развертывания" /></h2>
         <div className="grid gap-3 sm:grid-cols-3">
           <MetricCard label="Git SHA" value={deployment.sha} />
           <MetricCard label="Ветка" value={deployment.branch} />
@@ -88,9 +89,9 @@ export default async function AdminAgentLogsPage({
       </section>
 
       <section aria-labelledby="agent-state-title">
-        <h2 id="agent-state-title" className="mb-3 text-base font-semibold text-slate-950">
+        <h2 id="agent-state-title" className="mb-3 text-base font-semibold text-slate-950" aria-label="Состояние агента">
           Состояние агента
-        </h2>
+        <InfoHint title="Состояние агента" /></h2>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <MetricCard label="Текущее состояние" value={agentStateLabel(metrics.agentState)} />
           {(["LLM", "APPIUS", "SAP", "RAG"] as const).map((system) => {
@@ -108,9 +109,9 @@ export default async function AdminAgentLogsPage({
       </section>
 
       <section aria-labelledby="agent-metrics-title">
-        <h2 id="agent-metrics-title" className="mb-3 text-base font-semibold text-slate-950">
+        <h2 id="agent-metrics-title" className="mb-3 text-base font-semibold text-slate-950" aria-label="Метрики запросов">
           Метрики запросов
-        </h2>
+        <InfoHint title="Метрики запросов" /></h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
           <MetricCard label="Всего запросов" value={String(metrics.totalRequests)} />
           <MetricCard label="Успешные" value={String(metrics.successfulRequests)} tone="positive" />
@@ -129,9 +130,9 @@ export default async function AdminAgentLogsPage({
 
       <section aria-labelledby="orchestrator-metrics-title" data-testid="agent-orchestrator-metrics">
         <div className="mb-3">
-          <h2 id="orchestrator-metrics-title" className="text-base font-semibold text-slate-950">
+          <h2 id="orchestrator-metrics-title" className="text-base font-semibold text-slate-950" aria-label="Состояние оркестратора">
             Состояние оркестратора
-          </h2>
+          <InfoHint title="Состояние оркестратора" /></h2>
           <p className="mt-1 text-sm text-slate-500">
             Метрики рассчитаны только по сохранённым командам, планам, действиям и сигналам. Личные сообщения и сырые результаты инструментов не читаются.
           </p>
@@ -206,7 +207,7 @@ export default async function AdminAgentLogsPage({
 
       <section aria-labelledby="operations-title" className="space-y-3">
         <div>
-          <h2 id="operations-title" className="text-base font-semibold text-slate-950">Журнал операций</h2>
+          <h2 id="operations-title" className="text-base font-semibold text-slate-950" aria-label="Журнал операций">Журнал операций<InfoHint title="Журнал операций" /></h2>
           <p className="mt-1 text-sm text-slate-500">
             Найдено операций: {operationPage.total}. Показано: {operations.length}.
           </p>
