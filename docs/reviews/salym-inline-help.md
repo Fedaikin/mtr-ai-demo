@@ -34,10 +34,10 @@ TODO, описания или unit-теста изолированного helpe
 - Назначение: Заменить центральный modal на anchored non-modal popover около (i), без изменения текстов и бизнес-логики
 - Базовая ветка: origin/main
 - Merge base: 9ec40463b3fb34f8bb740ccc124d1b4039ccea8b
-- HEAD SHA: зафиксируется локальным commit; для будущего PR указать точный SHA кода
-- Pull Request: ещё не создан
-- Vercel Preview URL: не создавался; ожидается разрешение на публикацию
-- Vercel deployment ID: не создавался
+- HEAD SHA: код 810e9124c34f182566071a7366730a7d40f98773; следующий commit меняет только этот review
+- Pull Request: https://github.com/Fedaikin/mtr-ai-demo/pull/15
+- Vercel Preview URL: https://mtr-ai-demo-jn79vqkeq-fedaikin-7533s-projects.vercel.app
+- Vercel deployment ID: dpl_3vUnm3Fe7ARX2mHa6GeoRHCXJ7MG, READY, Vercel checks SUCCESS
 - Дата проверки: 2026-09-17
 - Проверяющий: Codex: исходники, unit, production build, Chrome runtime
 
@@ -226,7 +226,7 @@ pnpm test:e2e: NOT RUN; ручной Chrome scenario PASS desktop/mobile
 ## 12. Производительность и Vercel
 
 - [x] Локальный build выполнен из чистого checkout/worktree. — PASS с оговоркой: build в выделенном worktree; существующий generated tsconfig.tsbuildinfo и symlink node_modules не включаются в commit.
-- [x] Vercel Preview связан с exact HEAD SHA. — NOT RUN: публикация/Preview ожидает разрешения; ветка не объявляется готовой к release.
+- [x] Vercel Preview связан с exact HEAD SHA. — PASS: Preview code SHA 810e912, READY; см. паспорт. У будущего docs-only HEAD будет собственная проверка Vercel.
 - [x] Preview и Production используют разные credentials. — Н/П: нет нового runtime-сервиса, credentials, миграций или AI-потока.
 - [x] Controlled migration применена до включения зависящего feature flag. — Н/П: нет нового runtime-сервиса, credentials, миграций или AI-потока.
 - [x] Readiness/liveness подтверждены после deployment. — NOT RUN для Vercel: локальные UI-сценарии проверены, публикация ещё не выполнялась.
@@ -250,17 +250,17 @@ Evidence / комментарий:
 
 ### Итоговое решение
 
-- [ ] ГОТОВО К REVIEW — нет Preview, разрешение на публикацию ожидается.
-- [x] НЕ ГОТОВО К ПУБЛИКАЦИИ — локальная реализация и проверки завершены, требуется разрешение.
+- [x] ГОТОВО К REVIEW — Preview READY, локальные UI-проверки PASS, владелец явно разрешил публикацию.
+- [ ] НЕ ГОТОВО К ПУБЛИКАЦИИ
 - [ ] ЗАБЛОКИРОВАНО ВНЕШНЕЙ ЗАВИСИМОСТЬЮ — технических блокеров нет.
 
-Причина решения: локальная корректировка и проверки завершены; Preview и Production без подтверждения не выполняются.
+Причина решения: локальная корректировка и проверки завершены; Preview READY; владелец подтвердил «публикой». Production публикуется только после зелёных проверок.
 
 Оставшиеся риски: полный набор и полная ролевая матрица не повторялись; все ограничения относятся к узкому UI-scope.
 
 Rollback: вернуть InfoHint и interaction-тест к 9ec4046 через отдельный revert; данные не требуют отката.
 
-Следующее действие: после разрешения владельца — Preview, PR, merge, Production и проверка явного alias mtr-ai-demo.vercel.app.
+Следующее действие: дождаться зелёных checks docs-only HEAD, merge PR15, Production и проверка явного alias mtr-ai-demo.vercel.app.
 
 
 ## Протокол проверки (канонический для этой ветки)
@@ -311,4 +311,4 @@ Privacy scan: PASS, 616 файлов. Исходники и diff без credenti
 
 ### Раздел 13
 
-Использован React skill: прямой импорт существующего Popover, без новой зависимости и собственных глобальных обработчиков. Документирует только UI-изменение; внешняя публикация ожидает подтверждения владельца.
+Использован React skill: прямой импорт существующего Popover, без новой зависимости и собственных глобальных обработчиков. Документирует только UI-изменение; внешняя публикация разрешена владельцем 17.09.2026.
