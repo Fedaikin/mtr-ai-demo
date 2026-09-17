@@ -1,4 +1,5 @@
 "use client";
+import { InfoHint } from "@/components/info-hint";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -146,7 +147,7 @@ export function ScenarioLauncher({
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm" aria-labelledby="launch-title">
         <div className="mb-5">
           <p className="text-xs font-semibold uppercase tracking-[0.12em] text-teal-700">Новый запуск</p>
-          <h2 id="launch-title" className="mt-1 text-lg font-semibold">Параметры моделирования</h2>
+          <h2 id="launch-title" className="mt-1 text-lg font-semibold" aria-label="Параметры моделирования">Параметры моделирования<InfoHint title="Параметры моделирования" /></h2>
           <p className="mt-2 text-sm leading-5 text-slate-600">Сервер сохранит входной snapshot и журнал каждого шага.</p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">

@@ -1,4 +1,5 @@
 "use client";
+import { InfoHint } from "@/components/info-hint";
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
@@ -69,9 +70,9 @@ export function AdminScenarioToggle({
       aria-labelledby="scenario-access-title"
     >
       <div className="mb-3">
-        <h2 id="scenario-access-title" className="text-sm font-semibold text-slate-900">
+        <h2 id="scenario-access-title" className="text-sm font-semibold text-slate-900" aria-label="Доступность сценариев">
           Доступность сценариев
-        </h2>
+        <InfoHint title="Доступность сценариев" /></h2>
         <p className="mt-1 text-xs leading-5 text-slate-500">
           Отключённые сценарии сохраняются в базе и скрываются из формы нового запуска.
         </p>

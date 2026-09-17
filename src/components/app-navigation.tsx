@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { InfoHint } from "@/components/info-hint";
 
 import { resolveActiveNavigationHref, type NavigationItem } from "@/lib/navigation";
 
@@ -44,12 +45,12 @@ function NavGroup({
         {items.map(({ name, href }) => {
           const active = href === activeHref;
           return (
+            <div key={href} className="flex items-center pr-1">
             <Link
-              key={href}
               href={href}
               prefetch={href === "/runs" ? false : true}
               aria-current={active ? "page" : undefined}
-              className={`focus-ring relative block whitespace-nowrap rounded-md px-3 py-2 text-sm transition-colors ${
+              className={`focus-ring relative block min-w-0 flex-1 whitespace-nowrap rounded-md px-3 py-2 text-sm transition-colors lg:whitespace-normal ${
                 active
                   ? "bg-teal-50 font-semibold text-teal-950 before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-teal-600"
                   : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
@@ -57,6 +58,8 @@ function NavGroup({
             >
               {name}
             </Link>
+            <InfoHint title={name} topic={href} />
+            </div>
           );
         })}
       </div>

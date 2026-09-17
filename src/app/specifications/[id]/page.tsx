@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { InfoHint } from "@/components/info-hint";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -77,6 +78,7 @@ export default async function SpecificationPage({
   return (
       <div>
         <PageHeader
+          helpTopic="Спецификация"
           eyebrow={`${specification.projectCode} · Appius PLM`}
           title={specification.name}
           description={`Версия ${selectedVersion.versionNumber} · ${selectedVersion.isCurrent ? "актуальная для анализа" : "исторический просмотр"}`}
@@ -99,7 +101,7 @@ export default async function SpecificationPage({
         {selectedVersion.sourceFileName ? <section className="mb-5 rounded-xl border border-teal-200 bg-teal-50 p-4"><p className="text-xs font-semibold uppercase tracking-wide text-teal-800">Источник версии</p><div className="mt-2 grid gap-2 text-sm sm:grid-cols-3"><p><span className="text-slate-500">Файл:</span> {selectedVersion.sourceFileId ? <a className="font-medium text-teal-800 underline underline-offset-2" href={`/api/uploads/${selectedVersion.sourceFileId}`}>{selectedVersion.sourceFileName}</a> : selectedVersion.sourceFileName}</p><p><span className="text-slate-500">Формат:</span> {selectedVersion.sourceKind ?? "—"}</p><p><span className="text-slate-500">Опубликован:</span> {selectedVersion.publishedAt ? formatDateTime(selectedVersion.publishedAt) : "—"}</p></div>{selectedVersion.validationSummary ? <p className="mt-2 text-xs text-slate-600">Проверка импорта: {String(selectedVersion.validationSummary.validRows ?? selectedVersion.positionCount)} валидных строк · {String(selectedVersion.validationSummary.warningCount ?? 0)} предупреждений.</p> : null}</section> : null}
 
         <section className="mb-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h2 className="text-sm font-semibold text-slate-950">Версии Appius</h2>
+          <h2 className="text-sm font-semibold text-slate-950" aria-label="Версии Appius">Версии Appius<InfoHint title="Версии Appius" /></h2>
           <div className="mt-3 flex flex-wrap gap-2">
             {versions.map((version) => (
               <Link

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { InfoHint } from "@/components/info-hint";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -55,6 +56,7 @@ export default async function MaterialPage({
   return (
       <div>
         <PageHeader
+          helpTopic="Карточка материала"
           eyebrow="SAP S/4HANA · демонстрационная карточка"
           title={material.nameRu}
           description={`${material.materialCode} · ${material.equipmentType}`}
@@ -76,7 +78,7 @@ export default async function MaterialPage({
 
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
           <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-base font-semibold text-slate-950">Характеристики материала</h2>
+            <h2 className="text-base font-semibold text-slate-950" aria-label="Характеристики материала">Характеристики материала<InfoHint title="Характеристики материала" /></h2>
             <dl className="mt-4 grid gap-x-8 gap-y-4 sm:grid-cols-2">
               <Field label="Код SAP" value={material.materialCode} mono />
               <Field label="Legacy-код" value={material.legacyCode ?? "—"} mono />
@@ -86,7 +88,7 @@ export default async function MaterialPage({
               <Field label="Марка материала" value={material.materialGrade ?? "—"} mono />
             </dl>
 
-            <h3 className="mt-7 text-sm font-semibold text-slate-950">Размеры и параметры</h3>
+            <h3 className="mt-7 text-sm font-semibold text-slate-950" aria-label="Размеры и параметры">Размеры и параметры<InfoHint title="Размеры и параметры" /></h3>
             <div className="mt-3 overflow-hidden rounded-lg border border-slate-200">
               <table className="w-full text-sm">
                 <tbody className="divide-y divide-slate-100">

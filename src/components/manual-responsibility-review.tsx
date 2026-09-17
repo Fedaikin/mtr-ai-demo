@@ -1,4 +1,5 @@
 "use client";
+import { InfoHint } from "@/components/info-hint";
 
 import { useState, type FormEvent } from "react";
 
@@ -47,9 +48,9 @@ export function ManualResponsibilityReview({
 
   return (
     <section className="rounded-md border border-amber-200 bg-amber-50 p-4">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-amber-900">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-amber-900" aria-label="Решение эксперта">
         Решение эксперта
-      </h3>
+      <InfoHint title="Решение эксперта" /></h3>
       <p className="mt-2 text-xs leading-5 text-amber-900/80">
         Изменение сохраняется как новая версия результата. Исходный вывод и причина остаются в аудите.
       </p>

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { InfoHint } from "@/components/info-hint";
 import type { Metadata } from "next";
 
 import { getRepository } from "@/adapters/persistence/repository";
@@ -135,7 +136,7 @@ export default async function MtrAnalysisPage() {
       </div>
       <section id="responsibility" className="scroll-mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 p-4">
-          <h2 className="font-semibold">Ответственность по позициям</h2>
+          <h2 className="font-semibold" aria-label="Ответственность по позициям">Ответственность по позициям<InfoHint title="Ответственность по позициям" /></h2>
           <p className="mt-1 text-sm text-slate-500">Источник, версия правила и объяснение доступны для каждой строки; ручные изменения сохраняются в полном отчете.</p>
         </div>
         <div className="data-table-scroll overflow-x-auto">
@@ -167,7 +168,7 @@ export default async function MtrAnalysisPage() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase text-teal-700">Полный отчет</p>
-            <h2 className="mt-1 text-lg font-semibold">Консолидированный результат анализа</h2>
+            <h2 className="mt-1 text-lg font-semibold" aria-label="Консолидированный результат анализа">Консолидированный результат анализа<InfoHint title="Консолидированный результат анализа" /></h2>
             <p className="mt-1 max-w-3xl text-sm text-slate-500">Все позиции, совпадения, складские остатки, ответственность, объяснения, источники и решения эксперта доступны в полном отчете.</p>
           </div>
           <Link href={`/reports/${latest.id}`} className="focus-ring rounded-md bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-800">Открыть полный отчет</Link>
@@ -197,7 +198,7 @@ function SectionLink({ href, number, title, description }: { href: string; numbe
 }
 
 function Metric({ label, value, detail, warning = false }: { label: string; value: string; detail: string; warning?: boolean }) {
-  return <div className={`rounded-xl border p-5 shadow-sm ${warning ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-white"}`}><p className="text-xs uppercase text-slate-500">{label}</p><p className="mt-2 text-2xl font-semibold">{value}</p><p className="mt-1 text-xs text-slate-500">Объём: {detail}</p></div>;
+  return <div className={`rounded-xl border p-5 shadow-sm ${warning ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-white"}`}><p className="text-xs uppercase text-slate-500">{label}<InfoHint title={label} /></p><p className="mt-2 text-2xl font-semibold">{value}</p><p className="mt-1 text-xs text-slate-500">Объём: {detail}</p></div>;
 }
 
 function ReportFact({ label, value }: { label: string; value: string }) {
