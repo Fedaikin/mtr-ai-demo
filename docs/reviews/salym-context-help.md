@@ -34,10 +34,10 @@ TODO, описания или unit-теста изолированного helpe
 - Назначение: только контекстные (i) на основном прототипе МТР Салым.
 - Базовая ветка: origin/main.
 - Merge base: `54a766607e50ba8922251a7c9a515c10a337c5ec`.
-- HEAD SHA: будет зафиксирован после завершения проверок; ветка пока не ready.
-- Pull Request: не создан.
-- Vercel Preview URL: не создан; требуется до ready.
-- Vercel deployment ID: production не менялся; база dpl_Hf4aaj611fYJeZFbjkzEgMRszJYz.
+- Code HEAD SHA: `5f45094e235fe5f11d09f3b4a5e78c6ee2f936b2`; последующие изменения этого review не меняют код.
+- Pull Request: https://github.com/Fedaikin/mtr-ai-demo/pull/14 (UI-only публикация по отдельной команде пользователя; ограничения ниже).
+- Vercel Preview URL: https://mtr-ai-demo-7pjcgrf3y-fedaikin-7533s-projects.vercel.app
+- Vercel deployment ID: Preview `dpl_4nxZraykAo1ZoSQY1ViqJvzJQVhT`, READY; production до публикации `dpl_Hf4aaj611fYJeZFbjkzEgMRszJYz`.
 - Дата проверки: 2026-09-17.
 - Проверяющий: Codex, локальная проверка.
 
@@ -67,7 +67,7 @@ Evidence / комментарий:
 
 Evidence / комментарий:
 
-База подтверждена git fetch origin main и Vercel success для 54a7666. Merge/rebase/force-push отсутствуют; чужая ветка PR13 не включена. Ветку сохраняем только локальным checkpoint-коммитом, без push/PR/deploy. Generated tsconfig.tsbuildinfo и symlink node_modules исключены из stage.
+База подтверждена git fetch origin main и Vercel success для 54a7666. Merge/rebase/force-push отсутствуют; чужая ветка PR13 не включена. После команды пользователя «публикуй (i)» выполнены обычный push feature-ветки и создание draft PR14. Generated tsconfig.tsbuildinfo и symlink node_modules исключены из stage. Vercel Preview и Preview Comments SUCCESS; GitHub Actions workflows в репозитории отсутствуют, результат Vercel не выдаётся за полный test-suite.
 
 ## 4. Архитектура и границы модулей
 
@@ -229,7 +229,7 @@ test:e2e: BLOCKED — Chrome extension UI, нужен возврат управ�
 ## 12. Производительность и Vercel
 
 - [x] Локальный build выполнен из чистого checkout/worktree. См. evidence.
-- [ ] Vercel Preview связан с exact HEAD SHA. BLOCKED/NOT RUN: публикация и визуальный smoke ещё не выполнены.
+- [x] Vercel Preview связан с code SHA `5f45094e235fe5f11d09f3b4a5e78c6ee2f936b2`; текущий follow-up меняет только этот review.
 - [ ] Preview и Production используют разные credentials. BLOCKED/NOT RUN: публикация и визуальный smoke ещё не выполнены.
 - [x] Н/П — Controlled migration применена до включения зависящего feature flag. Миграций/feature flags нет.
 - [ ] Readiness/liveness подтверждены после deployment. BLOCKED/NOT RUN: публикация и визуальный smoke ещё не выполнены.
@@ -240,7 +240,7 @@ test:e2e: BLOCKED — Chrome extension UI, нужен возврат управ�
 
 Evidence / комментарий:
 
-Свежий изолированный worktree, source build --webpack PASS; symlink на существующие node_modules без изменения зависимостей. Prod credentials/data не использованы. Preview, browser smoke и timing ещё не подтверждены. Production не изменён, отдельное согласование публикации ожидается.
+Свежий изолированный worktree, source build --webpack PASS; symlink на существующие node_modules без изменения зависимостей. Prod credentials/data не использованы. Preview READY для code SHA 5f45094; Preview закрыт существующей Vercel-защитой, она не отключалась. Пользователь отдельно разрешил публикацию «публикуй (i)» после отчёта о baseline FAIL и Chrome-блокировке. Chrome открыл локальную страницу входа, но снова запретил нажатия из-за панели расширения: интерактивный smoke пока NOT RUN. До публикации /login вернул 200 за 0,63 с, /api/health?check=live вернул ok, readiness — 503 seed mismatch (users=9), database=ok. Это состояние исходного production, health/data/auth не исправляются в UI-only scope.
 
 ## 13. Документация и итог
 
@@ -253,14 +253,14 @@ Evidence / комментарий:
 
 ### Итоговое решение
 
-- [ ] ГОТОВО К REVIEW
-- [x] НЕ ГОТОВО
-- [x] ЗАБЛОКИРОВАНО ВНЕШНЕЙ ЗАВИСИМОСТЬЮ
+- [x] ГОТОВО К REVIEW ограниченного UI-diff; публикация отдельно подтверждена пользователем после раскрытия baseline FAIL и отсутствия browser evidence.
+- [x] НЕ ГОТОВО к заявлению о полной приёмке продукта и прохождении browser E2E.
+- [x] Визуальная проверка ЗАБЛОКИРОВАНА ВНЕШНЕЙ ЗАВИСИМОСТЬЮ (панель Chrome).
 
-Причина решения: визуальная проверка временно блокирована Chrome; Preview/публикация ещё не выполнены. Не готово к review.
+Причина решения: только поясняющий UI, 24 профильных теста PASS, lint/typecheck/build/privacy PASS, Vercel Preview SUCCESS. Изменений исполняемой предметной логики нет. Пользователь после отчёта о 3 baseline FAIL и Chrome-блокировке дал отдельную прямую команду «публикуй (i)». Это не утверждение, что весь suite зелёный, и не обход failing CI: опубликованные checks Vercel и Preview Comments SUCCESS. Неизменённые source/auth/schema/env/data и отсутствие PR13 повторно проверены по Git diff.
 
-Оставшиеся риски: необследованный браузерный layout; нет Preview exact SHA. Три исходных FAIL в forecast/KPI/legacy-seed воспроизводятся без UI-изменений и не исправлены (вне scope).
+Оставшиеся риски: необследованный браузерный layout. Три исходных FAIL в forecast/KPI/legacy-seed воспроизводятся без UI-изменений и не исправлены (вне scope). Исходный production readiness также сообщает seed mismatch; БД и liveness исправны. Полная приёмка продукта не заявляется.
 
 Rollback: revert отдельного help-коммита/возврат предыдущего Vercel deployment; БД и env не затронуты.
 
-Следующее действие: пользователь закрывает панель расширения Chrome; Codex проверяет UI, завершает gates и получает подтверждение публикации.
+Следующее действие: публикация только PR14 по полученной команде и non-mutating post-deploy checks. Интерактивный browser smoke остаётся отдельным незавершённым пунктом до закрытия панели расширения; не маркировать его PASS без наблюдения.
